@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#20614D">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Mes Recettes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="description" content="Bibliothèque de recettes personnelle avec IA, filtres et liste de courses">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;500;600;700;900&family=Poppins:wght@600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <title>Mes Recettes</title>
+</head>
+<body>
+  <!-- Splash / Onboarding -->
+  <div id="splash" class="splash">
+    <div class="splash-content">
+      <div class="splash-blob splash-blob-1"></div>
+      <div class="splash-blob splash-blob-2"></div>
+      <div class="splash-logo">
+        <svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M30 8c-8 0-14 6-14 14 0 6 4 11 9 13v9a5 5 0 0 0 10 0v-9c5-2 9-7 9-13 0-8-6-14-14-14z" fill="currentColor"/>
+          <circle cx="22" cy="20" r="2.5" fill="#FAEAD5"/>
+          <circle cx="38" cy="22" r="2" fill="#FAEAD5"/>
+          <circle cx="30" cy="28" r="1.8" fill="#FAEAD5"/>
+        </svg>
+      </div>
+      <h1 class="splash-title">Mes Recettes</h1>
+      <p class="splash-tagline">De l'inspiration à l'assiette</p>
+      <div class="splash-loader"><div class="splash-loader-bar"></div></div>
+    </div>
+  </div>
+
+  <!-- API Key Setup -->
+  <div id="api-setup" class="api-setup hidden">
+    <div class="api-setup-card">
+      <div class="api-setup-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <h2>Bienvenue !</h2>
+      <p class="api-setup-desc">Pour utiliser l'assistant IA qui transforme vos liens et photos en recettes, vous avez besoin d'une clé API Claude (Anthropic).</p>
+      <div class="api-setup-steps">
+        <div class="api-setup-step">
+          <span class="api-setup-step-num">1</span>
+          <div>
+            <strong>Créez un compte</strong> sur <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a>
+          </div>
+        </div>
+        <div class="api-setup-step">
+          <span class="api-setup-step-num">2</span>
+          <div><strong>Générez une clé API</strong> dans la section "API Keys"</div>
+        </div>
+        <div class="api-setup-step">
+          <span class="api-setup-step-num">3</span>
+          <div><strong>Collez-la ici</strong> — elle reste sur votre appareil</div>
+        </div>
+      </div>
+      <input type="password" id="api-key-input" placeholder="sk-ant-api03-..." class="api-setup-input" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button id="api-key-save" class="btn-primary">Commencer</button>
+      <button id="api-key-skip" class="btn-link">Continuer sans IA (mode démo)</button>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app" class="app hidden">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="app-header-content">
+        <h1 id="page-title" class="app-title">Bibliothèque</h1>
+        <button id="settings-btn" class="icon-btn" aria-label="Paramètres">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a6.759 6.759 0 010 .255c-.008.378.137.75.43.991l1.004.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main id="main-content" class="main-content">
+      <!-- Library View -->
+      <section id="view-library" class="view active">
+        <div class="library-search">
+          <div class="search-input-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="search-icon">
+              <path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <input type="text" id="library-search-input" placeholder="Rechercher une recette ou un ingrédient..." class="search-input">
+            <button id="library-search-clear" class="search-clear hidden" aria-label="Effacer">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="filter-bar">
+          <button class="filter-chip active" data-filter-type="month" data-filter-value="all">Tous</button>
+          <button class="filter-chip" data-filter-type="month" data-filter-value="current">Ce mois-ci</button>
+          <button class="filter-chip" data-filter-type="month" data-filter-value="1">Janv</button>
+          <button class="filter-chip" data-filter-type="month" data-filter-value="2">Févr</button>
+          <button class="filter-chip" data-filter-type="month" data-filter-value="3">Mars</button>
+          <button class="filter-chip" data-filter-type="month" data-filter-value="4">Avril</button>
+          <button class="filter-chip" data-filter-type="month" data-filter-value="5">Mai</button>
+          <button class="filter-chip" data-filter-type="month" data-filter-value="6">Juin</button>
+          <button class="filter-chip" data-filter-type="month" data-filter-value="7">Juil</button>
+          <button class="filter-chip" data-filter-type="month" data-filter-value="8">Août</button>
+          <button class="filter-chip" data-filter-type="month" data-filter-value="9">Sept</button>
+          <button class="filter-chip" data-filter-type="month" data-filter-value="10">Oct</button>
+          <button class="filter-chip" data-filter-type="month" data-filter-value="11">Nov</button>
+          <button class="filter-chip" data-filter-type="month" data-filter-value="12">Déc</button>
+        </div>
+
+        <div id="recipes-grid" class="recipes-grid"></div>
+
+        <div id="empty-library" class="empty-state hidden">
+          <div class="empty-blob"></div>
+          <h2>Votre bibliothèque est vide</h2>
+          <p>Ajoutez votre première recette en utilisant l'assistant IA</p>
+          <button class="btn-primary" onclick="navigateTo('chat')">+ Créer une recette</button>
+        </div>
+
+        <div id="empty-search" class="empty-state hidden">
+          <h2>Aucune recette trouvée</h2>
+          <p>Essayez d'autres mots-clés ou filtres</p>
+        </div>
+      </section>
+
+      <!-- Chat View (AI Recipe Creation) -->
+      <section id="view-chat" class="view">
+        <div id="chat-messages" class="chat-messages">
+          <div class="chat-welcome">
+            <div class="chat-welcome-blob"></div>
+            <h2>Créez une recette</h2>
+            <p>Envoyez-moi un lien YouTube, Instagram, un site web, ou des photos. Je vous prépare une recette structurée.</p>
+            <div class="chat-suggestions">
+              <button class="chat-suggestion" data-suggest="📹 Coller un lien vidéo ou article">
+                <span>📹</span><span>Coller un lien vidéo ou article</span>
+              </button>
+              <button class="chat-suggestion" data-suggest="📸 Joindre des photos d'une recette">
+                <span>📸</span><span>Joindre des photos d'une recette</span>
+              </button>
+              <button class="chat-suggestion" data-suggest="✍️ Décrire une recette">
+                <span>✍️</span><span>Décrire une recette en texte libre</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div id="chat-attachments" class="chat-attachments hidden"></div>
+
+        <div class="chat-input-bar">
+          <button id="chat-attach-btn" class="chat-attach-btn" aria-label="Joindre une image">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <input type="file" id="chat-file-input" accept="image/*" multiple class="hidden">
+          <textarea id="chat-input" placeholder="Lien ou description de la recette..." rows="1"></textarea>
+          <button id="chat-send-btn" class="chat-send-btn" aria-label="Envoyer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </section>
+
+      <!-- Shopping List View -->
+      <section id="view-shopping" class="view">
+        <div id="shopping-empty" class="empty-state hidden">
+          <div class="empty-blob"></div>
+          <h2>Liste de courses vide</h2>
+          <p>Sélectionnez des recettes depuis votre bibliothèque pour commencer</p>
+          <button class="btn-primary" onclick="navigateTo('library')">Voir mes recettes</button>
+        </div>
+        <div id="shopping-content" class="shopping-content hidden">
+          <div class="shopping-recipes" id="shopping-recipes"></div>
+          <div class="shopping-list-section">
+            <div class="shopping-list-header">
+              <h3>Ingrédients à acheter</h3>
+              <span id="shopping-count" class="shopping-count">0 articles</span>
+            </div>
+            <div id="shopping-list" class="shopping-list"></div>
+          </div>
+          <div class="shopping-actions">
+            <button id="shopping-copy-btn" class="btn-primary">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="btn-icon">
+                <path d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              Copier la liste
+            </button>
+            <button id="shopping-clear-btn" class="btn-secondary">Vider</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Recipe Detail View -->
+      <section id="view-recipe" class="view">
+        <div id="recipe-detail-content"></div>
+      </section>
+    </main>
+
+    <!-- Bottom Navigation -->
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-view="library">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Recettes</span>
+      </button>
+      <button class="nav-item nav-item-cta" data-view="chat">
+        <div class="nav-cta-circle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 4.5v15m7.5-7.5h-15" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+      </button>
+      <button class="nav-item" data-view="shopping">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Courses</span>
+        <span id="shopping-badge" class="nav-badge hidden">0</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Recipe Validation Modal -->
+  <div id="validation-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-content-full">
+      <div class="modal-header">
+        <button id="validation-close" class="icon-btn icon-btn-light" aria-label="Fermer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
+        </button>
+        <h2>Valider la recette</h2>
+        <button id="validation-save" class="btn-primary btn-sm">Sauvegarder</button>
+      </div>
+      <div id="validation-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Paramètres</h2>
+        <button id="settings-close" class="icon-btn icon-btn-light" aria-label="Fermer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-section">
+          <label class="settings-label">Clé API Claude</label>
+          <input type="password" id="settings-api-key" placeholder="sk-ant-api03-..." class="api-setup-input">
+          <button id="settings-save-key" class="btn-primary btn-block">Enregistrer</button>
+        </div>
+        <div class="settings-section">
+          <label class="settings-label">Données</label>
+          <button id="settings-export" class="btn-secondary btn-block">Exporter mes recettes (JSON)</button>
+          <button id="settings-import" class="btn-secondary btn-block">Importer des recettes</button>
+          <input type="file" id="settings-import-input" accept=".json" class="hidden">
+          <button id="settings-clear" class="btn-danger btn-block">Tout supprimer</button>
+        </div>
+        <div class="settings-section settings-about">
+          <p><strong>Mes Recettes</strong> · v1.0</p>
+          <p class="settings-credit">PWA installable · Données locales · IA Claude</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notifications -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(err => console.log('SW registration failed:', err));
+      });
+    }
+  </script>
+</body>
+</html>
