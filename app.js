@@ -6,7 +6,12 @@ const STORAGE_KEYS = {
   recipes: 'mr_recipes',
   apiKey: 'mr_api_key',
   shopping: 'mr_shopping',
-  onboarded: 'mr_onboarded'
+  onboarded: 'mr_onboarded',
+  syncUrl: 'mr_sync_url',
+  syncKey: 'mr_sync_key',
+  syncFoyer: 'mr_sync_foyer',
+  syncEnabled: 'mr_sync_enabled',
+  lastSync: 'mr_last_sync'
 };
 
 const state = {
@@ -20,7 +25,16 @@ const state = {
   monthFilter: 'all',
   chatHistory: [],
   chatAttachments: [], // base64 images
-  pendingRecipe: null
+  pendingRecipe: null,
+  // Sync
+  sync: {
+    url: '',
+    key: '',
+    foyer: '',
+    enabled: false,
+    status: 'idle', // idle | syncing | synced | error | offline
+    lastSync: 0
+  }
 };
 
 // ============================================
@@ -34,6 +48,12 @@ function loadState() {
     const shopping = localStorage.getItem(STORAGE_KEYS.shopping);
     state.shopping = shopping ? JSON.parse(shopping) : [];
     state.apiKey = localStorage.getItem(STORAGE_KEYS.apiKey) || '';
+    // Sync config
+    state.sync.url = localStorage.getItem(STORAGE_KEYS.syncUrl) || '';
+    state.sync.key = localStorage.getItem(STORAGE_KEYS.syncKey) || '';
+    state.sync.foyer = localStorage.getItem(STORAGE_KEYS.syncFoyer) || '';
+    state.sync.enabled = localStorage.getItem(STORAGE_KEYS.syncEnabled) === '1';
+    state.sync.lastSync = Number(localStorage.getItem(STORAGE_KEYS.lastSync)) || 0;
   } catch (e) {
     console.error('Load state error:', e);
   }
@@ -55,6 +75,244 @@ function saveApiKey(key) {
     localStorage.removeItem(STORAGE_KEYS.apiKey);
   }
 }
+
+function saveSyncConfig(config) {
+  state.sync.url = config.url || '';
+  state.sync.key = config.key || '';
+  state.sync.foyer = config.foyer || '';
+  state.sync.enabled = !!(config.url && config.key && config.foyer);
+
+  if (state.sync.url) localStorage.setItem(STORAGE_KEYS.syncUrl, state.sync.url);
+  else localStorage.removeItem(STORAGE_KEYS.syncUrl);
+  if (state.sync.key) localStorage.setItem(STORAGE_KEYS.syncKey, state.sync.key);
+  else localStorage.removeItem(STORAGE_KEYS.syncKey);
+  if (state.sync.foyer) localStorage.setItem(STORAGE_KEYS.syncFoyer, state.sync.foyer);
+  else localStorage.removeItem(STORAGE_KEYS.syncFoyer);
+  localStorage.setItem(STORAGE_KEYS.syncEnabled, state.sync.enabled ? '1' : '0');
+}
+
+// ============================================
+// SYNC SUPABASE
+// ============================================
+//
+// Architecture:
+// - Une table "recipes" avec colonnes: id, foyer, data (JSONB), updated_at, deleted_at
+// - Chaque recette est un row, lié au foyer
+// - Sync = pull tous les rows du foyer + merge local (last-write-wins par updated_at)
+// - Push = upsert chaque recette modifiée en local
+//
+// La clé "anon" Supabase n'a accès qu'aux foyers via Row-Level Security (configurée dans Supabase)
+//
+
+const SYNC_TABLE = 'recipes';
+
+function setSyncStatus(status) {
+  state.sync.status = status;
+  updateSyncIndicator();
+}
+
+function updateSyncIndicator() {
+  const indicator = document.getElementById('sync-indicator');
+  if (!indicator) return;
+
+  if (!state.sync.enabled) {
+    indicator.classList.add('hidden');
+    return;
+  }
+
+  indicator.classList.remove('hidden');
+  indicator.className = 'sync-indicator sync-' + state.sync.status;
+
+  const messages = {
+    idle: '',
+    syncing: 'Synchronisation…',
+    synced: 'Synchronisé ✓',
+    error: 'Erreur de sync',
+    offline: 'Hors ligne'
+  };
+  indicator.title = messages[state.sync.status] || '';
+}
+
+async function supabaseRequest(method, path, body, extraHeaders) {
+  if (!state.sync.url || !state.sync.key) throw new Error('Sync non configurée');
+
+  const url = state.sync.url.replace(/\/$/, '') + '/rest/v1/' + path;
+  const headers = {
+    'apikey': state.sync.key,
+    'Authorization': 'Bearer ' + state.sync.key,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation',
+    ...(extraHeaders || {})
+  };
+
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error('Supabase error:', response.status, errText);
+    throw new Error('Sync error ' + response.status);
+  }
+
+  if (response.status === 204) return null;
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function syncPull() {
+  // Récupère toutes les recettes du foyer
+  const path = `${SYNC_TABLE}?foyer=eq.${encodeURIComponent(state.sync.foyer)}&select=*`;
+  const remote = await supabaseRequest('GET', path);
+  return remote;
+}
+
+async function syncPush(recipe, isDelete) {
+  // Upsert d'une recette
+  const row = {
+    id: recipe.id,
+    foyer: state.sync.foyer,
+    data: isDelete ? null : recipe,
+    deleted_at: isDelete ? new Date().toISOString() : null,
+    updated_at: new Date().toISOString()
+  };
+
+  await supabaseRequest('POST', SYNC_TABLE, [row], {
+    'Prefer': 'resolution=merge-duplicates,return=minimal'
+  });
+}
+
+async function performSync(silent) {
+  if (!state.sync.enabled) return;
+  if (!navigator.onLine) {
+    setSyncStatus('offline');
+    return;
+  }
+
+  setSyncStatus('syncing');
+
+  try {
+    // 1. Pull remote
+    const remote = await syncPull();
+
+    // 2. Merge: pour chaque recette remote, si plus récente que locale OU pas locale -> remplace
+    //    Pour chaque recette locale qui n'est pas remote -> push
+    const remoteById = {};
+    for (const row of remote || []) {
+      remoteById[row.id] = row;
+    }
+
+    const localById = {};
+    for (const r of state.recipes) {
+      localById[r.id] = r;
+    }
+
+    // Recettes remote -> local
+    for (const id in remoteById) {
+      const row = remoteById[id];
+      const local = localById[id];
+      const remoteUpdatedAt = new Date(row.updated_at).getTime();
+
+      if (row.deleted_at) {
+        // Recette supprimée distante : on la retire localement
+        if (local) {
+          state.recipes = state.recipes.filter(r => r.id !== id);
+          state.shopping = state.shopping.filter(s => s.recipeId !== id);
+        }
+        continue;
+      }
+
+      const remoteRecipe = row.data;
+      if (!local) {
+        // Nouvelle recette distante
+        state.recipes.push(remoteRecipe);
+      } else {
+        // Si remote plus récente que local
+        const localUpdatedAt = local.updatedAt || local.createdAt || 0;
+        if (remoteUpdatedAt > localUpdatedAt) {
+          // Remplace
+          state.recipes = state.recipes.map(r => r.id === id ? remoteRecipe : r);
+        }
+      }
+    }
+
+    // Recettes locales pas dans remote -> push
+    const toPush = [];
+    for (const r of state.recipes) {
+      if (!remoteById[r.id]) {
+        toPush.push(r);
+      }
+    }
+
+    if (toPush.length > 0) {
+      const rows = toPush.map(r => ({
+        id: r.id,
+        foyer: state.sync.foyer,
+        data: r,
+        deleted_at: null,
+        updated_at: new Date(r.updatedAt || r.createdAt || Date.now()).toISOString()
+      }));
+      await supabaseRequest('POST', SYNC_TABLE, rows, {
+        'Prefer': 'resolution=merge-duplicates,return=minimal'
+      });
+    }
+
+    // Save local
+    saveRecipes();
+    saveShopping();
+    state.sync.lastSync = Date.now();
+    localStorage.setItem(STORAGE_KEYS.lastSync, String(state.sync.lastSync));
+
+    setSyncStatus('synced');
+    if (!silent) {
+      const msg = toPush.length > 0
+        ? `Synchronisé ✓ (${toPush.length} envoyée${toPush.length > 1 ? 's' : ''})`
+        : 'Synchronisé ✓';
+      showToast(msg, 'success');
+    }
+
+    // Re-render current view
+    if (state.currentView === 'library') renderLibrary();
+    if (state.currentView === 'shopping') renderShopping();
+    updateShoppingBadge();
+
+    // Auto-clear status after 3s
+    setTimeout(() => {
+      if (state.sync.status === 'synced') setSyncStatus('idle');
+    }, 3000);
+  } catch (e) {
+    console.error('Sync error:', e);
+    setSyncStatus('error');
+    if (!silent) showToast('Erreur de synchronisation', 'error');
+  }
+}
+
+async function syncRecipeAfterChange(recipe, isDelete) {
+  if (!state.sync.enabled || !navigator.onLine) return;
+  try {
+    setSyncStatus('syncing');
+    await syncPush(recipe, isDelete);
+    state.sync.lastSync = Date.now();
+    localStorage.setItem(STORAGE_KEYS.lastSync, String(state.sync.lastSync));
+    setSyncStatus('synced');
+    setTimeout(() => {
+      if (state.sync.status === 'synced') setSyncStatus('idle');
+    }, 2000);
+  } catch (e) {
+    console.error('Sync push error:', e);
+    setSyncStatus('error');
+  }
+}
+
+// Online/offline detection
+window.addEventListener('online', () => {
+  if (state.sync.enabled) performSync(true);
+});
+window.addEventListener('offline', () => {
+  if (state.sync.enabled) setSyncStatus('offline');
+});
 
 // ============================================
 // UTILITIES
@@ -415,10 +673,15 @@ function renderStepsList(steps, ingredients, ratio) {
 
 function confirmDeleteRecipe(id) {
   if (!confirm('Supprimer cette recette ?')) return;
+  const deletedRecipe = state.recipes.find(r => r.id === id);
   state.recipes = state.recipes.filter(r => r.id !== id);
   state.shopping = state.shopping.filter(s => s.recipeId !== id);
   saveRecipes();
   saveShopping();
+  // Sync delete
+  if (state.sync.enabled && deletedRecipe) {
+    syncRecipeAfterChange(deletedRecipe, true);
+  }
   showToast('Recette supprimée');
   navigateTo('library');
   updateShoppingBadge();
@@ -1210,13 +1473,19 @@ function saveValidatedRecipe() {
     ingredients,
     steps,
     months,
-    createdAt: state.pendingRecipe?.createdAt || Date.now()
+    createdAt: state.pendingRecipe?.createdAt || Date.now(),
+    updatedAt: Date.now()
   };
 
   state.recipes.push(recipe);
   saveRecipes();
   closeValidationModal();
   showToast('Recette sauvegardée ✓', 'success');
+
+  // Sync push
+  if (state.sync.enabled) {
+    syncRecipeAfterChange(recipe, false);
+  }
 
   // Reset chat
   state.chatHistory = [];
@@ -1247,6 +1516,9 @@ function closeValidationModal() {
 
 function showSettings() {
   document.getElementById('settings-api-key').value = state.apiKey || '';
+  document.getElementById('settings-sync-url').value = state.sync.url || '';
+  document.getElementById('settings-sync-key').value = state.sync.key || '';
+  document.getElementById('settings-sync-foyer').value = state.sync.foyer || '';
   document.getElementById('settings-modal').classList.remove('hidden');
 }
 
@@ -1410,6 +1682,56 @@ function bindEvents() {
     showToast(k ? 'Clé API enregistrée' : 'Clé API supprimée', 'success');
     hideSettings();
   });
+
+  // Sync
+  document.getElementById('settings-save-sync').addEventListener('click', async () => {
+    let url = document.getElementById('settings-sync-url').value.trim();
+    const key = document.getElementById('settings-sync-key').value.trim();
+    const foyer = document.getElementById('settings-sync-foyer').value.trim();
+
+    if (!url || !key || !foyer) {
+      showToast('Tous les champs sync sont requis', 'error');
+      return;
+    }
+    // Nettoyer l'URL : retirer trailing slashes, /rest/v1, /rest, etc.
+    url = url.replace(/\/+$/, ''); // trailing slash
+    url = url.replace(/\/rest\/v1$/, ''); // /rest/v1
+    url = url.replace(/\/rest$/, ''); // /rest
+    url = url.replace(/\/+$/, ''); // au cas où il en reste
+
+    if (!/^https:\/\/[a-z0-9-]+\.supabase\.(co|com)$/i.test(url)) {
+      showToast('URL Supabase invalide (attendu: https://xxxxx.supabase.co)', 'error');
+      return;
+    }
+    if (foyer.length < 4) {
+      showToast('Code foyer trop court (min 4 caractères)', 'error');
+      return;
+    }
+
+    saveSyncConfig({ url, key, foyer });
+    hideSettings();
+    showToast('Sync activée — synchronisation en cours…', 'success');
+    updateSyncIndicator();
+    await performSync(false);
+  });
+
+  document.getElementById('settings-sync-now').addEventListener('click', async () => {
+    if (!state.sync.enabled) {
+      showToast('Configurez d\'abord la sync', 'error');
+      return;
+    }
+    hideSettings();
+    await performSync(false);
+  });
+
+  document.getElementById('settings-sync-disable').addEventListener('click', () => {
+    if (!confirm('Désactiver la synchronisation ? Vos recettes locales restent intactes.')) return;
+    saveSyncConfig({ url: '', key: '', foyer: '' });
+    state.sync.status = 'idle';
+    updateSyncIndicator();
+    hideSettings();
+    showToast('Synchronisation désactivée');
+  });
   document.getElementById('settings-export').addEventListener('click', exportData);
   document.getElementById('settings-import').addEventListener('click', () => {
     document.getElementById('settings-import-input').click();
@@ -1502,6 +1824,12 @@ function init() {
         document.getElementById('api-setup').classList.remove('hidden');
       } else {
         document.getElementById('app').classList.remove('hidden');
+        // Lancer la sync automatique au démarrage si configurée
+        if (state.sync.enabled) {
+          updateSyncIndicator();
+          // Petit délai pour laisser l'UI s'afficher
+          setTimeout(() => performSync(true), 600);
+        }
       }
     }, 400);
   }, 1200);

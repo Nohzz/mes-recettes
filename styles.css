@@ -437,6 +437,61 @@ a {
 
 .icon-btn-light { color: var(--bg-gray-600); }
 
+/* Sync indicator */
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sync-indicator {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  color: var(--bg-gray-400);
+  flex-shrink: 0;
+}
+
+.sync-indicator > * { display: none; }
+.sync-indicator .sync-icon-default { width: 18px; height: 18px; }
+
+.sync-indicator.sync-idle .sync-icon-default { display: block; color: var(--bg-gray-400); }
+.sync-indicator.sync-synced { color: var(--bg-green-800); }
+.sync-indicator.sync-synced .sync-icon-check { display: block; width: 20px; height: 20px; animation: syncCheckPop 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+.sync-indicator.sync-error { color: var(--bg-pop-red); }
+.sync-indicator.sync-error .sync-icon-error { display: block; width: 20px; height: 20px; }
+.sync-indicator.sync-offline .sync-icon-default { display: block; opacity: 0.4; }
+.sync-indicator.sync-syncing .sync-spinner {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--bg-gray-200);
+  border-top-color: var(--bg-green-800);
+  border-radius: 50%;
+  animation: syncSpin 0.8s linear infinite;
+}
+
+@keyframes syncSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes syncCheckPop {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+.settings-desc {
+  font-size: 12px;
+  color: var(--bg-gray-600);
+  margin: 0 0 12px 0;
+  line-height: 1.4;
+}
+
 /* ============================================
    APP LAYOUT
    ============================================ */

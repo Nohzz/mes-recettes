@@ -10,8 +10,9 @@ Respecte la charte graphique **Greenweez** (vert institutionnel `#20614D`, accen
 - 📚 **Bibliothèque** — Recherche par nom de recette ou ingrédient, filtres par mois (saisonnalité auto-détectée), tag "ce mois-ci".
 - 🛒 **Liste de courses** — Sélectionnez des recettes (avec portions ajustables), génère une liste agrégée par catégorie de produit (Fruits & Légumes, Frais & Crèmerie, etc.), copiable en un clic.
 - ⚙️ **Réglage des portions** — Sur chaque recette, ajustez les portions et les quantités s'adaptent automatiquement.
+- 🔄 **Synchronisation multi-appareils** — Partagez vos recettes entre Android et iOS via Supabase (gratuit). Voir [SYNC-GUIDE.md](./SYNC-GUIDE.md).
 - 📱 **Installable** — Sur Android (Chrome/Edge) ou iOS (Safari), s'installe comme une vraie app.
-- 🔒 **100% local** — Vos recettes restent dans le navigateur (localStorage). La clé API Claude est stockée sur votre appareil.
+- 🔒 **Données privées** — Recettes stockées localement par défaut. Si sync activée, hébergées sur votre compte Supabase personnel.
 - 📤 **Export/Import** — Sauvegardez vos recettes en JSON, restaurez-les sur un autre appareil.
 
 ## 📁 Structure du projet
