@@ -119,60 +119,25 @@
           </div>
         </div>
 
-        <!-- Recherche par ingrédients (chips additifs) -->
-        <div class="ingredients-filter-bar">
-          <div id="ingredients-filter-chips" class="ingredients-filter-chips"></div>
-          <button id="add-ingredient-filter" class="ingredient-filter-add">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4.5v15m7.5-7.5h-15" stroke-linecap="round"/></svg>
-            <span>Filtrer par ingrédients</span>
+        <!-- Filtres principaux toujours visibles -->
+        <div class="library-toolbar">
+          <button id="filter-fav" class="quick-filter">⭐ Favoris</button>
+          <select id="filter-sort" class="quick-filter-select" aria-label="Tri">
+            <option value="recent">↕ Récentes</option>
+            <option value="name">↕ Nom A-Z</option>
+            <option value="cooked">↕ Cuisson</option>
+          </select>
+          <button id="open-filters-btn" class="quick-filter quick-filter-cta" aria-label="Plus de filtres">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="filter-icon">
+              <path d="M3 6h18M6 12h12M10 18h4" stroke-linecap="round"/>
+            </svg>
+            <span>Filtres</span>
+            <span id="filters-active-badge" class="filters-active-badge hidden"></span>
           </button>
         </div>
 
-        <!-- Boutons rapides : favoris / sort / cooked -->
-        <div class="library-quick-filters">
-          <button id="filter-fav" class="quick-filter">⭐ Favoris</button>
-          <select id="filter-cooked" class="quick-filter-select">
-            <option value="">Toute fréquence</option>
-            <option value="never">Jamais cuisinées</option>
-            <option value="recent">Récemment cuisinées</option>
-            <option value="old">Pas faites depuis 90j</option>
-          </select>
-          <select id="filter-sort" class="quick-filter-select">
-            <option value="recent">Tri : Récentes</option>
-            <option value="name">Tri : Nom A-Z</option>
-            <option value="cooked">Tri : Dernière cuisson</option>
-          </select>
-        </div>
-
-        <!-- Filtre catégorie -->
-        <div class="filter-bar filter-bar-categories">
-          <button class="filter-chip active" data-filter-type="category" data-filter-value="all">Toutes</button>
-          <button class="filter-chip" data-filter-type="category" data-filter-value="apero">🍸 Apéro</button>
-          <button class="filter-chip" data-filter-type="category" data-filter-value="entree">🥗 Entrée</button>
-          <button class="filter-chip" data-filter-type="category" data-filter-value="plat">🍽️ Plat</button>
-          <button class="filter-chip" data-filter-type="category" data-filter-value="dessert">🍰 Dessert</button>
-          <button class="filter-chip" data-filter-type="category" data-filter-value="gouter">🍪 Goûter</button>
-          <button class="filter-chip" data-filter-type="category" data-filter-value="petitdej">🥐 Petit déj</button>
-          <button class="filter-chip" data-filter-type="category" data-filter-value="boisson">🥤 Boisson</button>
-        </div>
-
-        <!-- Filtre mois -->
-        <div class="filter-bar">
-          <button class="filter-chip active" data-filter-type="month" data-filter-value="all">Tous mois</button>
-          <button class="filter-chip" data-filter-type="month" data-filter-value="current">Ce mois-ci</button>
-          <button class="filter-chip" data-filter-type="month" data-filter-value="1">Janv</button>
-          <button class="filter-chip" data-filter-type="month" data-filter-value="2">Févr</button>
-          <button class="filter-chip" data-filter-type="month" data-filter-value="3">Mars</button>
-          <button class="filter-chip" data-filter-type="month" data-filter-value="4">Avril</button>
-          <button class="filter-chip" data-filter-type="month" data-filter-value="5">Mai</button>
-          <button class="filter-chip" data-filter-type="month" data-filter-value="6">Juin</button>
-          <button class="filter-chip" data-filter-type="month" data-filter-value="7">Juil</button>
-          <button class="filter-chip" data-filter-type="month" data-filter-value="8">Août</button>
-          <button class="filter-chip" data-filter-type="month" data-filter-value="9">Sept</button>
-          <button class="filter-chip" data-filter-type="month" data-filter-value="10">Oct</button>
-          <button class="filter-chip" data-filter-type="month" data-filter-value="11">Nov</button>
-          <button class="filter-chip" data-filter-type="month" data-filter-value="12">Déc</button>
-        </div>
+        <!-- Résumé des filtres actifs -->
+        <div id="active-filters-summary" class="active-filters-summary hidden"></div>
 
         <div id="recipes-grid" class="recipes-grid"></div>
 
@@ -234,7 +199,7 @@
               <path d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </button>
-          <textarea id="chat-input" placeholder="Lien ou description de la recette..." rows="1"></textarea>
+          <textarea id="chat-input" placeholder="Coller un lien ou décrire..." rows="1"></textarea>
           <button id="chat-send-btn" class="chat-send-btn" aria-label="Envoyer">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -368,6 +333,81 @@
           <p><strong>Mes Recettes</strong> · v2.0</p>
           <p class="settings-credit" id="settings-build">Build du 01/05/2026 · PWA · IA Claude</p>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filters Drawer -->
+  <div id="filters-drawer" class="filters-drawer hidden">
+    <div class="filters-drawer-backdrop"></div>
+    <div class="filters-drawer-panel">
+      <div class="filters-drawer-header">
+        <h2>Filtres</h2>
+        <button id="filters-drawer-close" class="modal-close" aria-label="Fermer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="filters-drawer-body">
+        <!-- Catégorie -->
+        <div class="filters-drawer-section">
+          <label class="filters-drawer-label">Catégorie</label>
+          <div class="filter-chips-grid">
+            <button class="filter-chip active" data-filter-type="category" data-filter-value="all">Toutes</button>
+            <button class="filter-chip" data-filter-type="category" data-filter-value="apero">🍸 Apéro</button>
+            <button class="filter-chip" data-filter-type="category" data-filter-value="entree">🥗 Entrée</button>
+            <button class="filter-chip" data-filter-type="category" data-filter-value="plat">🍽️ Plat</button>
+            <button class="filter-chip" data-filter-type="category" data-filter-value="dessert">🍰 Dessert</button>
+            <button class="filter-chip" data-filter-type="category" data-filter-value="gouter">🍪 Goûter</button>
+            <button class="filter-chip" data-filter-type="category" data-filter-value="petitdej">🥐 Petit déj</button>
+            <button class="filter-chip" data-filter-type="category" data-filter-value="boisson">🥤 Boisson</button>
+          </div>
+        </div>
+
+        <!-- Saison / Mois -->
+        <div class="filters-drawer-section">
+          <label class="filters-drawer-label">Saison</label>
+          <div class="filter-chips-grid">
+            <button class="filter-chip active" data-filter-type="month" data-filter-value="all">Tous mois</button>
+            <button class="filter-chip" data-filter-type="month" data-filter-value="current">Ce mois-ci</button>
+            <button class="filter-chip" data-filter-type="month" data-filter-value="1">Janv</button>
+            <button class="filter-chip" data-filter-type="month" data-filter-value="2">Févr</button>
+            <button class="filter-chip" data-filter-type="month" data-filter-value="3">Mars</button>
+            <button class="filter-chip" data-filter-type="month" data-filter-value="4">Avril</button>
+            <button class="filter-chip" data-filter-type="month" data-filter-value="5">Mai</button>
+            <button class="filter-chip" data-filter-type="month" data-filter-value="6">Juin</button>
+            <button class="filter-chip" data-filter-type="month" data-filter-value="7">Juil</button>
+            <button class="filter-chip" data-filter-type="month" data-filter-value="8">Août</button>
+            <button class="filter-chip" data-filter-type="month" data-filter-value="9">Sept</button>
+            <button class="filter-chip" data-filter-type="month" data-filter-value="10">Oct</button>
+            <button class="filter-chip" data-filter-type="month" data-filter-value="11">Nov</button>
+            <button class="filter-chip" data-filter-type="month" data-filter-value="12">Déc</button>
+          </div>
+        </div>
+
+        <!-- Ingrédients -->
+        <div class="filters-drawer-section">
+          <label class="filters-drawer-label">Ingrédients (j'ai dans mon frigo...)</label>
+          <div id="ingredients-filter-chips" class="ingredients-filter-chips"></div>
+          <button id="add-ingredient-filter" class="ingredient-filter-add">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4.5v15m7.5-7.5h-15" stroke-linecap="round"/></svg>
+            <span>Ajouter un ingrédient</span>
+          </button>
+        </div>
+
+        <!-- Cuisson -->
+        <div class="filters-drawer-section">
+          <label class="filters-drawer-label">Fréquence de cuisson</label>
+          <select id="filter-cooked" class="filters-drawer-select" aria-label="Filtre cuisson">
+            <option value="">Toute fréquence</option>
+            <option value="never">Jamais cuisinées</option>
+            <option value="recent">Récemment cuisinées</option>
+            <option value="old">Pas faites depuis 90j</option>
+          </select>
+        </div>
+      </div>
+      <div class="filters-drawer-footer">
+        <button id="filters-reset" class="btn-secondary">Réinitialiser</button>
+        <button id="filters-apply" class="btn-primary">Voir les recettes</button>
       </div>
     </div>
   </div>

@@ -472,7 +472,40 @@ function getCurrentMonth() {
 // NAVIGATION
 // ============================================
 
+// ============================================
+// NAVIGATION & HISTORIQUE (back button Android + swipe iOS)
+// ============================================
+// Chaque "écran" (vue, modal, drawer) est poussé dans history.state
+// Sur popstate (retour OS), on agit selon le type d'état
+
+// Indique si la prochaine modif d'historique est une navigation interne (true)
+// ou un retour utilisateur (false)
+let _ignoreNextPop = false;
+
+function _pushState(type, payload) {
+  const entry = { type, payload, at: Date.now() };
+  history.pushState(entry, '');
+}
+
+function _replaceState(type, payload) {
+  const entry = { type, payload, at: Date.now() };
+  history.replaceState(entry, '');
+}
+
 function navigateTo(view, data) {
+  // Si on navigue vers la même vue, ne rien faire
+  if (state.currentView === view && view !== 'recipe') return;
+  // Pousse un nouvel état dans l'historique (sauf pour la première vue racine)
+  if (state.currentView !== view || view === 'recipe') {
+    _pushState('view', { view, recipeId: data?.id });
+  }
+  _renderView(view, data);
+}
+
+window.navigateTo = navigateTo;
+
+// Rendu pur de la vue, sans toucher à l'historique
+function _renderView(view, data) {
   state.currentView = view;
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-' + view).classList.add('active');
@@ -484,15 +517,13 @@ function navigateTo(view, data) {
     library: 'Bibliothèque',
     chat: 'Assistant IA',
     shopping: 'Liste de courses',
-    recipe: '' // Pas de titre dans header, il est déjà dans le hero
+    recipe: ''
   };
   const pageTitle = document.getElementById('page-title');
   pageTitle.textContent = titles[view] || '';
-  // Masquer le header pour la vue recette (le hero fait office de header)
   const header = document.querySelector('.app-header');
   header.style.display = view === 'recipe' ? 'none' : '';
 
-  // Scroll to top
   document.getElementById('main-content').scrollTo({ top: 0, behavior: 'instant' });
 
   if (view === 'library') renderLibrary();
@@ -500,7 +531,74 @@ function navigateTo(view, data) {
   if (view === 'recipe' && data) renderRecipeDetail(data);
 }
 
-window.navigateTo = navigateTo;
+// Gestion du retour OS : ferme les overlays prioritaires, sinon revient à la vue précédente
+function handleBack() {
+  // Priorité 1 : Mode cuisine plein écran
+  if (state.cookingMode && state.cookingMode.active) {
+    _exitCookingModeNoHistory();
+    return true;
+  }
+  // Priorité 2 : Modal de validation/édition de recette
+  const valModal = document.getElementById('validation-modal');
+  if (valModal && !valModal.classList.contains('hidden')) {
+    closeValidationModal(true); // skipHistory
+    return true;
+  }
+  // Priorité 3 : Modal Paramètres
+  const settingsModal = document.getElementById('settings-modal');
+  if (settingsModal && !settingsModal.classList.contains('hidden')) {
+    hideSettings(true); // skipHistory
+    return true;
+  }
+  // Priorité 4 : Drawer Filtres
+  const drawer = document.getElementById('filters-drawer');
+  if (drawer && !drawer.classList.contains('hidden')) {
+    drawer.classList.remove('open');
+    setTimeout(() => drawer.classList.add('hidden'), 280);
+    return true;
+  }
+  return false;
+}
+
+// Listener global popstate
+window.addEventListener('popstate', (event) => {
+  // Si un overlay est ouvert, on le ferme et on consomme le retour
+  if (handleBack()) {
+    // On a fermé quelque chose, mais le browser a déjà déclenché popstate
+    // On pousse un nouvel état pour pouvoir capter le prochain retour
+    _pushState('overlay-closed', {});
+    return;
+  }
+
+  // Sinon, on regarde l'état de la pile
+  const st = event.state;
+  if (st && st.type === 'view') {
+    // Naviguer vers cette vue (sans pousser dans l'historique)
+    if (st.payload.view === 'recipe' && st.payload.recipeId) {
+      const r = state.recipes.find(x => x.id === st.payload.recipeId);
+      if (r) {
+        state.currentRecipe = { ...r, currentServings: r.baseServings };
+        _renderView('recipe', r);
+        return;
+      }
+    }
+    _renderView(st.payload.view || 'library');
+    return;
+  }
+
+  // État manquant : retour à la bibliothèque (état initial)
+  _renderView('library');
+});
+
+// Initialiser l'historique avec l'état "library" au démarrage
+function initHistory() {
+  _replaceState('view', { view: 'library' });
+}
+
+// Helpers pour pousser des états "overlay" qui peuvent être fermés par retour
+function pushOverlay(name) {
+  _pushState('overlay', { name });
+}
 
 // ============================================
 // LIBRARY
@@ -948,9 +1046,103 @@ function renderIngredientsFilter() {
 function removeIngredientFilter(i) {
   state.ingredientsFilter.splice(i, 1);
   renderIngredientsFilter();
+  updateFiltersUI();
   renderLibrary();
 }
 window.removeIngredientFilter = removeIngredientFilter;
+
+// Compte les filtres actifs (hors favoris/tri qui ont leur propre UI)
+function countActiveFilters() {
+  let n = 0;
+  if (state.categoryFilter && state.categoryFilter !== 'all') n++;
+  if (state.monthFilter && state.monthFilter !== 'all') n++;
+  if (state.ingredientsFilter && state.ingredientsFilter.length > 0) n++;
+  if (state.cookedFilter) n++;
+  return n;
+}
+
+// Met à jour le badge "Filtres" + le résumé sous la barre
+function updateFiltersUI() {
+  // Badge sur le bouton Filtres
+  const badge = document.getElementById('filters-active-badge');
+  const btn = document.getElementById('open-filters-btn');
+  if (!badge || !btn) return;
+  const n = countActiveFilters();
+  if (n > 0) {
+    badge.textContent = n;
+    badge.classList.remove('hidden');
+    btn.classList.add('has-active');
+  } else {
+    badge.classList.add('hidden');
+    btn.classList.remove('has-active');
+  }
+
+  // Résumé visuel des filtres actifs
+  const summary = document.getElementById('active-filters-summary');
+  if (!summary) return;
+  const chips = [];
+  if (state.categoryFilter && state.categoryFilter !== 'all') {
+    const cat = getCategoryById(state.categoryFilter);
+    chips.push(`<button class="active-filter-chip" onclick="clearOneFilter('category')">${cat.emoji} ${cat.label} ✕</button>`);
+  }
+  if (state.monthFilter && state.monthFilter !== 'all') {
+    let label = 'Ce mois-ci';
+    if (state.monthFilter !== 'current') {
+      const m = Number(state.monthFilter);
+      label = MONTH_NAMES[m] || label;
+    }
+    chips.push(`<button class="active-filter-chip" onclick="clearOneFilter('month')">📅 ${label} ✕</button>`);
+  }
+  for (let i = 0; i < state.ingredientsFilter.length; i++) {
+    chips.push(`<button class="active-filter-chip" onclick="removeIngredientFilter(${i})">🥕 ${escapeHtml(state.ingredientsFilter[i])} ✕</button>`);
+  }
+  if (state.cookedFilter) {
+    const labels = { never: 'Jamais cuisinées', recent: 'Récentes', old: 'Pas faites depuis 90j' };
+    chips.push(`<button class="active-filter-chip" onclick="clearOneFilter('cooked')">🍳 ${labels[state.cookedFilter]} ✕</button>`);
+  }
+  if (chips.length > 0) {
+    summary.innerHTML = chips.join('') + `<button class="active-filter-clear-all" onclick="clearAllFilters()">Tout effacer</button>`;
+    summary.classList.remove('hidden');
+  } else {
+    summary.innerHTML = '';
+    summary.classList.add('hidden');
+  }
+}
+
+function clearOneFilter(type) {
+  if (type === 'category') state.categoryFilter = 'all';
+  else if (type === 'month') state.monthFilter = 'all';
+  else if (type === 'cooked') {
+    state.cookedFilter = '';
+    const sel = document.getElementById('filter-cooked');
+    if (sel) sel.value = '';
+  }
+  // Reset le chip actif correspondant
+  if (type === 'category' || type === 'month') {
+    document.querySelectorAll(`.filter-chip[data-filter-type="${type}"]`).forEach(c => {
+      c.classList.toggle('active', c.dataset.filterValue === 'all');
+    });
+  }
+  updateFiltersUI();
+  renderLibrary();
+}
+window.clearOneFilter = clearOneFilter;
+
+function clearAllFilters() {
+  state.categoryFilter = 'all';
+  state.monthFilter = 'all';
+  state.ingredientsFilter = [];
+  state.cookedFilter = '';
+  document.querySelectorAll('.filter-chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.filterValue === 'all');
+  });
+  const sel = document.getElementById('filter-cooked');
+  if (sel) sel.value = '';
+  renderIngredientsFilter();
+  updateFiltersUI();
+  renderLibrary();
+}
+window.clearAllFilters = clearAllFilters;
 
 function updateServingsDisplay() {
   const r = state.currentRecipe;
@@ -1230,6 +1422,7 @@ async function enterCookingMode(id) {
   const recipe = state.recipes.find(r => r.id === id);
   if (!recipe) return;
   state.cookingMode = { active: true, currentStep: 0, recipeId: id };
+  pushOverlay('cooking');
   // Anti-veille
   try {
     if ('wakeLock' in navigator) {
@@ -1241,6 +1434,14 @@ async function enterCookingMode(id) {
 window.enterCookingMode = enterCookingMode;
 
 async function exitCookingMode() {
+  if (state.cookingMode && state.cookingMode.active) {
+    // Appelé depuis l'UI : on fait un history.back qui passera par handleBack
+    history.back();
+  }
+}
+window.exitCookingMode = exitCookingMode;
+
+async function _exitCookingModeNoHistory() {
   state.cookingMode.active = false;
   document.getElementById('cooking-mode').classList.add('hidden');
   if (_wakeLock) {
@@ -1248,7 +1449,6 @@ async function exitCookingMode() {
     _wakeLock = null;
   }
 }
-window.exitCookingMode = exitCookingMode;
 
 function cookingNextStep() {
   const recipe = state.recipes.find(r => r.id === state.cookingMode.recipeId);
@@ -2455,6 +2655,7 @@ function openValidationModal(recipe) {
   if (title) {
     title.textContent = state.editingRecipeId ? 'Modifier la recette' : 'Valider la recette';
   }
+  pushOverlay('validation');
 
   body.innerHTML = `
     <div class="validation-section">
@@ -2771,8 +2972,15 @@ function saveValidatedRecipe() {
   }
 }
 
-function closeValidationModal() {
-  document.getElementById('validation-modal').classList.add('hidden');
+function closeValidationModal(skipHistory) {
+  const modal = document.getElementById('validation-modal');
+  if (modal.classList.contains('hidden')) return;
+  if (!skipHistory) {
+    // Appelé depuis un clic UI : on fait un history.back() qui déclenchera popstate → handleBack → fermeture
+    history.back();
+    return;
+  }
+  modal.classList.add('hidden');
   state.pendingRecipe = null;
   state.editingRecipeId = null;
 }
@@ -2794,10 +3002,17 @@ function showSettings() {
     b.classList.toggle('active', b.dataset.theme === state.prefs.theme);
   });
   document.getElementById('settings-modal').classList.remove('hidden');
+  pushOverlay('settings');
 }
 
-function hideSettings() {
-  document.getElementById('settings-modal').classList.add('hidden');
+function hideSettings(skipHistory) {
+  const modal = document.getElementById('settings-modal');
+  if (modal.classList.contains('hidden')) return;
+  if (!skipHistory) {
+    history.back();
+    return;
+  }
+  modal.classList.add('hidden');
 }
 
 function exportData() {
@@ -2905,41 +3120,87 @@ function bindEvents() {
     renderLibrary();
   });
 
-  // Filter chips (category + month, scopés par data-filter-type)
+  // Filter chips (category + month, dans le drawer ou en haut)
   document.querySelectorAll('.filter-chip').forEach(chip => {
     chip.addEventListener('click', () => {
       const type = chip.dataset.filterType;
-      // Désactiver les autres chips de même type
       document.querySelectorAll(`.filter-chip[data-filter-type="${type}"]`).forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
       if (type === 'month') state.monthFilter = chip.dataset.filterValue;
       else if (type === 'category') state.categoryFilter = chip.dataset.filterValue;
+      updateFiltersUI();
       renderLibrary();
     });
   });
 
-  // Quick filters
+  // Toolbar : Favoris (toujours visible)
   document.getElementById('filter-fav').addEventListener('click', () => {
     state.favoritesOnly = !state.favoritesOnly;
     document.getElementById('filter-fav').classList.toggle('active', state.favoritesOnly);
+    updateFiltersUI();
     renderLibrary();
   });
-  document.getElementById('filter-cooked').addEventListener('change', e => {
-    state.cookedFilter = e.target.value;
-    renderLibrary();
-  });
+
+  // Tri (toujours visible)
   document.getElementById('filter-sort').addEventListener('change', e => {
     state.prefs.sortMode = e.target.value;
     savePrefs();
     renderLibrary();
   });
 
-  // Filtre par ingrédients
-  document.getElementById('add-ingredient-filter').addEventListener('click', () => {
-    const name = prompt('Nom de l\'ingrédient à filtrer (ex: courgette) :');
-    if (!name || !name.trim()) return;
-    state.ingredientsFilter.push(name.trim());
+  // Cuisson (dans le drawer maintenant)
+  const cookedSelect = document.getElementById('filter-cooked');
+  if (cookedSelect) {
+    cookedSelect.addEventListener('change', e => {
+      state.cookedFilter = e.target.value;
+      updateFiltersUI();
+      renderLibrary();
+    });
+  }
+
+  // Filtre par ingrédients (dans le drawer)
+  const addIngBtn = document.getElementById('add-ingredient-filter');
+  if (addIngBtn) {
+    addIngBtn.addEventListener('click', () => {
+      const name = prompt('Nom de l\'ingrédient à filtrer (ex: courgette) :');
+      if (!name || !name.trim()) return;
+      state.ingredientsFilter.push(name.trim());
+      renderIngredientsFilter();
+      updateFiltersUI();
+      renderLibrary();
+    });
+  }
+
+  // Drawer : ouverture / fermeture (avec gestion de l'historique pour le retour OS)
+  const drawer = document.getElementById('filters-drawer');
+  document.getElementById('open-filters-btn').addEventListener('click', () => {
+    drawer.classList.remove('hidden');
+    requestAnimationFrame(() => drawer.classList.add('open'));
+    pushOverlay('filters-drawer');
+  });
+  // Fermer = utiliser history.back() pour synchroniser l'historique avec le bouton retour
+  const closeDrawer = () => {
+    if (!drawer.classList.contains('hidden')) {
+      history.back();
+    }
+  };
+  document.getElementById('filters-drawer-close').addEventListener('click', closeDrawer);
+  document.querySelector('.filters-drawer-backdrop').addEventListener('click', closeDrawer);
+  document.getElementById('filters-apply').addEventListener('click', closeDrawer);
+  document.getElementById('filters-reset').addEventListener('click', () => {
+    state.categoryFilter = 'all';
+    state.monthFilter = 'all';
+    state.ingredientsFilter = [];
+    state.cookedFilter = '';
+    // Reset chips
+    document.querySelectorAll('.filter-chip').forEach(c => {
+      const type = c.dataset.filterType;
+      const isAllChip = c.dataset.filterValue === 'all';
+      c.classList.toggle('active', isAllChip);
+    });
+    if (cookedSelect) cookedSelect.value = '';
     renderIngredientsFilter();
+    updateFiltersUI();
     renderLibrary();
   });
 
@@ -3187,6 +3448,7 @@ async function processImage(file) {
 function init() {
   loadState();
   applyTheme(); // doit être appelé tôt pour éviter le flash
+  initHistory(); // initialise l'historique pour le bouton retour
   bindEvents();
 
   // Splash
@@ -3214,6 +3476,7 @@ function init() {
   // First render
   renderLibrary();
   renderIngredientsFilter();
+  updateFiltersUI();
   updateShoppingBadge();
 }
 
