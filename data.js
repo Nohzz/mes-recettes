@@ -175,8 +175,9 @@ const RECIPE_CATEGORIES = [
   { id: 'plat', label: 'Plat', emoji: '🍽️', order: 3 },
   { id: 'dessert', label: 'Dessert', emoji: '🍰', order: 4 },
   { id: 'gouter', label: 'Goûter', emoji: '🍪', order: 5 },
-  { id: 'boisson', label: 'Boisson', emoji: '🥤', order: 6 },
-  { id: 'autre', label: 'Autre', emoji: '🍴', order: 7 }
+  { id: 'petitdej', label: 'Petit déjeuner', emoji: '🥐', order: 6 },
+  { id: 'boisson', label: 'Boisson', emoji: '🥤', order: 7 },
+  { id: 'autre', label: 'Autre', emoji: '🍴', order: 8 }
 ];
 
 function getCategoryById(id) {

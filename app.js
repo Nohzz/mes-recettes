@@ -2204,12 +2204,13 @@ Règles GÉNÉRALES:
 - Ne mets RIEN après le JSON.
 
 Règles pour "category":
-- Choisis EXACTEMENT une de ces valeurs: "apero", "entree", "plat", "dessert", "gouter", "boisson", "autre"
+- Choisis EXACTEMENT une de ces valeurs: "apero", "entree", "plat", "dessert", "gouter", "petitdej", "boisson", "autre"
 - "apero" = tapas, dips, finger food, amuse-bouches
 - "entree" = soupes, salades servies en entrée, terrines, antipasti
 - "plat" = plat principal (viande, poisson, pâtes, riz, plats végétariens consistants)
 - "dessert" = gâteaux, tartes, mousses, fruits servis en fin de repas
 - "gouter" = cookies, viennoiseries, brioches, en-cas sucrés ou salés
+- "petitdej" = recettes du matin (granola, pancakes, porridge, œufs brouillés, smoothie bowl, viennoiseries du matin)
 - "boisson" = jus, smoothies, cocktails, infusions
 - "autre" = sauces, condiments, conserves, bases (pâte à pizza nature, bouillon...)
 - Si ambigu, choisis ce qui te paraît le plus probable selon le contexte.
