@@ -103,20 +103,61 @@
     <main id="main-content" class="main-content">
       <!-- Library View -->
       <section id="view-library" class="view active">
+        <div id="pull-refresh-indicator" class="pull-refresh-indicator hidden">
+          <span class="pull-refresh-spinner"></span> Synchronisation…
+        </div>
+
         <div class="library-search">
           <div class="search-input-wrap">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="search-icon">
               <path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-            <input type="text" id="library-search-input" placeholder="Rechercher une recette ou un ingrédient..." class="search-input">
+            <input type="text" id="library-search-input" placeholder="Rechercher une recette, ingrédient, tag..." class="search-input">
             <button id="library-search-clear" class="search-clear hidden" aria-label="Effacer">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
             </button>
           </div>
         </div>
 
+        <!-- Recherche par ingrédients (chips additifs) -->
+        <div class="ingredients-filter-bar">
+          <div id="ingredients-filter-chips" class="ingredients-filter-chips"></div>
+          <button id="add-ingredient-filter" class="ingredient-filter-add">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4.5v15m7.5-7.5h-15" stroke-linecap="round"/></svg>
+            <span>Filtrer par ingrédients</span>
+          </button>
+        </div>
+
+        <!-- Boutons rapides : favoris / sort / cooked -->
+        <div class="library-quick-filters">
+          <button id="filter-fav" class="quick-filter">⭐ Favoris</button>
+          <select id="filter-cooked" class="quick-filter-select">
+            <option value="">Toute fréquence</option>
+            <option value="never">Jamais cuisinées</option>
+            <option value="recent">Récemment cuisinées</option>
+            <option value="old">Pas faites depuis 90j</option>
+          </select>
+          <select id="filter-sort" class="quick-filter-select">
+            <option value="recent">Tri : Récentes</option>
+            <option value="name">Tri : Nom A-Z</option>
+            <option value="cooked">Tri : Dernière cuisson</option>
+          </select>
+        </div>
+
+        <!-- Filtre catégorie -->
+        <div class="filter-bar filter-bar-categories">
+          <button class="filter-chip active" data-filter-type="category" data-filter-value="all">Toutes</button>
+          <button class="filter-chip" data-filter-type="category" data-filter-value="apero">🍸 Apéro</button>
+          <button class="filter-chip" data-filter-type="category" data-filter-value="entree">🥗 Entrée</button>
+          <button class="filter-chip" data-filter-type="category" data-filter-value="plat">🍽️ Plat</button>
+          <button class="filter-chip" data-filter-type="category" data-filter-value="dessert">🍰 Dessert</button>
+          <button class="filter-chip" data-filter-type="category" data-filter-value="gouter">🍪 Goûter</button>
+          <button class="filter-chip" data-filter-type="category" data-filter-value="boisson">🥤 Boisson</button>
+        </div>
+
+        <!-- Filtre mois -->
         <div class="filter-bar">
-          <button class="filter-chip active" data-filter-type="month" data-filter-value="all">Tous</button>
+          <button class="filter-chip active" data-filter-type="month" data-filter-value="all">Tous mois</button>
           <button class="filter-chip" data-filter-type="month" data-filter-value="current">Ce mois-ci</button>
           <button class="filter-chip" data-filter-type="month" data-filter-value="1">Janv</button>
           <button class="filter-chip" data-filter-type="month" data-filter-value="2">Févr</button>
@@ -153,7 +194,8 @@
           <div class="chat-welcome">
             <div class="chat-welcome-blob"></div>
             <h2>Créez une recette</h2>
-            <p>Envoyez-moi un lien YouTube, Instagram, un site web, ou des photos. Je vous prépare une recette structurée.</p>
+            <p>Avec l'aide de l'IA ou en saisie manuelle, votre choix.</p>
+            <div class="chat-suggestions-label">Avec l'IA</div>
             <div class="chat-suggestions">
               <button class="chat-suggestion" data-suggest="📹 Coller un lien vidéo ou article">
                 <span>📹</span><span>Coller un lien vidéo ou article</span>
@@ -163,6 +205,15 @@
               </button>
               <button class="chat-suggestion" data-suggest="✍️ Décrire une recette">
                 <span>✍️</span><span>Décrire une recette en texte libre</span>
+              </button>
+              <button class="chat-suggestion" id="generate-menu-btn">
+                <span>🍱</span><span>Suggérer un menu depuis ma bibliothèque</span>
+              </button>
+            </div>
+            <div class="chat-suggestions-divider"><span>ou</span></div>
+            <div class="chat-suggestions">
+              <button class="chat-suggestion chat-suggestion-manual" id="manual-create-btn">
+                <span>✏️</span><span>Saisir une recette à la main</span>
               </button>
             </div>
           </div>
@@ -177,6 +228,11 @@
             </svg>
           </button>
           <input type="file" id="chat-file-input" accept="image/*" multiple class="hidden">
+          <button id="chat-mic-btn" class="chat-attach-btn" aria-label="Dictée vocale">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
           <textarea id="chat-input" placeholder="Lien ou description de la recette..." rows="1"></textarea>
           <button id="chat-send-btn" class="chat-send-btn" aria-label="Envoyer">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -254,7 +310,7 @@
         <button id="validation-close" class="icon-btn icon-btn-light" aria-label="Fermer">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
         </button>
-        <h2>Valider la recette</h2>
+        <h2 id="validation-modal-title">Valider la recette</h2>
         <button id="validation-save" class="btn-primary btn-sm">Sauvegarder</button>
       </div>
       <div id="validation-body" class="modal-body"></div>
@@ -273,9 +329,21 @@
       </div>
       <div class="modal-body">
         <div class="settings-section">
+          <label class="settings-label">Apparence</label>
+          <div class="settings-theme-row">
+            <button class="theme-option" data-theme="light">☀️ Clair</button>
+            <button class="theme-option" data-theme="dark">🌙 Sombre</button>
+            <button class="theme-option" data-theme="auto">⚙ Auto</button>
+          </div>
+        </div>
+        <div class="settings-section">
           <label class="settings-label">Clé API Claude</label>
           <input type="password" id="settings-api-key" placeholder="sk-ant-api03-..." class="api-setup-input">
           <button id="settings-save-key" class="btn-primary btn-block">Enregistrer</button>
+          <label class="settings-toggle">
+            <input type="checkbox" id="settings-web-search">
+            <span>🌐 Activer Web Search (visite des liens) <span class="settings-cost">💎 +0,01€ / recherche</span></span>
+          </label>
         </div>
         <div class="settings-section">
           <label class="settings-label">Synchronisation entre appareils</label>
@@ -295,7 +363,7 @@
           <button id="settings-clear" class="btn-danger btn-block">Tout supprimer</button>
         </div>
         <div class="settings-section settings-about">
-          <p><strong>Mes Recettes</strong> · v1.1</p>
+          <p><strong>Mes Recettes</strong> · v2.0</p>
           <p class="settings-credit">PWA installable · Sync optionnelle · IA Claude</p>
         </div>
       </div>
@@ -304,6 +372,15 @@
 
   <!-- Toast Notifications -->
   <div id="toast-container" class="toast-container"></div>
+
+  <!-- Cooking Mode (plein écran) -->
+  <div id="cooking-mode" class="cooking-mode hidden"></div>
+
+  <!-- Voice Recording Indicator -->
+  <div id="voice-recording-indicator" class="voice-indicator hidden">
+    <span class="voice-indicator-pulse"></span>
+    <span>🎤 Parlez maintenant…</span>
+  </div>
 
   <script src="data.js"></script>
   <script src="app.js"></script>
