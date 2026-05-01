@@ -1,58 +1,71 @@
 /* ============================================
-   TERRACOTTA DESIGN SYSTEM
+   DESIGN SYSTEM — TERRACOTTA
    ============================================ */
 
 :root {
-  /* Palette principale - terracotta */
-  --bg-white: #FFFFFF;
-  --bg-brown-100: #FAEAD5;
-  --bg-green-800: #B5532A;     /* terracotta profond (anciennement vert foncé) */
+  /* Couleurs primaires (terracotta) */
+  --color-primary: #B5532A;          /* Couleur principale (CTA, titres) */
+  --color-primary-dark: #8C3F1E;     /* Variante foncée */
+  --color-primary-soft: #F4B886;     /* Sable doré (cartes recettes) */
+  --color-primary-pale: #FFE0BF;     /* Pêche pâle (chips actifs) */
+  --color-primary-cream: #FBEFE2;    /* Crème (fonds doux) */
 
-  /* Couleurs secondaires */
-  --bg-pop-conifer: #FFC994;   /* pêche pop (anciennement pop conifer vert) */
-  --bg-green-light: #FFE0BF;   /* pêche pâle (anciennement vert clair) */
-  --bg-pink-200: #EEC9EA;
-  --bg-yellow-500: #EAB308;
+  /* Accent pop */
+  --color-accent: #FFC994;           /* Pêche pop (badges, FAB) */
 
-  /* Gris chauds (inchangés - cohérents avec terracotta) */
-  --bg-gray-50: #FAF6F0;
-  --bg-gray-100: #F0EAE0;
-  --bg-gray-200: #E6DDD0;
-  --bg-gray-300: #D4C8B5;
-  --bg-gray-400: #B8A88F;
-  --bg-gray-500: #8C7B62;
-  --bg-gray-600: #5F5247;
-  --bg-gray-700: #3F362F;
-  --bg-gray-800: #2A2421;
-  --bg-gray-900: #1A1614;
+  /* Surfaces */
+  --color-surface: #FFFFFF;          /* Cartes, modals */
+  --color-bg: #FAF6F0;               /* Fond app */
 
-  /* Thématiques (paniers, badges) */
-  --bg-blue-600: #2346B0;
-  --bg-blue-300: #7E98E5;
-  --bg-blue-50: #EFF2FC;
-  --bg-green-700: #8C3F1E;     /* brun terre foncé (anciennement vert 700) */
-  --bg-secondary-700: #C0510A;
-  --bg-secondary-200: #FFD5BA;
-  --bg-secondary-50: #FFF5EF;
-  --bg-green-200: #F4B886;     /* sable doré (anciennement vert 200) */
-  --bg-green-50: #FBEFE2;      /* crème (anciennement vert pâle 50) */
+  /* Gris chauds */
+  --color-gray-50: #FAF6F0;
+  --color-gray-100: #F0EAE0;
+  --color-gray-200: #E6DDD0;
+  --color-gray-300: #D4C8B5;
+  --color-gray-400: #B8A88F;
+  --color-gray-500: #8C7B62;
+  --color-gray-600: #5F5247;
+  --color-gray-700: #3F362F;
+  --color-gray-800: #2A2421;
+  --color-gray-900: #1A1614;
 
-  /* Anti-gaspi / promos */
-  --bg-pop-red: #E71D1A;
-  --bg-pop-flash: #FFFB00;
-  --bg-yellow-100: #FEF3D7;
-  --bg-secondary-600: #F3701B;
-  --bg-secondary-100: #FFEADC;
-  --bg-brown-600: #d78318;
-  --bg-red-500: #ef4444;
+  /* Tons orangés (gradients de cartes, badges) */
+  --color-orange-50: #FFF5EF;
+  --color-orange-100: #FFEADC;
+  --color-orange-200: #FFD5BA;
+  --color-orange-600: #F3701B;
+  --color-orange-700: #C0510A;
 
-  /* Remises */
-  --bg-pop-remise: #D5372B;
-  --bg-sky-600: #008BD3;
-  --bg-sky-200: #bae6fd;
-  --bg-sky-100: #e0f2fe;
-  --bg-red-100: #FEE2E2;
-  --bg-red-50: #FEF2F2;
+  /* Bruns (touches chaleureuses) */
+  --color-brown-100: #FAEAD5;
+  --color-brown-600: #d78318;
+
+  /* Bleus (catégorie produits Frais) */
+  --color-blue-50: #EFF2FC;
+  --color-blue-300: #7E98E5;
+  --color-blue-600: #2346B0;
+
+  /* Bleu ciel */
+  --color-sky-100: #e0f2fe;
+  --color-sky-200: #bae6fd;
+  --color-sky-600: #008BD3;
+
+  /* Rose (cartes desserts) */
+  --color-pink-200: #EEC9EA;
+
+  /* Jaunes (notes personnelles) */
+  --color-yellow-100: #FEF3D7;
+  --color-yellow-500: #EAB308;
+
+  /* Rouges (erreurs, suppression) */
+  --color-red-50: #FEF2F2;
+  --color-red-100: #FEE2E2;
+  --color-red-500: #ef4444;
+  --color-red-pop: #E71D1A;
+  --color-red-deep: #D5372B;
+
+  /* Jaune pop (rare) */
+  --color-yellow-pop: #FFFB00;
 
   /* Typography */
   --font-display: 'Poppins', system-ui, sans-serif;
@@ -69,7 +82,7 @@
   --shadow-sm: 0 2px 8px rgba(60, 30, 15, 0.06);
   --shadow-md: 0 4px 16px rgba(60, 30, 15, 0.1);
   --shadow-lg: 0 8px 32px rgba(60, 30, 15, 0.12);
-  --shadow-green: 0 6px 20px rgba(181, 83, 42, 0.25);
+  --shadow-primary: 0 6px 20px rgba(181, 83, 42, 0.25);
 
   --radius-sm: 12px;
   --radius-md: 18px;
@@ -100,8 +113,8 @@ html, body {
 
 body {
   font-family: var(--font-body);
-  color: var(--bg-gray-800);
-  background: var(--bg-gray-50);
+  color: var(--color-gray-800);
+  background: var(--color-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-size: 15px;
@@ -121,7 +134,7 @@ h1, h2, h3, h4 {
   font-weight: 800;
   letter-spacing: -0.02em;
   margin: 0;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
 }
 
 button {
@@ -134,7 +147,7 @@ button {
 }
 
 a {
-  color: var(--bg-green-800);
+  color: var(--color-primary);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -148,8 +161,8 @@ a {
 .splash {
   position: fixed;
   inset: 0;
-  background: var(--bg-green-800);
-  color: var(--bg-white);
+  background: var(--color-primary);
+  color: var(--color-surface);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -174,7 +187,7 @@ a {
 .splash-blob-1 {
   width: 280px;
   height: 280px;
-  background: var(--bg-pop-conifer);
+  background: var(--color-accent);
   top: -80px;
   left: -80px;
   animation: floatBlob 6s ease-in-out infinite;
@@ -183,7 +196,7 @@ a {
 .splash-blob-2 {
   width: 240px;
   height: 240px;
-  background: var(--bg-green-light);
+  background: var(--color-primary-pale);
   bottom: -60px;
   right: -60px;
   animation: floatBlob 8s ease-in-out infinite reverse;
@@ -193,7 +206,7 @@ a {
   width: 96px;
   height: 96px;
   margin: 0 auto 24px;
-  color: var(--bg-pop-conifer);
+  color: var(--color-accent);
   filter: drop-shadow(0 4px 24px rgba(255, 201, 148, 0.4));
 }
 
@@ -206,13 +219,13 @@ a {
   font-size: 36px;
   font-weight: 900;
   margin-bottom: 8px;
-  color: var(--bg-white);
+  color: var(--color-surface);
   letter-spacing: -0.03em;
 }
 
 .splash-tagline {
   font-size: 15px;
-  color: var(--bg-green-light);
+  color: var(--color-primary-pale);
   margin-bottom: 40px;
   font-weight: 500;
 }
@@ -229,7 +242,7 @@ a {
 .splash-loader-bar {
   width: 30%;
   height: 100%;
-  background: var(--bg-pop-conifer);
+  background: var(--color-accent);
   border-radius: var(--radius-full);
   animation: loaderSlide 1.4s ease-in-out infinite;
 }
@@ -256,7 +269,7 @@ a {
 .api-setup {
   position: fixed;
   inset: 0;
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
   z-index: 999;
   display: flex;
   align-items: center;
@@ -268,7 +281,7 @@ a {
 .api-setup-card {
   width: 100%;
   max-width: 420px;
-  background: var(--bg-white);
+  background: var(--color-surface);
   border-radius: var(--radius-xl);
   padding: 32px 24px;
   box-shadow: var(--shadow-lg);
@@ -278,13 +291,13 @@ a {
 .api-setup-icon {
   width: 56px;
   height: 56px;
-  background: var(--bg-pop-conifer);
+  background: var(--color-accent);
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 20px;
-  color: var(--bg-green-800);
+  color: var(--color-primary);
 }
 
 .api-setup-icon svg { width: 28px; height: 28px; }
@@ -295,7 +308,7 @@ a {
 }
 
 .api-setup-desc {
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   margin-bottom: 24px;
   font-size: 14px;
 }
@@ -312,7 +325,7 @@ a {
   align-items: center;
   gap: 12px;
   padding: 12px;
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
   border-radius: var(--radius-sm);
   font-size: 14px;
 }
@@ -321,8 +334,8 @@ a {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: var(--bg-green-800);
-  color: var(--bg-white);
+  background: var(--color-primary);
+  color: var(--color-surface);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -334,11 +347,11 @@ a {
 .api-setup-input {
   width: 100%;
   padding: 14px 16px;
-  border: 2px solid var(--bg-gray-200);
+  border: 2px solid var(--color-gray-200);
   border-radius: var(--radius-sm);
   font-size: 14px;
-  background: var(--bg-white);
-  color: var(--bg-gray-800);
+  background: var(--color-surface);
+  color: var(--color-gray-800);
   transition: border-color var(--transition);
   margin-bottom: 12px;
   font-family: monospace;
@@ -346,7 +359,7 @@ a {
 
 .api-setup-input:focus {
   outline: none;
-  border-color: var(--bg-green-800);
+  border-color: var(--color-primary);
 }
 
 /* ============================================
@@ -356,8 +369,8 @@ a {
 .btn-primary {
   width: 100%;
   padding: 14px 20px;
-  background: var(--bg-green-800);
-  color: var(--bg-white);
+  background: var(--color-primary);
+  color: var(--color-surface);
   border-radius: var(--radius-full);
   font-weight: 700;
   font-size: 15px;
@@ -387,8 +400,8 @@ a {
 .btn-secondary {
   width: 100%;
   padding: 14px 20px;
-  background: var(--bg-gray-200);
-  color: var(--bg-gray-800);
+  background: var(--color-gray-200);
+  color: var(--color-gray-800);
   border-radius: var(--radius-full);
   font-weight: 700;
   font-size: 15px;
@@ -398,7 +411,7 @@ a {
 
 .btn-secondary:active {
   transform: scale(0.97);
-  background: var(--bg-gray-400);
+  background: var(--color-gray-400);
 }
 
 .btn-block { display: block; margin-top: 8px; }
@@ -407,8 +420,8 @@ a {
   width: 100%;
   padding: 14px 20px;
   background: transparent;
-  color: var(--bg-pop-red);
-  border: 2px solid var(--bg-red-100);
+  color: var(--color-red-pop);
+  border: 2px solid var(--color-red-100);
   border-radius: var(--radius-full);
   font-weight: 700;
   font-size: 15px;
@@ -419,7 +432,7 @@ a {
   width: 100%;
   padding: 12px;
   background: transparent;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   font-size: 13px;
   font-weight: 600;
   margin-top: 8px;
@@ -432,16 +445,16 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
   transition: background var(--transition);
   flex-shrink: 0;
 }
 
-.icon-btn:active { background: var(--bg-gray-200); }
+.icon-btn:active { background: var(--color-gray-200); }
 
 .icon-btn svg { width: 22px; height: 22px; }
 
-.icon-btn-light { color: var(--bg-gray-600); }
+.icon-btn-light { color: var(--color-gray-600); }
 
 /* Sync indicator */
 .app-header-actions {
@@ -458,25 +471,25 @@ a {
   align-items: center;
   justify-content: center;
   position: relative;
-  color: var(--bg-gray-400);
+  color: var(--color-gray-400);
   flex-shrink: 0;
 }
 
 .sync-indicator > * { display: none; }
 .sync-indicator .sync-icon-default { width: 18px; height: 18px; }
 
-.sync-indicator.sync-idle .sync-icon-default { display: block; color: var(--bg-gray-400); }
-.sync-indicator.sync-synced { color: var(--bg-green-800); }
+.sync-indicator.sync-idle .sync-icon-default { display: block; color: var(--color-gray-400); }
+.sync-indicator.sync-synced { color: var(--color-primary); }
 .sync-indicator.sync-synced .sync-icon-check { display: block; width: 20px; height: 20px; animation: syncCheckPop 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-.sync-indicator.sync-error { color: var(--bg-pop-red); }
+.sync-indicator.sync-error { color: var(--color-red-pop); }
 .sync-indicator.sync-error .sync-icon-error { display: block; width: 20px; height: 20px; }
 .sync-indicator.sync-offline .sync-icon-default { display: block; opacity: 0.4; }
 .sync-indicator.sync-syncing .sync-spinner {
   display: block;
   width: 16px;
   height: 16px;
-  border: 2px solid var(--bg-gray-200);
-  border-top-color: var(--bg-green-800);
+  border: 2px solid var(--color-gray-200);
+  border-top-color: var(--color-primary);
   border-radius: 50%;
   animation: syncSpin 0.8s linear infinite;
 }
@@ -493,7 +506,7 @@ a {
 
 .settings-desc {
   font-size: 12px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   margin: 0 0 12px 0;
   line-height: 1.4;
 }
@@ -508,20 +521,20 @@ a {
   display: flex;
   flex-direction: column;
   position: relative;
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
 }
 
 .app-header {
   flex-shrink: 0;
   padding-top: var(--safe-top);
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
   z-index: 10;
   border-bottom: 1px solid transparent;
   transition: border-color var(--transition);
 }
 
 .app-header.scrolled {
-  border-bottom-color: var(--bg-gray-200);
+  border-bottom-color: var(--color-gray-200);
 }
 
 .app-header-content {
@@ -579,8 +592,8 @@ a {
   right: 0;
   height: calc(var(--nav-h) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
-  background: var(--bg-white);
-  border-top: 1px solid var(--bg-gray-200);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-gray-200);
   display: flex;
   align-items: center;
   justify-content: space-around;
@@ -597,7 +610,7 @@ a {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  color: var(--bg-gray-400);
+  color: var(--color-gray-400);
   font-family: var(--font-display);
   font-size: 11px;
   font-weight: 600;
@@ -612,7 +625,7 @@ a {
 }
 
 .nav-item.active {
-  color: var(--bg-green-800);
+  color: var(--color-primary);
 }
 
 .nav-item.active svg {
@@ -626,12 +639,12 @@ a {
 .nav-cta-circle {
   width: 56px;
   height: 56px;
-  background: var(--bg-pop-conifer);
+  background: var(--color-accent);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--bg-green-800);
+  color: var(--color-primary);
   margin-bottom: 4px;
   box-shadow: var(--shadow-md);
   transition: transform var(--transition);
@@ -653,15 +666,15 @@ a {
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  background: var(--bg-pop-red);
-  color: var(--bg-white);
+  background: var(--color-red-pop);
+  color: var(--color-surface);
   border-radius: var(--radius-full);
   font-size: 10px;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid var(--bg-white);
+  border: 2px solid var(--color-surface);
 }
 
 /* ============================================
@@ -674,16 +687,16 @@ a {
 
 .search-input-wrap {
   position: relative;
-  background: var(--bg-white);
+  background: var(--color-surface);
   border-radius: var(--radius-full);
-  border: 1.5px solid var(--bg-gray-200);
+  border: 1.5px solid var(--color-gray-200);
   display: flex;
   align-items: center;
   transition: border-color var(--transition);
 }
 
 .search-input-wrap:focus-within {
-  border-color: var(--bg-green-800);
+  border-color: var(--color-primary);
 }
 
 .search-icon {
@@ -691,7 +704,7 @@ a {
   left: 16px;
   width: 20px;
   height: 20px;
-  color: var(--bg-gray-400);
+  color: var(--color-gray-400);
   pointer-events: none;
 }
 
@@ -701,11 +714,11 @@ a {
   border: none;
   background: transparent;
   font-size: 14px;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
   outline: none;
 }
 
-.search-input::placeholder { color: var(--bg-gray-400); }
+.search-input::placeholder { color: var(--color-gray-400); }
 
 .search-clear {
   position: absolute;
@@ -716,8 +729,8 @@ a {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-gray-200);
-  color: var(--bg-gray-600);
+  background: var(--color-gray-200);
+  color: var(--color-gray-600);
 }
 
 .search-clear svg { width: 14px; height: 14px; }
@@ -737,22 +750,22 @@ a {
 
 .filter-chip {
   padding: 8px 16px;
-  background: var(--bg-white);
-  border: 1.5px solid var(--bg-gray-200);
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-gray-200);
   border-radius: var(--radius-full);
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 13px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   white-space: nowrap;
   transition: all var(--transition);
   flex-shrink: 0;
 }
 
 .filter-chip.active {
-  background: var(--bg-green-800);
-  border-color: var(--bg-green-800);
-  color: var(--bg-white);
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-surface);
 }
 
 .filter-chip:active { transform: scale(0.95); }
@@ -778,7 +791,7 @@ a {
   padding: 4px 0 12px;
   position: sticky;
   top: 0;
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
   z-index: 2;
 }
 
@@ -792,13 +805,13 @@ a {
   font-weight: 800;
   font-size: 18px;
   letter-spacing: -0.02em;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
   flex: 1;
 }
 
 .recipe-section-count {
-  background: var(--bg-pop-conifer);
-  color: var(--bg-green-800);
+  background: var(--color-accent);
+  color: var(--color-primary);
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 12px;
@@ -819,7 +832,7 @@ a {
    ============================================ */
 
 .recipe-card {
-  background: var(--bg-white);
+  background: var(--color-surface);
   border-radius: var(--radius-lg);
   overflow: hidden;
   display: flex;
@@ -844,12 +857,12 @@ a {
   justify-content: center;
 }
 
-.recipe-card-visual.bg-1 { background: linear-gradient(135deg, var(--bg-green-200), var(--bg-pop-conifer)); }
-.recipe-card-visual.bg-2 { background: linear-gradient(135deg, var(--bg-secondary-200), var(--bg-secondary-100)); }
-.recipe-card-visual.bg-3 { background: linear-gradient(135deg, var(--bg-pink-200), var(--bg-brown-100)); }
-.recipe-card-visual.bg-4 { background: linear-gradient(135deg, var(--bg-blue-50), var(--bg-sky-200)); }
-.recipe-card-visual.bg-5 { background: linear-gradient(135deg, var(--bg-yellow-100), var(--bg-pop-conifer)); }
-.recipe-card-visual.bg-6 { background: linear-gradient(135deg, var(--bg-green-light), var(--bg-green-50)); }
+.recipe-card-visual.bg-1 { background: linear-gradient(135deg, var(--color-primary-soft), var(--color-accent)); }
+.recipe-card-visual.bg-2 { background: linear-gradient(135deg, var(--color-orange-200), var(--color-orange-100)); }
+.recipe-card-visual.bg-3 { background: linear-gradient(135deg, var(--color-pink-200), var(--color-brown-100)); }
+.recipe-card-visual.bg-4 { background: linear-gradient(135deg, var(--color-blue-50), var(--color-sky-200)); }
+.recipe-card-visual.bg-5 { background: linear-gradient(135deg, var(--color-yellow-100), var(--color-accent)); }
+.recipe-card-visual.bg-6 { background: linear-gradient(135deg, var(--color-primary-pale), var(--color-primary-cream)); }
 
 .recipe-card-emoji {
   font-size: 44px;
@@ -879,7 +892,7 @@ a {
   font-weight: 700;
   font-size: 16px;
   line-height: 1.25;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
   margin-bottom: 4px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -889,7 +902,7 @@ a {
 
 .recipe-card-meta {
   font-size: 12px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   margin-bottom: 8px;
 }
 
@@ -901,8 +914,8 @@ a {
 
 .month-tag {
   padding: 3px 8px;
-  background: var(--bg-pop-conifer);
-  color: var(--bg-green-800);
+  background: var(--color-accent);
+  color: var(--color-primary);
   border-radius: var(--radius-full);
   font-size: 10px;
   font-weight: 700;
@@ -912,8 +925,8 @@ a {
 }
 
 .month-tag.current {
-  background: var(--bg-green-800);
-  color: var(--bg-white);
+  background: var(--color-primary);
+  color: var(--color-surface);
 }
 
 .recipe-card-action {
@@ -922,7 +935,7 @@ a {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--bg-gray-400);
+  color: var(--color-gray-400);
   padding-right: 8px;
 }
 
@@ -941,7 +954,7 @@ a {
 .empty-blob {
   width: 120px;
   height: 120px;
-  background: var(--bg-pop-conifer);
+  background: var(--color-accent);
   border-radius: 50% 60% 40% 50% / 60% 40% 60% 40%;
   margin: 0 auto 24px;
   opacity: 0.4;
@@ -959,7 +972,7 @@ a {
 }
 
 .empty-state p {
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   margin-bottom: 24px;
   font-size: 14px;
 }
@@ -1002,7 +1015,7 @@ a {
 .chat-welcome-blob {
   width: 72px;
   height: 72px;
-  background: linear-gradient(135deg, var(--bg-pop-conifer), var(--bg-green-light));
+  background: linear-gradient(135deg, var(--color-accent), var(--color-primary-pale));
   border-radius: 50% 60% 40% 50% / 60% 40% 60% 40%;
   margin: 0 auto 12px;
   animation: morphBlob 6s ease-in-out infinite;
@@ -1014,7 +1027,7 @@ a {
 }
 
 .chat-welcome p {
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   margin-bottom: 16px;
   font-size: 13px;
   max-width: 320px;
@@ -1028,7 +1041,7 @@ a {
   display: flex;
   align-items: center;
   gap: 12px;
-  color: var(--bg-gray-400);
+  color: var(--color-gray-400);
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 11px;
@@ -1050,7 +1063,7 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 11px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   text-align: left;
@@ -1063,7 +1076,7 @@ a {
   display: flex;
   align-items: center;
   gap: 12px;
-  color: var(--bg-gray-400);
+  color: var(--color-gray-400);
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 11px;
@@ -1076,27 +1089,27 @@ a {
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--bg-gray-200);
+  background: var(--color-gray-200);
 }
 
 .chat-suggestion-manual {
-  background: var(--bg-pop-conifer) !important;
-  border-color: var(--bg-green-800) !important;
-  color: var(--bg-green-800);
+  background: var(--color-accent) !important;
+  border-color: var(--color-primary) !important;
+  color: var(--color-primary);
   font-weight: 700;
 }
 
 .chat-suggestion-manual:active {
-  background: var(--bg-green-light) !important;
+  background: var(--color-primary-pale) !important;
 }
 
 .chat-suggestion {
   padding: 14px 16px;
-  background: var(--bg-white);
-  border: 1.5px solid var(--bg-gray-200);
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-gray-200);
   border-radius: var(--radius-md);
   font-size: 14px;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -1107,7 +1120,7 @@ a {
 
 .chat-suggestion:active {
   transform: scale(0.98);
-  border-color: var(--bg-green-800);
+  border-color: var(--color-primary);
 }
 
 .chat-suggestion span:first-child {
@@ -1131,8 +1144,8 @@ a {
 
 .chat-message-user {
   align-self: flex-end;
-  background: var(--bg-green-800);
-  color: var(--bg-white);
+  background: var(--color-primary);
+  color: var(--color-surface);
   border-bottom-right-radius: 6px;
 }
 
@@ -1152,15 +1165,15 @@ a {
 
 .chat-message-assistant {
   align-self: flex-start;
-  background: var(--bg-white);
-  color: var(--bg-gray-800);
+  background: var(--color-surface);
+  color: var(--color-gray-800);
   border-bottom-left-radius: 6px;
   box-shadow: var(--shadow-sm);
 }
 
 .chat-message-loading {
   align-self: flex-start;
-  background: var(--bg-white);
+  background: var(--color-surface);
   padding: 16px 20px;
   border-radius: var(--radius-md);
   border-bottom-left-radius: 6px;
@@ -1173,7 +1186,7 @@ a {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--bg-green-800);
+  background: var(--color-primary);
   animation: dotPulse 1.4s ease-in-out infinite;
 }
 
@@ -1190,8 +1203,8 @@ a {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  background: var(--bg-white);
-  border-top: 1px solid var(--bg-gray-200);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-gray-200);
 }
 
 .chat-attachment-thumb {
@@ -1201,7 +1214,7 @@ a {
   border-radius: var(--radius-sm);
   overflow: hidden;
   flex-shrink: 0;
-  background: var(--bg-gray-200);
+  background: var(--color-gray-200);
 }
 
 .chat-attachment-thumb img {
@@ -1218,7 +1231,7 @@ a {
   height: 20px;
   border-radius: 50%;
   background: rgba(0,0,0,0.6);
-  color: var(--bg-white);
+  color: var(--color-surface);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1231,8 +1244,8 @@ a {
   gap: 6px;
   padding: 8px 12px;
   padding-bottom: calc(8px + var(--safe-bottom));
-  background: var(--bg-white);
-  border-top: 1px solid var(--bg-gray-200);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-gray-200);
   flex-shrink: 0;
   position: sticky;
   bottom: var(--nav-h);
@@ -1250,20 +1263,20 @@ a {
 }
 
 .chat-attach-btn {
-  background: var(--bg-gray-200);
-  color: var(--bg-gray-600);
+  background: var(--color-gray-200);
+  color: var(--color-gray-600);
 }
 
 .chat-attach-btn:active { transform: scale(0.92); }
 
 .chat-send-btn {
-  background: var(--bg-green-800);
-  color: var(--bg-white);
+  background: var(--color-primary);
+  color: var(--color-surface);
 }
 
 .chat-send-btn:disabled {
-  background: var(--bg-gray-200);
-  color: var(--bg-gray-400);
+  background: var(--color-gray-200);
+  color: var(--color-gray-400);
 }
 
 .chat-send-btn:active:not(:disabled) { transform: scale(0.92); }
@@ -1277,11 +1290,11 @@ a {
   flex: 1;
   min-width: 0; /* essentiel pour que flex shrink fonctionne */
   border: none;
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
   border-radius: var(--radius-md);
   padding: 9px 12px;
   font-size: 14px;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
   resize: none;
   max-height: 100px;
   min-height: 38px;
@@ -1290,14 +1303,14 @@ a {
   outline: none;
 }
 
-#chat-input::placeholder { color: var(--bg-gray-400); }
+#chat-input::placeholder { color: var(--color-gray-400); }
 
 /* ============================================
    RECIPE DETAIL VIEW
    ============================================ */
 
 #view-recipe {
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
 }
 
 .recipe-detail {
@@ -1333,8 +1346,8 @@ a {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: var(--bg-white);
-  color: var(--bg-gray-800);
+  background: var(--color-surface);
+  color: var(--color-gray-800);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1354,12 +1367,12 @@ a {
 }
 
 .recipe-detail-actions .icon-btn {
-  background: var(--bg-white);
+  background: var(--color-surface);
   box-shadow: var(--shadow-sm);
 }
 
 .recipe-detail-body {
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
   border-top-left-radius: var(--radius-lg);
   border-top-right-radius: var(--radius-lg);
   margin-top: -16px;
@@ -1377,14 +1390,14 @@ a {
 }
 
 .recipe-detail-description {
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   font-size: 14px;
   margin: 0 0 12px 0;
   cursor: pointer;
 }
 
 .recipe-detail-description-empty {
-  color: var(--bg-gray-400);
+  color: var(--color-gray-400);
   font-style: italic;
 }
 
@@ -1394,7 +1407,7 @@ a {
   flex-wrap: wrap;
   margin-bottom: 16px;
   font-size: 13px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
 }
 
 .recipe-detail-meta-item {
@@ -1422,7 +1435,7 @@ a {
 
 /* Servings adjuster */
 .servings-card {
-  background: var(--bg-white);
+  background: var(--color-surface);
   border-radius: var(--radius-md);
   padding: 16px;
   margin-bottom: 16px;
@@ -1442,19 +1455,19 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 14px;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
 }
 
 .servings-hint {
   font-size: 11px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
 }
 
 .servings-controls {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
   border-radius: var(--radius-full);
   padding: 4px;
 }
@@ -1463,11 +1476,11 @@ a {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: var(--bg-white);
+  background: var(--color-surface);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--bg-green-800);
+  color: var(--color-primary);
   font-size: 18px;
   font-weight: 700;
   font-family: var(--font-display);
@@ -1488,14 +1501,14 @@ a {
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 17px;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
   min-width: 24px;
   text-align: center;
 }
 
 /* Sections */
 .recipe-section {
-  background: var(--bg-white);
+  background: var(--color-surface);
   border-radius: var(--radius-md);
   padding: 16px;
   margin-bottom: 16px;
@@ -1516,8 +1529,8 @@ a {
   width: 28px;
   height: 28px;
   border-radius: var(--radius-sm);
-  background: var(--bg-pop-conifer);
-  color: var(--bg-green-800);
+  background: var(--color-accent);
+  color: var(--color-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1538,7 +1551,7 @@ a {
   align-items: center;
   padding: 10px 0;
   gap: 12px;
-  border-bottom: 1px solid var(--bg-gray-200);
+  border-bottom: 1px solid var(--color-gray-200);
 }
 
 .ingredient-row:last-child {
@@ -1548,14 +1561,14 @@ a {
 .ingredient-name {
   flex: 1;
   font-size: 14px;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
 }
 
 .ingredient-amount {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 14px;
-  color: var(--bg-green-800);
+  color: var(--color-primary);
   white-space: nowrap;
 }
 
@@ -1575,8 +1588,8 @@ a {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: var(--bg-green-800);
-  color: var(--bg-white);
+  background: var(--color-primary);
+  color: var(--color-surface);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1594,7 +1607,7 @@ a {
 .step-text {
   font-size: 14px;
   line-height: 1.55;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
   margin-bottom: 6px;
 }
 
@@ -1606,8 +1619,8 @@ a {
 
 .step-ingredient-chip {
   padding: 3px 8px;
-  background: var(--bg-green-50);
-  color: var(--bg-green-800);
+  background: var(--color-primary-cream);
+  color: var(--color-primary);
   border-radius: var(--radius-full);
   font-size: 11px;
   font-weight: 600;
@@ -1621,7 +1634,7 @@ a {
 }
 
 .recipe-add-shopping .btn-primary {
-  box-shadow: var(--shadow-green);
+  box-shadow: var(--shadow-primary);
 }
 
 /* ============================================
@@ -1641,7 +1654,7 @@ a {
   align-items: center;
   gap: 12px;
   padding: 12px;
-  background: var(--bg-white);
+  background: var(--color-surface);
   border-radius: var(--radius-md);
   margin-bottom: 8px;
   box-shadow: var(--shadow-sm);
@@ -1651,7 +1664,7 @@ a {
   width: 40px;
   height: 40px;
   border-radius: var(--radius-sm);
-  background: var(--bg-green-50);
+  background: var(--color-primary-cream);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1668,7 +1681,7 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 14px;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1685,11 +1698,11 @@ a {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--bg-green-800);
+  color: var(--color-primary);
   font-weight: 700;
   font-family: var(--font-display);
   font-size: 14px;
@@ -1701,7 +1714,7 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 12px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   min-width: 60px;
   text-align: center;
 }
@@ -1710,8 +1723,8 @@ a {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: var(--bg-gray-50);
-  color: var(--bg-gray-600);
+  background: var(--color-bg);
+  color: var(--color-gray-600);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1721,7 +1734,7 @@ a {
 .shopping-recipe-remove svg { width: 14px; height: 14px; }
 
 .shopping-list-section {
-  background: var(--bg-white);
+  background: var(--color-surface);
   border-radius: var(--radius-md);
   padding: 16px;
   margin-bottom: 16px;
@@ -1741,7 +1754,7 @@ a {
 
 .shopping-count {
   font-size: 12px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   font-weight: 600;
 }
 
@@ -1755,7 +1768,7 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 12px;
-  color: var(--bg-green-800);
+  color: var(--color-primary);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin-bottom: 8px;
@@ -1771,7 +1784,7 @@ a {
   align-items: center;
   gap: 10px;
   padding: 8px 0;
-  border-bottom: 1px solid var(--bg-gray-200);
+  border-bottom: 1px solid var(--color-gray-200);
 }
 
 .shopping-item:last-child { border-bottom: none; }
@@ -1780,7 +1793,7 @@ a {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: 2px solid var(--bg-gray-400);
+  border: 2px solid var(--color-gray-400);
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -1789,16 +1802,16 @@ a {
 }
 
 .shopping-item-check.checked {
-  background: var(--bg-green-800);
-  border-color: var(--bg-green-800);
+  background: var(--color-primary);
+  border-color: var(--color-primary);
 }
 
 .shopping-item-check.checked::after {
   content: "";
   width: 10px;
   height: 6px;
-  border-left: 2px solid var(--bg-white);
-  border-bottom: 2px solid var(--bg-white);
+  border-left: 2px solid var(--color-surface);
+  border-bottom: 2px solid var(--color-surface);
   transform: rotate(-45deg);
   margin-bottom: 2px;
 }
@@ -1806,23 +1819,23 @@ a {
 .shopping-item-name {
   flex: 1;
   font-size: 14px;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
 }
 
 .shopping-item.done .shopping-item-name {
   text-decoration: line-through;
-  color: var(--bg-gray-400);
+  color: var(--color-gray-400);
 }
 
 .shopping-item-amount {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 13px;
-  color: var(--bg-green-800);
+  color: var(--color-primary);
 }
 
 .shopping-item.done .shopping-item-amount {
-  color: var(--bg-gray-400);
+  color: var(--color-gray-400);
 }
 
 .shopping-actions {
@@ -1833,7 +1846,7 @@ a {
 }
 
 .shopping-actions .btn-primary {
-  box-shadow: var(--shadow-green);
+  box-shadow: var(--shadow-primary);
 }
 
 /* ============================================
@@ -1862,7 +1875,7 @@ a {
 
 .modal-content {
   position: relative;
-  background: var(--bg-white);
+  background: var(--color-surface);
   width: 100%;
   max-width: var(--max-w);
   max-height: 90vh;
@@ -1890,7 +1903,7 @@ a {
   align-items: center;
   justify-content: space-between;
   padding: 16px;
-  border-bottom: 1px solid var(--bg-gray-200);
+  border-bottom: 1px solid var(--color-gray-200);
   flex-shrink: 0;
   gap: 12px;
 }
@@ -1926,7 +1939,7 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 12px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin-bottom: 6px;
@@ -1936,19 +1949,19 @@ a {
 .validation-textarea {
   width: 100%;
   padding: 12px;
-  border: 1.5px solid var(--bg-gray-200);
+  border: 1.5px solid var(--color-gray-200);
   border-radius: var(--radius-sm);
-  background: var(--bg-white);
+  background: var(--color-surface);
   font-size: 14px;
   font-family: var(--font-body);
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
   outline: none;
   transition: border-color var(--transition);
 }
 
 .validation-input:focus,
 .validation-textarea:focus {
-  border-color: var(--bg-green-800);
+  border-color: var(--color-primary);
 }
 
 .validation-textarea {
@@ -1973,8 +1986,8 @@ a {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: var(--bg-red-50);
-  color: var(--bg-pop-red);
+  background: var(--color-red-50);
+  color: var(--color-red-pop);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1988,11 +2001,11 @@ a {
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  color: var(--bg-green-800);
+  color: var(--color-primary);
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 13px;
-  background: var(--bg-green-50);
+  background: var(--color-primary-cream);
   border-radius: var(--radius-full);
 }
 
@@ -2034,15 +2047,15 @@ a {
   justify-content: center;
   gap: 4px;
   padding: 12px 8px;
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
   border-radius: var(--radius-sm);
   border: 2px solid transparent;
   transition: all var(--transition);
 }
 
 .validation-category-option.selected {
-  background: var(--bg-pop-conifer);
-  border-color: var(--bg-green-800);
+  background: var(--color-accent);
+  border-color: var(--color-primary);
 }
 
 .validation-category-emoji {
@@ -2054,14 +2067,14 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 12px;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
 }
 
 .validation-emoji-option {
   width: 40px;
   height: 40px;
   border-radius: var(--radius-sm);
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2070,8 +2083,8 @@ a {
 }
 
 .validation-emoji-option.selected {
-  border-color: var(--bg-green-800);
-  background: var(--bg-green-50);
+  border-color: var(--color-primary);
+  background: var(--color-primary-cream);
 }
 
 .validation-month-grid {
@@ -2083,19 +2096,19 @@ a {
 .validation-month {
   padding: 8px 0;
   border-radius: var(--radius-sm);
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 11px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   text-align: center;
   border: 2px solid transparent;
 }
 
 .validation-month.selected {
-  background: var(--bg-pop-conifer);
-  color: var(--bg-green-800);
-  border-color: var(--bg-green-800);
+  background: var(--color-accent);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
 }
 
 /* Settings */
@@ -2110,26 +2123,26 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 13px;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
   margin-bottom: 8px;
 }
 
 .settings-about {
   text-align: center;
   padding: 16px;
-  border-top: 1px solid var(--bg-gray-200);
+  border-top: 1px solid var(--color-gray-200);
   margin-top: 20px;
 }
 
 .settings-about p {
   margin: 4px 0;
   font-size: 13px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
 }
 
 .settings-credit {
   font-size: 11px !important;
-  color: var(--bg-gray-400) !important;
+  color: var(--color-gray-400) !important;
 }
 
 /* ============================================
@@ -2151,8 +2164,8 @@ a {
 }
 
 .toast {
-  background: var(--bg-gray-800);
-  color: var(--bg-white);
+  background: var(--color-gray-800);
+  color: var(--color-surface);
   padding: 12px 20px;
   border-radius: var(--radius-full);
   font-size: 13px;
@@ -2164,11 +2177,11 @@ a {
 }
 
 .toast.success {
-  background: var(--bg-green-800);
+  background: var(--color-primary);
 }
 
 .toast.error {
-  background: var(--bg-pop-red);
+  background: var(--color-red-pop);
 }
 
 @keyframes toastSlide {
@@ -2190,7 +2203,7 @@ a {
 
 @media (min-width: 768px) {
   body {
-    background: var(--bg-gray-200);
+    background: var(--color-gray-200);
   }
   .app, .bottom-nav {
     box-shadow: var(--shadow-lg);
@@ -2211,14 +2224,14 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 12px;
-  color: var(--bg-green-800);
-  background: var(--bg-pop-conifer);
+  color: var(--color-primary);
+  background: var(--color-accent);
 }
 .pull-refresh-spinner {
   display: inline-block;
   width: 14px;
   height: 14px;
-  border: 2px solid var(--bg-green-800);
+  border: 2px solid var(--color-primary);
   border-top-color: transparent;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
@@ -2244,15 +2257,15 @@ a {
   align-items: center;
   gap: 4px;
   padding: 4px 4px 4px 10px;
-  background: var(--bg-green-light);
-  color: var(--bg-green-800);
+  background: var(--color-primary-pale);
+  color: var(--color-primary);
   border-radius: var(--radius-full);
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 12px;
 }
 .ingredient-chip button {
-  background: var(--bg-green-800);
+  background: var(--color-primary);
   color: white;
   width: 18px;
   height: 18px;
@@ -2267,9 +2280,9 @@ a {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: var(--bg-gray-50);
-  color: var(--bg-gray-700);
-  border: 1px dashed var(--bg-gray-300);
+  background: var(--color-bg);
+  color: var(--color-gray-700);
+  border: 1px dashed var(--color-gray-300);
   border-radius: var(--radius-full);
   font-family: var(--font-display);
   font-weight: 700;
@@ -2283,8 +2296,8 @@ a {
   flex-shrink: 0;
   padding: 6px 12px;
   background: white;
-  border: 1px solid var(--bg-gray-200);
-  color: var(--bg-gray-700);
+  border: 1px solid var(--color-gray-200);
+  color: var(--color-gray-700);
   border-radius: var(--radius-full);
   font-family: var(--font-display);
   font-weight: 700;
@@ -2295,9 +2308,9 @@ a {
 }
 
 .quick-filter.active {
-  background: var(--bg-pop-conifer);
-  border-color: var(--bg-green-800);
-  color: var(--bg-green-800);
+  background: var(--color-accent);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 
 .quick-filter-select {
@@ -2328,15 +2341,15 @@ a {
   gap: 6px;
   padding: 6px 12px;
   position: relative;
-  background: var(--bg-pop-conifer);
-  border-color: var(--bg-green-800);
-  color: var(--bg-green-800);
+  background: var(--color-accent);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 
 .library-toolbar .quick-filter-cta.has-active {
-  background: var(--bg-green-800);
+  background: var(--color-primary);
   color: white;
-  border-color: var(--bg-green-800);
+  border-color: var(--color-primary);
 }
 
 .filter-icon {
@@ -2351,7 +2364,7 @@ a {
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  background: var(--bg-green-800);
+  background: var(--color-primary);
   color: white;
   border-radius: 10px;
   font-size: 11px;
@@ -2360,8 +2373,8 @@ a {
 }
 
 .quick-filter-cta.has-active .filters-active-badge {
-  background: var(--bg-pop-conifer);
-  color: var(--bg-green-800);
+  background: var(--color-accent);
+  color: var(--color-primary);
 }
 
 /* --- Résumé filtres actifs sous la toolbar --- */
@@ -2378,9 +2391,9 @@ a {
   align-items: center;
   gap: 4px;
   padding: 4px 10px;
-  background: var(--bg-green-light);
-  color: var(--bg-green-800);
-  border: 1px solid var(--bg-green-200);
+  background: var(--color-primary-pale);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary-soft);
   border-radius: var(--radius-full);
   font-family: var(--font-display);
   font-weight: 700;
@@ -2390,7 +2403,7 @@ a {
 
 .active-filter-clear-all {
   background: transparent;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 11px;
@@ -2429,7 +2442,7 @@ a {
   right: 0;
   bottom: 0;
   width: min(380px, 88vw);
-  background: var(--bg-white);
+  background: var(--color-surface);
   display: flex;
   flex-direction: column;
   transform: translateX(100%);
@@ -2446,7 +2459,7 @@ a {
   align-items: center;
   justify-content: space-between;
   padding: 18px 20px;
-  border-bottom: 1px solid var(--bg-gray-200);
+  border-bottom: 1px solid var(--color-gray-200);
   flex-shrink: 0;
 }
 
@@ -2454,7 +2467,7 @@ a {
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 20px;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
   margin: 0;
 }
 
@@ -2480,7 +2493,7 @@ a {
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   margin-bottom: 10px;
 }
 
@@ -2498,13 +2511,13 @@ a {
 .filters-drawer-select {
   width: 100%;
   padding: 12px 14px;
-  background: var(--bg-gray-50);
-  border: 1px solid var(--bg-gray-200);
+  background: var(--color-bg);
+  border: 1px solid var(--color-gray-200);
   border-radius: var(--radius-sm);
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 14px;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
 }
 
 .filters-drawer-footer {
@@ -2512,7 +2525,7 @@ a {
   gap: 8px;
   padding: 16px 20px;
   padding-bottom: calc(16px + var(--safe-bottom));
-  border-top: 1px solid var(--bg-gray-200);
+  border-top: 1px solid var(--color-gray-200);
   flex-shrink: 0;
 }
 
@@ -2530,7 +2543,7 @@ a {
     max-width: 700px;
     margin: 0 auto;
     box-shadow: 0 0 32px rgba(0,0,0,0.06);
-    background: var(--bg-gray-50);
+    background: var(--color-bg);
   }
   /* La bibliothèque en 2 colonnes */
   .recipe-section-cards {
@@ -2594,7 +2607,7 @@ a {
   height: 28px;
   border-radius: 50%;
   background: rgba(255,255,255,0.85);
-  color: var(--bg-gray-400);
+  color: var(--color-gray-400);
   font-size: 18px;
   line-height: 1;
   display: flex;
@@ -2605,17 +2618,17 @@ a {
   transition: all var(--transition);
 }
 .recipe-card-fav.active {
-  background: var(--bg-pop-conifer);
+  background: var(--color-accent);
   color: #d97706;
 }
 .recipe-card-time {
   font-size: 11px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   font-weight: 600;
 }
 .recipe-card-cooked {
   font-size: 11px;
-  color: var(--bg-green-800);
+  color: var(--color-primary);
   font-weight: 700;
 }
 
@@ -2644,7 +2657,7 @@ a {
   display: inline-block;
   font-size: 20px;
   line-height: 1;
-  color: var(--bg-gray-500);
+  color: var(--color-gray-500);
   transition: all var(--transition);
 }
 .recipe-fav-icon.active {
@@ -2659,7 +2672,7 @@ a {
   height: 40px;
   border-radius: 50%;
   background: white;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2680,7 +2693,7 @@ a {
   display: flex;
   flex-direction: column;
   align-items: center;
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
   padding: 8px 14px;
   border-radius: var(--radius-sm);
   min-width: 76px;
@@ -2689,22 +2702,22 @@ a {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   font-weight: 700;
   font-family: var(--font-display);
 }
 .recipe-time-value {
   font-size: 14px;
   font-weight: 700;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
   font-family: var(--font-display);
 }
 .recipe-time-total {
-  background: var(--bg-pop-conifer);
+  background: var(--color-accent);
 }
 .recipe-time-total .recipe-time-label,
 .recipe-time-total .recipe-time-value {
-  color: var(--bg-green-800);
+  color: var(--color-primary);
 }
 
 /* --- Tags personnalisés --- */
@@ -2718,8 +2731,8 @@ a {
 .recipe-tag {
   display: inline-block;
   padding: 4px 10px;
-  background: var(--bg-green-light);
-  color: var(--bg-green-800);
+  background: var(--color-primary-pale);
+  color: var(--color-primary);
   border-radius: var(--radius-full);
   font-family: var(--font-display);
   font-weight: 700;
@@ -2732,9 +2745,9 @@ a {
   padding: 4px;
 }
 .recipe-tag-empty {
-  background: var(--bg-gray-50);
-  color: var(--bg-gray-500);
-  border: 1px dashed var(--bg-gray-300);
+  background: var(--color-bg);
+  color: var(--color-gray-500);
+  border: 1px dashed var(--color-gray-300);
   border-radius: var(--radius-full);
   padding: 6px 14px;
   font-family: var(--font-display);
@@ -2746,8 +2759,8 @@ a {
 
 /* --- Historique cuisson --- */
 .recipe-cooked-info {
-  background: var(--bg-green-light);
-  color: var(--bg-green-800);
+  background: var(--color-primary-pale);
+  color: var(--color-primary);
   padding: 8px 14px;
   border-radius: var(--radius-sm);
   font-family: var(--font-display);
@@ -2769,8 +2782,8 @@ a {
   justify-content: center;
   gap: 6px;
   padding: 12px;
-  background: var(--bg-pop-conifer);
-  color: var(--bg-green-800);
+  background: var(--color-accent);
+  color: var(--color-primary);
   border-radius: var(--radius-md);
   font-family: var(--font-display);
   font-weight: 700;
@@ -2778,7 +2791,7 @@ a {
   cursor: pointer;
   transition: all var(--transition);
 }
-.btn-cook { background: var(--bg-green-light); }
+.btn-cook { background: var(--color-primary-pale); }
 .btn-cook:active, .btn-cooking-mode:active {
   transform: scale(0.97);
 }
@@ -2791,8 +2804,8 @@ a {
 }
 .servings-preset {
   padding: 6px 14px;
-  background: var(--bg-gray-50);
-  color: var(--bg-gray-700);
+  background: var(--color-bg);
+  color: var(--color-gray-700);
   border-radius: var(--radius-full);
   font-family: var(--font-display);
   font-weight: 700;
@@ -2800,7 +2813,7 @@ a {
   cursor: pointer;
 }
 .servings-preset.active {
-  background: var(--bg-green-800);
+  background: var(--color-primary);
   color: white;
 }
 
@@ -2814,7 +2827,7 @@ a {
 }
 .recipe-notes .recipe-section-title { margin-bottom: 6px; }
 .recipe-notes-text {
-  color: var(--bg-gray-700);
+  color: var(--color-gray-700);
   line-height: 1.5;
   font-size: 14px;
 }
@@ -2823,9 +2836,9 @@ a {
   width: 100%;
   text-align: left;
   padding: 12px 14px;
-  background: var(--bg-gray-50);
-  color: var(--bg-gray-500);
-  border: 1px dashed var(--bg-gray-300);
+  background: var(--color-bg);
+  color: var(--color-gray-500);
+  border: 1px dashed var(--color-gray-300);
   border-radius: var(--radius-md);
   font-family: var(--font-display);
   font-weight: 700;
@@ -2835,7 +2848,7 @@ a {
 }
 .recipe-notes-edit-hint {
   font-size: 10px;
-  color: var(--bg-gray-500);
+  color: var(--color-gray-500);
   font-weight: 500;
   text-transform: none;
   letter-spacing: 0;
@@ -2858,8 +2871,8 @@ a {
   flex-shrink: 0;
   padding: 8px 14px;
   background: white;
-  color: var(--bg-gray-700);
-  border: 1px solid var(--bg-gray-200);
+  color: var(--color-gray-700);
+  border: 1px solid var(--color-gray-200);
   border-radius: var(--radius-full);
   font-family: var(--font-display);
   font-weight: 700;
@@ -2870,9 +2883,9 @@ a {
   gap: 6px;
 }
 .shopping-list-tab.active {
-  background: var(--bg-green-800);
+  background: var(--color-primary);
   color: white;
-  border-color: var(--bg-green-800);
+  border-color: var(--color-primary);
 }
 .tab-count {
   display: inline-block;
@@ -2882,13 +2895,13 @@ a {
   font-size: 10px;
 }
 .shopping-list-tab.active .tab-count {
-  background: var(--bg-pop-conifer);
-  color: var(--bg-green-800);
+  background: var(--color-accent);
+  color: var(--color-primary);
 }
 .shopping-list-add {
-  background: var(--bg-pop-conifer);
-  border-color: var(--bg-green-800);
-  color: var(--bg-green-800);
+  background: var(--color-accent);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
   font-size: 18px;
   padding: 4px 14px;
   line-height: 1;
@@ -2896,7 +2909,7 @@ a {
 .shopping-list-delete {
   margin-top: 8px;
   background: transparent;
-  color: var(--bg-red-500);
+  color: var(--color-red-500);
   font-size: 12px;
   font-family: var(--font-display);
   font-weight: 700;
@@ -2916,12 +2929,12 @@ a {
   opacity: 1;
 }
 .shopping-pantry-info {
-  background: var(--bg-yellow-100);
+  background: var(--color-yellow-100);
   border-radius: var(--radius-md);
   padding: 14px 16px;
   margin: 16px 16px 0;
   font-size: 13px;
-  color: var(--bg-gray-700);
+  color: var(--color-gray-700);
 }
 .shopping-pantry-info p { margin: 4px 0 8px; font-size: 12px; }
 .shopping-pantry-list {
@@ -2939,12 +2952,12 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 11px;
-  color: var(--bg-gray-700);
-  border: 1px solid var(--bg-gray-200);
+  color: var(--color-gray-700);
+  border: 1px solid var(--color-gray-200);
 }
 .shopping-pantry-chip span {
-  background: var(--bg-pop-conifer);
-  color: var(--bg-green-800);
+  background: var(--color-accent);
+  color: var(--color-primary);
   padding: 1px 6px;
   border-radius: 8px;
   font-size: 10px;
@@ -2963,7 +2976,7 @@ a {
 }
 .menu-result p {
   font-size: 12px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   margin-bottom: 12px;
 }
 .menu-items {
@@ -2973,7 +2986,7 @@ a {
   margin-bottom: 12px;
 }
 .menu-item {
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
   padding: 10px 12px;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -2983,7 +2996,7 @@ a {
 }
 .menu-item-cat {
   font-size: 10px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   font-family: var(--font-display);
   font-weight: 700;
   text-transform: uppercase;
@@ -2995,7 +3008,7 @@ a {
 }
 .menu-item-note {
   font-size: 11px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   font-style: italic;
 }
 
@@ -3003,7 +3016,7 @@ a {
 .cooking-mode {
   position: fixed;
   inset: 0;
-  background: var(--bg-gray-50);
+  background: var(--color-bg);
   z-index: 200;
   display: flex;
   flex-direction: column;
@@ -3015,7 +3028,7 @@ a {
   align-items: center;
   gap: 12px;
   padding: 16px;
-  background: var(--bg-green-800);
+  background: var(--color-primary);
   color: white;
 }
 .cooking-close {
@@ -3042,18 +3055,18 @@ a {
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 13px;
-  background: var(--bg-pop-conifer);
-  color: var(--bg-green-800);
+  background: var(--color-accent);
+  color: var(--color-primary);
   padding: 4px 10px;
   border-radius: var(--radius-full);
 }
 .cooking-progress-bar {
   height: 4px;
-  background: var(--bg-gray-200);
+  background: var(--color-gray-200);
 }
 .cooking-progress-fill {
   height: 100%;
-  background: var(--bg-pop-conifer);
+  background: var(--color-accent);
   transition: width 0.3s ease;
 }
 .cooking-content {
@@ -3065,7 +3078,7 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 14px;
-  color: var(--bg-green-800);
+  color: var(--color-primary);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin-bottom: 12px;
@@ -3073,7 +3086,7 @@ a {
 .cooking-step-text {
   font-size: 22px;
   line-height: 1.5;
-  color: var(--bg-gray-800);
+  color: var(--color-gray-800);
   margin-bottom: 32px;
   font-weight: 500;
 }
@@ -3086,7 +3099,7 @@ a {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 12px;
-  color: var(--bg-gray-600);
+  color: var(--color-gray-600);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 10px;
@@ -3095,21 +3108,21 @@ a {
   display: flex;
   justify-content: space-between;
   padding: 8px 0;
-  border-bottom: 1px solid var(--bg-gray-100);
+  border-bottom: 1px solid var(--color-gray-100);
   font-size: 15px;
 }
 .cooking-ingredient:last-child { border-bottom: none; }
 .cooking-ingredient-amount {
   font-family: var(--font-display);
   font-weight: 700;
-  color: var(--bg-green-800);
+  color: var(--color-primary);
 }
 .cooking-controls {
   display: flex;
   gap: 12px;
   padding: 16px;
   background: white;
-  border-top: 1px solid var(--bg-gray-100);
+  border-top: 1px solid var(--color-gray-100);
 }
 .cooking-btn {
   flex: 1;
@@ -3122,15 +3135,15 @@ a {
   transition: all var(--transition);
 }
 .cooking-btn-prev {
-  background: var(--bg-gray-100);
-  color: var(--bg-gray-700);
+  background: var(--color-gray-100);
+  color: var(--color-gray-700);
 }
 .cooking-btn-prev:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 .cooking-btn-next {
-  background: var(--bg-green-800);
+  background: var(--color-primary);
   color: white;
 }
 
@@ -3172,8 +3185,8 @@ a {
 .theme-option {
   flex: 1;
   padding: 10px;
-  background: var(--bg-gray-50);
-  color: var(--bg-gray-700);
+  background: var(--color-bg);
+  color: var(--color-gray-700);
   border-radius: var(--radius-sm);
   font-family: var(--font-display);
   font-weight: 700;
@@ -3182,9 +3195,9 @@ a {
   border: 2px solid transparent;
 }
 .theme-option.active {
-  background: var(--bg-pop-conifer);
-  color: var(--bg-green-800);
-  border-color: var(--bg-green-800);
+  background: var(--color-accent);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
 }
 .settings-toggle {
   display: flex;
@@ -3197,11 +3210,11 @@ a {
 .settings-toggle input {
   margin-top: 2px;
   flex-shrink: 0;
-  accent-color: var(--bg-green-800);
+  accent-color: var(--color-primary);
 }
 .settings-cost {
   display: inline-block;
-  background: var(--bg-yellow-100);
+  background: var(--color-yellow-100);
   color: #b45309;
   padding: 1px 6px;
   border-radius: 8px;
@@ -3221,7 +3234,7 @@ a {
 
 /* --- Squelettes de chargement --- */
 .skeleton {
-  background: linear-gradient(90deg, var(--bg-gray-100), var(--bg-gray-200), var(--bg-gray-100));
+  background: linear-gradient(90deg, var(--color-gray-100), var(--color-gray-200), var(--color-gray-100));
   background-size: 200% 100%;
   animation: skeleton 1.4s ease infinite;
   border-radius: var(--radius-sm);
@@ -3233,7 +3246,7 @@ a {
 
 /* --- Suggestions chat : layout --- */
 .chat-suggestion-manual {
-  background: var(--bg-pop-conifer) !important;
+  background: var(--color-accent) !important;
 }
 
 /* ========================================
@@ -3241,23 +3254,23 @@ a {
    ======================================== */
 
 [data-theme="dark"] {
-  --bg-white: #2a201a;        /* brun foncé chaud (cards) */
-  --bg-gray-50: #1a1410;      /* brun très foncé (fond) */
-  --bg-gray-100: #2a201a;
-  --bg-gray-200: #3d2f25;
-  --bg-gray-300: #5a4636;
-  --bg-gray-400: #7a6552;
-  --bg-gray-500: #a08e7a;
-  --bg-gray-600: #c5b6a3;
-  --bg-gray-700: #d8ccba;
-  --bg-gray-800: #ede4d4;
-  --bg-gray-900: #f5ede0;
-  --bg-green-50: #2a1a10;     /* brun très foncé teinté terracotta */
-  --bg-green-light: #3d2515;  /* brun foncé teinté terracotta */
-  --bg-yellow-100: #3a2f0a;
-  --bg-pink-200: #4a1f3a;
-  --bg-blue-50: #1a2b3a;
-  --bg-sky-200: #1e4060;
+  --color-surface: #2a201a;        /* brun foncé chaud (cards) */
+  --color-bg: #1a1410;      /* brun très foncé (fond) */
+  --color-gray-100: #2a201a;
+  --color-gray-200: #3d2f25;
+  --color-gray-300: #5a4636;
+  --color-gray-400: #7a6552;
+  --color-gray-500: #a08e7a;
+  --color-gray-600: #c5b6a3;
+  --color-gray-700: #d8ccba;
+  --color-gray-800: #ede4d4;
+  --color-gray-900: #f5ede0;
+  --color-primary-cream: #2a1a10;     /* brun très foncé teinté terracotta */
+  --color-primary-pale: #3d2515;  /* brun foncé teinté terracotta */
+  --color-yellow-100: #3a2f0a;
+  --color-pink-200: #4a1f3a;
+  --color-blue-50: #1a2b3a;
+  --color-sky-200: #1e4060;
 }
 
 [data-theme="dark"] body {

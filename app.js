@@ -822,12 +822,12 @@ function renderRecipeDetail(recipe) {
   if (!r) return;
 
   const bgIdx = (Math.abs(hashCode(r.id)) % 6) + 1;
-  const heroBg = ['linear-gradient(135deg, var(--bg-green-200), var(--bg-pop-conifer))',
-                  'linear-gradient(135deg, var(--bg-secondary-200), var(--bg-secondary-100))',
-                  'linear-gradient(135deg, var(--bg-pink-200), var(--bg-brown-100))',
-                  'linear-gradient(135deg, var(--bg-blue-50), var(--bg-sky-200))',
-                  'linear-gradient(135deg, var(--bg-yellow-100), var(--bg-pop-conifer))',
-                  'linear-gradient(135deg, var(--bg-green-light), var(--bg-green-50))'][bgIdx - 1];
+  const heroBg = ['linear-gradient(135deg, var(--color-primary-soft), var(--color-accent))',
+                  'linear-gradient(135deg, var(--color-orange-200), var(--color-orange-100))',
+                  'linear-gradient(135deg, var(--color-pink-200), var(--color-brown-100))',
+                  'linear-gradient(135deg, var(--color-blue-50), var(--color-sky-200))',
+                  'linear-gradient(135deg, var(--color-yellow-100), var(--color-accent))',
+                  'linear-gradient(135deg, var(--color-primary-pale), var(--color-primary-cream))'][bgIdx - 1];
 
   const months = r.months && r.months.length ? r.months : [];
   const currentMonth = getCurrentMonth();
@@ -2688,7 +2688,7 @@ function openValidationModal(recipe) {
       </div>
       <div class="validation-field">
         <label class="validation-label">Portions de base</label>
-        <div class="servings-controls" style="background: var(--bg-gray-50); padding: 4px; border-radius: var(--radius-full); display: inline-flex;">
+        <div class="servings-controls" style="background: var(--color-bg); padding: 4px; border-radius: var(--radius-full); display: inline-flex;">
           <button class="servings-btn" id="val-servings-minus">−</button>
           <span class="servings-value" id="val-servings-value">${recipe.baseServings}</span>
           <button class="servings-btn" id="val-servings-plus">+</button>
@@ -2734,13 +2734,13 @@ function openValidationModal(recipe) {
 
     <div class="validation-section">
       <h3 class="validation-section-title">Mois de saisonnalité</h3>
-      <p style="color: var(--bg-gray-600); font-size: 12px; margin-bottom: 10px;">Calculé automatiquement selon les ingrédients. Modifiable.</p>
+      <p style="color: var(--color-gray-600); font-size: 12px; margin-bottom: 10px;">Calculé automatiquement selon les ingrédients. Modifiable.</p>
       <div class="validation-month-grid" id="val-months">
         ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => `
           <button class="validation-month ${recipe.months && recipe.months.includes(m) ? 'selected' : ''}" data-month="${m}">${MONTH_NAMES[m]}</button>
         `).join('')}
       </div>
-      <p style="color: var(--bg-gray-600); font-size: 11px; margin-top: 8px;">Aucun mois sélectionné = recette toute saison</p>
+      <p style="color: var(--color-gray-600); font-size: 11px; margin-top: 8px;">Aucun mois sélectionné = recette toute saison</p>
     </div>
   `;
 
