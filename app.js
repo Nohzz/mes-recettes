@@ -2850,6 +2850,35 @@ function clearAllData() {
   showToast('Toutes les données ont été supprimées');
 }
 
+async function forceUpdate() {
+  if (!confirm('Vider le cache et recharger l\'app ? Vos recettes ne seront PAS supprimées.')) return;
+  showToast('Vérification des mises à jour…');
+  try {
+    // 1. Vider tous les caches
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    // 2. Demander au SW de skip waiting + désinscrire
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (const r of regs) {
+        if (r.waiting) r.waiting.postMessage({ type: 'SKIP_WAITING' });
+        await r.unregister();
+      }
+    }
+    showToast('Cache vidé, rechargement…', 'success');
+    // 3. Recharger
+    setTimeout(() => {
+      window.location.reload(true);
+    }, 800);
+  } catch (e) {
+    console.error('Force update error:', e);
+    showToast('Erreur, essayez de désinstaller/réinstaller l\'app', 'error');
+  }
+}
+window.forceUpdate = forceUpdate;
+
 // ============================================
 // EVENT BINDINGS
 // ============================================
@@ -3082,6 +3111,11 @@ function bindEvents() {
     e.target.value = '';
   });
   document.getElementById('settings-clear').addEventListener('click', clearAllData);
+
+  const forceUpdateBtn = document.getElementById('settings-force-update');
+  if (forceUpdateBtn) {
+    forceUpdateBtn.addEventListener('click', forceUpdate);
+  }
 
   // Validation modal
   document.getElementById('validation-close').addEventListener('click', closeValidationModal);

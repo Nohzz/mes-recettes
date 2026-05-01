@@ -1,6 +1,7 @@
 // Service Worker — Mes Recettes PWA
-const CACHE_VERSION = 'mes-recettes-v1';
-const APP_SHELL = [
+// v2.0 : stratégie network-first pour garantir les mises à jour
+const CACHE_VERSION = 'mes-recettes-v2-2026-05-01';
+const APP_FILES = [
   './',
   './index.html',
   './styles.css',
@@ -8,44 +9,60 @@ const APP_SHELL = [
   './app.js',
   './manifest.json',
   './icons/icon-192.png',
-  './icons/icon-512.png',
-  'https://fonts.googleapis.com/css2?family=Lato:wght@400;500;600;700;900&family=Poppins:wght@600;700;800;900&display=swap'
+  './icons/icon-512.png'
 ];
 
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_VERSION).then(cache => {
-      // Cache app shell, ignore failures on individual files
-      return Promise.allSettled(APP_SHELL.map(url => cache.add(url).catch(() => null)));
-    }).then(() => self.skipWaiting())
+    caches.open(CACHE_VERSION)
+      .then(cache => Promise.allSettled(APP_FILES.map(url => cache.add(url).catch(() => null))))
+      .then(() => self.skipWaiting())
   );
 });
 
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys => {
-      return Promise.all(
-        keys.filter(k => k !== CACHE_VERSION).map(k => caches.delete(k))
-      );
-    }).then(() => self.clients.claim())
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE_VERSION).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
+});
+
+// Permet à l'app de demander un skipWaiting depuis le client
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Never cache the Anthropic API
-  if (url.hostname === 'api.anthropic.com') {
+  // Never intercept API calls
+  if (url.hostname === 'api.anthropic.com' || url.hostname.includes('supabase')) {
     return;
   }
 
-  // Network-first for HTML navigation, cache-first for everything else
-  if (event.request.mode === 'navigate' || event.request.headers.get('accept')?.includes('text/html')) {
+  // Pour les fichiers de notre propre app : NETWORK FIRST
+  // Garantit que les mises à jour sont prises en compte immédiatement.
+  // Si le réseau échoue (offline), on retombe sur le cache.
+  const isAppFile = url.origin === self.location.origin && (
+    url.pathname.endsWith('.html') ||
+    url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.css') ||
+    url.pathname.endsWith('.json') ||
+    url.pathname === '/' ||
+    url.pathname.endsWith('/')
+  );
+
+  if (isAppFile) {
     event.respondWith(
-      fetch(event.request)
+      fetch(event.request, { cache: 'no-cache' })
         .then(response => {
-          const clone = response.clone();
-          caches.open(CACHE_VERSION).then(cache => cache.put(event.request, clone));
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_VERSION).then(cache => cache.put(event.request, clone)).catch(() => {});
+          }
           return response;
         })
         .catch(() => caches.match(event.request).then(r => r || caches.match('./index.html')))
@@ -53,14 +70,14 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Cache-first for assets
+  // Pour les autres ressources (icônes, fonts, images) : cache first
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) return cached;
       return fetch(event.request).then(response => {
         if (response && response.status === 200 && response.type === 'basic') {
           const clone = response.clone();
-          caches.open(CACHE_VERSION).then(cache => cache.put(event.request, clone));
+          caches.open(CACHE_VERSION).then(cache => cache.put(event.request, clone)).catch(() => {});
         }
         return response;
       }).catch(() => cached);
