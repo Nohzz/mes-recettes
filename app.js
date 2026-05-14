@@ -22,7 +22,8 @@ const STORAGE_KEYS = {
   voiceMode: 'mr_voice_mode', // 'browser' | 'claude'
   sortMode: 'mr_sort_mode', // 'recent' | 'name' | 'cooked'
   categoryOrder: 'mr_category_order',
-  servingsPresets: 'mr_servings_presets'
+  servingsPresets: 'mr_servings_presets',
+  planning: 'mr_planning'
 };
 
 const state = {
@@ -32,6 +33,9 @@ const state = {
   activeShoppingListId: '',
   shoppingChecked: new Set(),
   pantry: [], // [{name, until: timestamp}]
+  // Planning : { 'YYYY-MM-DD-midi': {recipeId, servings}, 'YYYY-MM-DD-soir': {...} }
+  planning: {},
+  pendingRecipesQueue: [], // file d'attente quand l'IA renvoie plusieurs recettes
   apiKey: '',
   currentView: 'library',
   currentRecipe: null,
@@ -41,6 +45,7 @@ const state = {
   ingredientsFilter: [], // recherche par ingrédients
   favoritesOnly: false,
   cookedFilter: '', // '' | 'never' | 'recent' | 'old'
+  dietFilter: [], // tags régime à filtrer (intersection)
   chatHistory: [],
   chatAttachments: [], // base64 images
   pendingRecipe: null,
@@ -108,6 +113,26 @@ function loadState() {
     const now = Date.now();
     state.pantry = state.pantry.filter(p => !p.until || p.until > now);
 
+    // Planning
+    const planning = localStorage.getItem(STORAGE_KEYS.planning);
+    state.planning = planning ? JSON.parse(planning) : {};
+    // Migration douce : ancienne version sans updatedAt → ajouter
+    for (const key of Object.keys(state.planning)) {
+      const entry = state.planning[key];
+      if (entry && typeof entry === 'object' && entry.updatedAt === undefined) {
+        entry.updatedAt = now;
+        entry.deletedAt = entry.deletedAt || null;
+      }
+    }
+    // Nettoyer les entrées trop anciennes (> 30 jours dans le passé)
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 30);
+    const cutoffStr = formatPlanningDate(cutoffDate);
+    for (const key of Object.keys(state.planning)) {
+      const dateStr = key.split('-').slice(0, 3).join('-');
+      if (dateStr < cutoffStr) delete state.planning[key];
+    }
+
     // Préférences
     state.prefs.theme = localStorage.getItem(STORAGE_KEYS.theme) || 'auto';
     state.prefs.enableWebSearch = localStorage.getItem(STORAGE_KEYS.enableWebSearch) === '1';
@@ -125,11 +150,43 @@ function loadState() {
       photo: null, // base64 dataUrl ou null
       cookedHistory: [], // [timestamp, ...]
       tags: [],
+      dietTags: [], // tags régime prédéfinis
       prepTime: null, // minutes
       cookTime: null, // minutes
       changeLog: [], // [{at, by, action}]
+      source: null, // { type: 'book'|'web'|'instagram', title?, page?, url?, account? }
       ...r
     }));
+
+    // Migration FODMAP : si une recette avait l'ancien tag 'fodmap' OU n'a aucun tag FODMAP,
+    // on recalcule automatiquement low-fodmap/high-fodmap depuis les ingrédients.
+    if (typeof calculateFodmapTags === 'function') {
+      state.recipes = state.recipes.map(r => {
+        const dietTags = (r.dietTags || []).filter(t => t !== 'fodmap');
+        const hasFodmap = dietTags.some(t => t === 'low-fodmap' || t === 'high-fodmap');
+        if (!hasFodmap) {
+          const autoTags = calculateFodmapTags(r.ingredients || []);
+          return { ...r, dietTags: dietTags.concat(autoTags) };
+        }
+        return { ...r, dietTags };
+      });
+    }
+
+    // Migration SAISONNALITÉ : recalcul depuis le calendrier officiel Greenpeace
+    // Tag « seasonalityMigrated » pour ne le faire qu'une fois.
+    if (typeof calculateSeasonality === 'function') {
+      const SEASONALITY_VERSION = 'greenpeace-2026';
+      const migrated = localStorage.getItem('mr_seasonality_version');
+      if (migrated !== SEASONALITY_VERSION) {
+        state.recipes = state.recipes.map(r => {
+          const newMonths = calculateSeasonality(r.ingredients || []);
+          return { ...r, months: newMonths };
+        });
+        localStorage.setItem('mr_seasonality_version', SEASONALITY_VERSION);
+        // On sauve immédiatement les nouvelles valeurs
+        try { localStorage.setItem(STORAGE_KEYS.recipes, JSON.stringify(state.recipes)); } catch {}
+      }
+    }
   } catch (e) {
     console.error('Load state error:', e);
   }
@@ -159,6 +216,20 @@ function saveShoppingLists() {
 
 function savePantry() {
   localStorage.setItem(STORAGE_KEYS.pantry, JSON.stringify(state.pantry));
+}
+
+function savePlanning() {
+  localStorage.setItem(STORAGE_KEYS.planning, JSON.stringify(state.planning));
+  // Note : la sync Supabase du planning se fait via syncPlanningEntry() pour les
+  // modifs immédiates, et via performSync() pour la fusion complète au démarrage.
+}
+
+// Format YYYY-MM-DD pour les clés du planning
+function formatPlanningDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function savePrefs() {
@@ -207,6 +278,7 @@ function saveSyncConfig(config) {
 //
 
 const SYNC_TABLE = 'recipes';
+const SYNC_PLANNING_TABLE = 'planning';
 
 function setSyncStatus(status) {
   state.sync.status = status;
@@ -286,6 +358,65 @@ async function syncPush(recipe, isDelete) {
   });
 }
 
+// ===== Sync du PLANNING =====
+
+// Récupère toutes les entrées de planning du foyer
+async function syncPlanningPull() {
+  const path = `${SYNC_PLANNING_TABLE}?foyer=eq.${encodeURIComponent(state.sync.foyer)}&select=*`;
+  return await supabaseRequest('GET', path);
+}
+
+// Push une entrée de planning (insert ou update via merge)
+// debounced pour éviter de spammer en cas de modifs rapides
+const _pendingPlanningSync = new Map();
+let _planningSyncTimer = null;
+
+function syncPlanningEntry(key) {
+  if (!state.sync.enabled || !navigator.onLine) return;
+  _pendingPlanningSync.set(key, state.planning[key]);
+
+  // Debounce : on attend 800ms avant d'envoyer pour grouper les modifs rapides
+  if (_planningSyncTimer) clearTimeout(_planningSyncTimer);
+  _planningSyncTimer = setTimeout(flushPlanningSync, 800);
+}
+
+async function flushPlanningSync() {
+  if (_pendingPlanningSync.size === 0) return;
+  if (!state.sync.enabled || !navigator.onLine) {
+    _pendingPlanningSync.clear();
+    return;
+  }
+
+  const rows = [];
+  for (const [key, entry] of _pendingPlanningSync.entries()) {
+    if (!entry) continue;
+    rows.push({
+      slot_key: key,
+      foyer: state.sync.foyer,
+      recipe_id: entry.recipeId || null,
+      servings: entry.servings || null,
+      updated_at: new Date(entry.updatedAt || Date.now()).toISOString(),
+      deleted_at: entry.deletedAt ? new Date(entry.deletedAt).toISOString() : null
+    });
+  }
+  _pendingPlanningSync.clear();
+
+  if (rows.length === 0) return;
+
+  try {
+    await supabaseRequest('POST', SYNC_PLANNING_TABLE, rows, {
+      'Prefer': 'resolution=merge-duplicates,return=minimal'
+    });
+  } catch (e) {
+    console.warn('Sync planning push échouée:', e);
+    // En cas d'échec, on remet les entrées en pending pour réessayer plus tard
+    for (const row of rows) {
+      const entry = state.planning[row.slot_key];
+      if (entry) _pendingPlanningSync.set(row.slot_key, entry);
+    }
+  }
+}
+
 async function performSync(silent) {
   if (!state.sync.enabled) return;
   if (!navigator.onLine) {
@@ -361,6 +492,66 @@ async function performSync(silent) {
       });
     }
 
+    // ===== Sync du PLANNING (fusion par cellule, last-modified-wins) =====
+    let planningChangedFromRemote = false;
+    try {
+      const remotePlanning = await syncPlanningPull() || [];
+
+      // Map des entrées remote par clé
+      const remoteByKey = {};
+      for (const row of remotePlanning) {
+        remoteByKey[row.slot_key] = row;
+      }
+
+      // 1) Pour chaque entrée remote, comparer à locale et garder la plus récente
+      for (const key in remoteByKey) {
+        const row = remoteByKey[key];
+        const remoteUpdated = new Date(row.updated_at).getTime();
+        const local = state.planning[key];
+        const localUpdated = local && local.updatedAt ? local.updatedAt : 0;
+
+        if (remoteUpdated > localUpdated) {
+          // Remote plus récent : adopter
+          state.planning[key] = {
+            recipeId: row.recipe_id,
+            servings: row.servings,
+            updatedAt: remoteUpdated,
+            deletedAt: row.deleted_at ? new Date(row.deleted_at).getTime() : null
+          };
+          planningChangedFromRemote = true;
+        }
+      }
+
+      // 2) Entrées locales qui n'existent pas en remote → push
+      const planningToPush = [];
+      for (const key in state.planning) {
+        if (!remoteByKey[key]) {
+          const entry = state.planning[key];
+          if (entry && entry.updatedAt) {
+            planningToPush.push({
+              slot_key: key,
+              foyer: state.sync.foyer,
+              recipe_id: entry.recipeId || null,
+              servings: entry.servings || null,
+              updated_at: new Date(entry.updatedAt).toISOString(),
+              deleted_at: entry.deletedAt ? new Date(entry.deletedAt).toISOString() : null
+            });
+          }
+        }
+      }
+
+      if (planningToPush.length > 0) {
+        await supabaseRequest('POST', SYNC_PLANNING_TABLE, planningToPush, {
+          'Prefer': 'resolution=merge-duplicates,return=minimal'
+        });
+      }
+
+      savePlanning();
+    } catch (planErr) {
+      console.warn('Sync planning erreur (non bloquant):', planErr);
+      // Si la table planning n'existe pas encore côté Supabase, on continue sans bloquer la sync des recettes
+    }
+
     // Save local
     saveRecipes();
     saveShopping();
@@ -378,6 +569,7 @@ async function performSync(silent) {
     // Re-render current view
     if (state.currentView === 'library') renderLibrary();
     if (state.currentView === 'shopping') renderShopping();
+    if (state.currentView === 'planning' || planningChangedFromRemote) renderPlanning();
     updateShoppingBadge();
 
     // Auto-clear status after 3s
@@ -517,6 +709,7 @@ function _renderView(view, data) {
     library: 'Bibliothèque',
     chat: 'Assistant IA',
     shopping: 'Liste de courses',
+    planning: 'Planning des repas',
     recipe: ''
   };
   const pageTitle = document.getElementById('page-title');
@@ -528,6 +721,7 @@ function _renderView(view, data) {
 
   if (view === 'library') renderLibrary();
   if (view === 'shopping') renderShopping();
+  if (view === 'planning') renderPlanning();
   if (view === 'recipe' && data) renderRecipeDetail(data);
 }
 
@@ -541,16 +735,40 @@ function handleBack() {
   // Priorité 2 : Modal de validation/édition de recette
   const valModal = document.getElementById('validation-modal');
   if (valModal && !valModal.classList.contains('hidden')) {
-    closeValidationModal(true); // skipHistory
+    closeValidationModal(true);
     return true;
   }
   // Priorité 3 : Modal Paramètres
   const settingsModal = document.getElementById('settings-modal');
   if (settingsModal && !settingsModal.classList.contains('hidden')) {
-    hideSettings(true); // skipHistory
+    hideSettings(true);
     return true;
   }
-  // Priorité 4 : Drawer Filtres
+  // Priorité 4 : Modal historique cuisson
+  const cookedModal = document.getElementById('cooked-history-modal');
+  if (cookedModal && !cookedModal.classList.contains('hidden')) {
+    closeCookedHistoryModal(true);
+    return true;
+  }
+  // Priorité 5 : Modal Tags régime
+  const dietModal = document.getElementById('diet-tags-modal');
+  if (dietModal && !dietModal.classList.contains('hidden')) {
+    closeDietTagsEditor(true);
+    return true;
+  }
+  // Priorité 6 : Modal source
+  const sourceModal = document.getElementById('source-modal');
+  if (sourceModal && !sourceModal.classList.contains('hidden')) {
+    closeSourceEditor(true);
+    return true;
+  }
+  // Priorité 7 : Modal planning picker
+  const planningPickerModal = document.getElementById('planning-picker-modal');
+  if (planningPickerModal && !planningPickerModal.classList.contains('hidden')) {
+    closePlanningSlotPicker(true);
+    return true;
+  }
+  // Priorité 8 : Drawer Filtres
   const drawer = document.getElementById('filters-drawer');
   if (drawer && !drawer.classList.contains('hidden')) {
     drawer.classList.remove('open');
@@ -676,6 +894,14 @@ function getFilteredRecipes() {
       if (state.cookedFilter === 'recent') return last && (now - last) < THIRTY_DAYS;
       if (state.cookedFilter === 'old') return last && (now - last) > NINETY_DAYS;
       return true;
+    });
+  }
+
+  // Filtrage par régime alimentaire (intersection : la recette doit avoir tous les régimes cochés)
+  if (state.dietFilter && state.dietFilter.length > 0) {
+    recipes = recipes.filter(r => {
+      const tags = r.dietTags || [];
+      return state.dietFilter.every(d => tags.includes(d));
     });
   }
 
@@ -856,6 +1082,12 @@ function renderRecipeDetail(recipe) {
     ? `<div class="recipe-detail-custom-tags">${r.tags.map(t => `<span class="recipe-tag">${escapeHtml(t)}</span>`).join('')}<button class="recipe-tag-edit" onclick="editRecipeTags('${r.id}')">✏️</button></div>`
     : `<button class="recipe-tag-empty" onclick="editRecipeTags('${r.id}')">+ Ajouter des tags</button>`;
 
+  // Diet tags (régimes alimentaires, prédéfinis)
+  const dietTagsHtml = renderDietTags(r);
+
+  // Source de la recette
+  const sourceHtml = renderRecipeSource(r);
+
   // Historique cuisson
   const cookedHistory = r.cookedHistory || [];
   const lastCooked = cookedHistory.length ? cookedHistory[cookedHistory.length - 1] : 0;
@@ -869,7 +1101,10 @@ function renderRecipeDetail(recipe) {
     else if (days < 30) when = `il y a ${Math.floor(days/7)} semaine${Math.floor(days/7) > 1 ? 's' : ''}`;
     else if (days < 365) when = `il y a ${Math.floor(days/30)} mois`;
     else when = `il y a ${Math.floor(days/365)} an${Math.floor(days/365) > 1 ? 's' : ''}`;
-    cookedSummary = `<div class="recipe-cooked-info">✓ Cuisinée ${cookedHistory.length} fois · dernière fois ${when}</div>`;
+    cookedSummary = `<div class="recipe-cooked-info" onclick="manageCookedHistory('${r.id}')">✓ Cuisinée ${cookedHistory.length} fois · dernière fois ${when} <span class="recipe-cooked-info-edit">Modifier</span></div>`;
+  } else {
+    // Pas d'historique : petit lien discret pour ouvrir le gestionnaire (ex: pour ajouter une date passée)
+    cookedSummary = `<button class="recipe-cooked-empty" onclick="manageCookedHistory('${r.id}')">📅 Jamais cuisinée · Ajouter une date passée</button>`;
   }
 
   // Notes personnelles
@@ -929,6 +1164,10 @@ function renderRecipeDetail(recipe) {
         </div>
 
         ${tagsHtml}
+
+        ${dietTagsHtml}
+
+        ${sourceHtml}
 
         ${cookedSummary}
 
@@ -1043,6 +1282,29 @@ function renderIngredientsFilter() {
   `).join('');
 }
 
+function renderDietFilter() {
+  const wrap = document.getElementById('filter-diet-chips');
+  if (!wrap) return;
+  wrap.innerHTML = DIET_TAGS.map(tag => {
+    const active = state.dietFilter.includes(tag.id);
+    return `<button class="filter-chip ${active ? 'active' : ''}" data-diet-id="${tag.id}">${tag.emoji} ${tag.label}</button>`;
+  }).join('');
+  // Bindings (sur chaque appel car re-render)
+  wrap.querySelectorAll('button[data-diet-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.dietId;
+      if (state.dietFilter.includes(id)) {
+        state.dietFilter = state.dietFilter.filter(d => d !== id);
+      } else {
+        state.dietFilter.push(id);
+      }
+      renderDietFilter();
+      updateFiltersUI();
+      renderLibrary();
+    });
+  });
+}
+
 function removeIngredientFilter(i) {
   state.ingredientsFilter.splice(i, 1);
   renderIngredientsFilter();
@@ -1058,12 +1320,12 @@ function countActiveFilters() {
   if (state.monthFilter && state.monthFilter !== 'all') n++;
   if (state.ingredientsFilter && state.ingredientsFilter.length > 0) n++;
   if (state.cookedFilter) n++;
+  if (state.dietFilter && state.dietFilter.length > 0) n++;
   return n;
 }
 
 // Met à jour le badge "Filtres" + le résumé sous la barre
 function updateFiltersUI() {
-  // Badge sur le bouton Filtres
   const badge = document.getElementById('filters-active-badge');
   const btn = document.getElementById('open-filters-btn');
   if (!badge || !btn) return;
@@ -1077,7 +1339,6 @@ function updateFiltersUI() {
     btn.classList.remove('has-active');
   }
 
-  // Résumé visuel des filtres actifs
   const summary = document.getElementById('active-filters-summary');
   if (!summary) return;
   const chips = [];
@@ -1100,6 +1361,10 @@ function updateFiltersUI() {
     const labels = { never: 'Jamais cuisinées', recent: 'Récentes', old: 'Pas faites depuis 90j' };
     chips.push(`<button class="active-filter-chip" onclick="clearOneFilter('cooked')">🍳 ${labels[state.cookedFilter]} ✕</button>`);
   }
+  for (const d of state.dietFilter) {
+    const tag = DIET_TAGS.find(t => t.id === d);
+    if (tag) chips.push(`<button class="active-filter-chip" onclick="clearOneDietFilter('${d}')">${tag.emoji} ${escapeHtml(tag.label)} ✕</button>`);
+  }
   if (chips.length > 0) {
     summary.innerHTML = chips.join('') + `<button class="active-filter-clear-all" onclick="clearAllFilters()">Tout effacer</button>`;
     summary.classList.remove('hidden');
@@ -1117,7 +1382,6 @@ function clearOneFilter(type) {
     const sel = document.getElementById('filter-cooked');
     if (sel) sel.value = '';
   }
-  // Reset le chip actif correspondant
   if (type === 'category' || type === 'month') {
     document.querySelectorAll(`.filter-chip[data-filter-type="${type}"]`).forEach(c => {
       c.classList.toggle('active', c.dataset.filterValue === 'all');
@@ -1128,17 +1392,27 @@ function clearOneFilter(type) {
 }
 window.clearOneFilter = clearOneFilter;
 
+function clearOneDietFilter(id) {
+  state.dietFilter = state.dietFilter.filter(d => d !== id);
+  renderDietFilter();
+  updateFiltersUI();
+  renderLibrary();
+}
+window.clearOneDietFilter = clearOneDietFilter;
+
 function clearAllFilters() {
   state.categoryFilter = 'all';
   state.monthFilter = 'all';
   state.ingredientsFilter = [];
   state.cookedFilter = '';
-  document.querySelectorAll('.filter-chip').forEach(c => {
+  state.dietFilter = [];
+  document.querySelectorAll('.filter-chip[data-filter-type]').forEach(c => {
     c.classList.toggle('active', c.dataset.filterValue === 'all');
   });
   const sel = document.getElementById('filter-cooked');
   if (sel) sel.value = '';
   renderIngredientsFilter();
+  renderDietFilter();
   updateFiltersUI();
   renderLibrary();
 }
@@ -1307,6 +1581,113 @@ function undoCooked(id) {
 }
 window.undoCooked = undoCooked;
 
+// Gérer l'historique complet : voir / ajouter / supprimer des dates de cuisson
+function manageCookedHistory(id) {
+  const recipe = state.recipes.find(r => r.id === id);
+  if (!recipe) return;
+  if (!recipe.cookedHistory) recipe.cookedHistory = [];
+
+  // Tri décroissant (plus récent en haut)
+  const history = [...recipe.cookedHistory].sort((a, b) => b - a);
+
+  const formatDate = (ts) => {
+    const d = new Date(ts);
+    return d.toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  let html = `
+    <div class="cooked-history-modal-content">
+      <div class="modal-header">
+        <h2>Historique de cuisson</h2>
+        <button class="modal-close" onclick="closeCookedHistoryModal()" aria-label="Fermer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="cooked-history-modal-body">
+        <p class="cooked-history-summary">Cuisinée <strong>${history.length}</strong> fois</p>
+        <button class="btn-primary btn-block" onclick="addCookedDate('${id}')">+ Ajouter une date</button>
+        ${history.length === 0
+          ? '<p class="cooked-history-empty">Aucune date enregistrée pour le moment.</p>'
+          : '<div class="cooked-history-list">' + history.map(ts => `
+              <div class="cooked-history-item">
+                <span class="cooked-history-date">${formatDate(ts)}</span>
+                <button class="cooked-history-delete" onclick="removeCookedDate('${id}', ${ts})" aria-label="Supprimer">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z" stroke-linecap="round"/></svg>
+                </button>
+              </div>
+            `).join('') + '</div>'
+        }
+      </div>
+    </div>
+  `;
+
+  // Créer le modal s'il n'existe pas
+  let modal = document.getElementById('cooked-history-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'cooked-history-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = '<div class="modal-backdrop"></div><div class="modal-content"></div>';
+    document.body.appendChild(modal);
+    modal.querySelector('.modal-backdrop').addEventListener('click', closeCookedHistoryModal);
+  }
+  modal.querySelector('.modal-content').innerHTML = html;
+  modal.classList.remove('hidden');
+  pushOverlay('cooked-history');
+}
+window.manageCookedHistory = manageCookedHistory;
+
+function closeCookedHistoryModal(skipHistory) {
+  const modal = document.getElementById('cooked-history-modal');
+  if (!modal || modal.classList.contains('hidden')) return;
+  if (!skipHistory) {
+    history.back();
+    return;
+  }
+  modal.classList.add('hidden');
+}
+window.closeCookedHistoryModal = closeCookedHistoryModal;
+
+function addCookedDate(id) {
+  const recipe = state.recipes.find(r => r.id === id);
+  if (!recipe) return;
+  // Prompt pour la date (par défaut aujourd'hui)
+  const today = new Date().toISOString().slice(0, 10);
+  const dateStr = prompt('Date de cuisson (format AAAA-MM-JJ) :', today);
+  if (!dateStr) return;
+  const ts = new Date(dateStr).getTime();
+  if (isNaN(ts)) {
+    showToast('Date invalide', 'error');
+    return;
+  }
+  if (!recipe.cookedHistory) recipe.cookedHistory = [];
+  recipe.cookedHistory.push(ts);
+  recipe.cookedHistory.sort((a, b) => a - b);
+  updateRecipeAndSync(recipe, 'date cuisson ajoutée');
+  if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
+    state.currentRecipe.cookedHistory = recipe.cookedHistory;
+    renderRecipeDetail(recipe);
+  }
+  manageCookedHistory(id); // rafraîchir le modal
+  showToast('Date ajoutée ✓', 'success');
+}
+window.addCookedDate = addCookedDate;
+
+function removeCookedDate(id, ts) {
+  const recipe = state.recipes.find(r => r.id === id);
+  if (!recipe || !recipe.cookedHistory) return;
+  if (!confirm('Supprimer cette date ?')) return;
+  recipe.cookedHistory = recipe.cookedHistory.filter(t => t !== ts);
+  updateRecipeAndSync(recipe, 'date cuisson supprimée');
+  if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
+    state.currentRecipe.cookedHistory = recipe.cookedHistory;
+    renderRecipeDetail(recipe);
+  }
+  manageCookedHistory(id); // rafraîchir le modal
+  showToast('Date supprimée');
+}
+window.removeCookedDate = removeCookedDate;
+
 function editPersonalNotes(id) {
   const recipe = state.recipes.find(r => r.id === id);
   if (!recipe) return;
@@ -1411,6 +1792,302 @@ async function processImageToDataUrl(file, maxSize, quality) {
     reader.readAsDataURL(file);
   });
 }
+
+// ============================================
+// DIET TAGS (régimes alimentaires prédéfinis)
+// ============================================
+
+function renderDietTags(recipe) {
+  const dietTags = recipe.dietTags || [];
+  if (dietTags.length === 0) {
+    return `<button class="recipe-diet-tags-empty" onclick="openDietTagsEditor('${recipe.id}')">🍽️ + Régime alimentaire</button>`;
+  }
+  const chips = dietTags.map(id => {
+    const tag = DIET_TAGS.find(t => t.id === id);
+    if (!tag) return '';
+    return `<span class="recipe-diet-tag" style="background:${tag.color}25; color:${tag.color}; border-color:${tag.color}55;">${tag.emoji} ${escapeHtml(tag.label)}</span>`;
+  }).join('');
+  return `<div class="recipe-diet-tags" onclick="openDietTagsEditor('${recipe.id}')">${chips}<button class="recipe-tag-edit">✏️</button></div>`;
+}
+
+function openDietTagsEditor(id) {
+  const recipe = state.recipes.find(r => r.id === id);
+  if (!recipe) return;
+  if (!recipe.dietTags) recipe.dietTags = [];
+
+  const html = `
+    <div class="modal-header">
+      <h2>Régime alimentaire</h2>
+      <button class="modal-close" onclick="closeDietTagsEditor()" aria-label="Fermer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="diet-tags-editor-body">
+      <p class="diet-tags-editor-hint">Cochez les régimes auxquels cette recette correspond. <span class="diet-tags-fodmap-hint">Les tags Low/High FODMAP sont calculés automatiquement depuis les ingrédients.</span></p>
+      <div class="diet-tags-grid">
+        ${DIET_TAGS.map(tag => {
+          const checked = recipe.dietTags.includes(tag.id);
+          const isFodmap = tag.id === 'low-fodmap' || tag.id === 'high-fodmap';
+          return `
+            <label class="diet-tag-option ${checked ? 'checked' : ''} ${isFodmap ? 'is-auto' : ''}" style="--diet-color: ${tag.color}">
+              <input type="checkbox" data-diet-id="${tag.id}" ${checked ? 'checked' : ''}>
+              <span class="diet-tag-emoji">${tag.emoji}</span>
+              <span class="diet-tag-label">${tag.label}${isFodmap ? ' <small>(auto)</small>' : ''}</span>
+            </label>
+          `;
+        }).join('')}
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeDietTagsEditor()">Annuler</button>
+      <button class="btn-primary" onclick="saveDietTags('${id}')">Enregistrer</button>
+    </div>
+  `;
+
+  let modal = document.getElementById('diet-tags-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'diet-tags-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = '<div class="modal-backdrop"></div><div class="modal-content"></div>';
+    document.body.appendChild(modal);
+    modal.querySelector('.modal-backdrop').addEventListener('click', closeDietTagsEditor);
+  }
+  modal.querySelector('.modal-content').innerHTML = html;
+  modal.classList.remove('hidden');
+  // Toggle visuel des labels
+  modal.querySelectorAll('.diet-tag-option input').forEach(input => {
+    input.addEventListener('change', e => {
+      e.target.closest('.diet-tag-option').classList.toggle('checked', e.target.checked);
+    });
+  });
+  pushOverlay('diet-tags');
+}
+window.openDietTagsEditor = openDietTagsEditor;
+
+function closeDietTagsEditor(skipHistory) {
+  const modal = document.getElementById('diet-tags-modal');
+  if (!modal || modal.classList.contains('hidden')) return;
+  if (!skipHistory) {
+    history.back();
+    return;
+  }
+  modal.classList.add('hidden');
+}
+window.closeDietTagsEditor = closeDietTagsEditor;
+
+function saveDietTags(id) {
+  const recipe = state.recipes.find(r => r.id === id);
+  if (!recipe) return;
+  const modal = document.getElementById('diet-tags-modal');
+  const selected = [];
+  modal.querySelectorAll('.diet-tag-option input:checked').forEach(input => {
+    selected.push(input.dataset.dietId);
+  });
+  recipe.dietTags = selected;
+  updateRecipeAndSync(recipe, 'régimes modifiés');
+  closeDietTagsEditor();
+  if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
+    state.currentRecipe.dietTags = recipe.dietTags;
+    renderRecipeDetail(recipe);
+  }
+  showToast('Régimes enregistrés ✓', 'success');
+}
+window.saveDietTags = saveDietTags;
+
+// ============================================
+// SOURCE DE LA RECETTE
+// ============================================
+
+function renderRecipeSource(recipe) {
+  const src = recipe.source;
+  if (!src || !src.type) {
+    return `<button class="recipe-source-empty" onclick="openSourceEditor('${recipe.id}')">🔗 + Source de la recette</button>`;
+  }
+  let icon = '🔗', mainText = '', sub = '';
+  if (src.type === 'book') {
+    icon = '📖';
+    mainText = src.title || 'Livre';
+    sub = src.page ? `page ${src.page}` : '';
+  } else if (src.type === 'web') {
+    icon = '🌐';
+    mainText = src.siteName || extractDomain(src.url) || 'Lien web';
+    sub = '';
+  } else if (src.type === 'instagram') {
+    icon = '📷';
+    mainText = src.account ? '@' + src.account.replace(/^@/, '') : 'Instagram';
+    sub = '';
+  }
+  const url = (src.type === 'web' || src.type === 'instagram') ? src.url : null;
+  const linkPart = url
+    ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="recipe-source-link" onclick="event.stopPropagation()">Ouvrir →</a>`
+    : '';
+  return `<div class="recipe-source-card" onclick="openSourceEditor('${recipe.id}')">
+    <span class="recipe-source-icon">${icon}</span>
+    <div class="recipe-source-text">
+      <div class="recipe-source-main">${escapeHtml(mainText)}</div>
+      ${sub ? `<div class="recipe-source-sub">${escapeHtml(sub)}</div>` : ''}
+    </div>
+    ${linkPart}
+    <button class="recipe-tag-edit">✏️</button>
+  </div>`;
+}
+
+function extractDomain(url) {
+  if (!url) return '';
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function openSourceEditor(id) {
+  const recipe = state.recipes.find(r => r.id === id);
+  if (!recipe) return;
+  const src = recipe.source || { type: null };
+
+  const html = `
+    <div class="modal-header">
+      <h2>Source de la recette</h2>
+      <button class="modal-close" onclick="closeSourceEditor()" aria-label="Fermer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="source-editor-body">
+      <div class="source-type-tabs">
+        <button class="source-type-tab ${!src.type || src.type === 'book' ? 'active' : ''}" data-source-type="book">📖 Livre</button>
+        <button class="source-type-tab ${src.type === 'web' ? 'active' : ''}" data-source-type="web">🌐 Site web</button>
+        <button class="source-type-tab ${src.type === 'instagram' ? 'active' : ''}" data-source-type="instagram">📷 Instagram</button>
+      </div>
+
+      <div class="source-fields" data-source-fields="book" ${src.type !== 'book' && src.type ? 'hidden' : ''}>
+        <label class="source-field-label">Titre du livre</label>
+        <input type="text" id="source-book-title" placeholder="Ex: Le grand livre de Pâques" value="${escapeHtml(src.title || '')}">
+        <label class="source-field-label">Page</label>
+        <input type="text" id="source-book-page" inputmode="numeric" placeholder="Ex: 42" value="${escapeHtml(src.page != null ? String(src.page) : '')}">
+      </div>
+
+      <div class="source-fields" data-source-fields="web" ${src.type !== 'web' ? 'hidden' : ''}>
+        <label class="source-field-label">URL</label>
+        <input type="url" id="source-web-url" placeholder="https://..." value="${escapeHtml(src.type === 'web' ? (src.url || '') : '')}" autocapitalize="off" spellcheck="false">
+        <label class="source-field-label">Nom du site (optionnel)</label>
+        <input type="text" id="source-web-name" placeholder="Ex: Marmiton" value="${escapeHtml(src.type === 'web' ? (src.siteName || '') : '')}">
+      </div>
+
+      <div class="source-fields" data-source-fields="instagram" ${src.type !== 'instagram' ? 'hidden' : ''}>
+        <label class="source-field-label">URL du post</label>
+        <input type="url" id="source-insta-url" placeholder="https://www.instagram.com/p/..." value="${escapeHtml(src.type === 'instagram' ? (src.url || '') : '')}" autocapitalize="off" spellcheck="false">
+        <label class="source-field-label">Compte (sans @)</label>
+        <input type="text" id="source-insta-account" placeholder="Ex: cyril_lignac" value="${escapeHtml(src.type === 'instagram' ? (src.account || '') : '')}" autocapitalize="off" spellcheck="false">
+      </div>
+    </div>
+    <div class="modal-footer">
+      ${src.type ? `<button class="btn-danger-link" onclick="clearSource('${id}')">Supprimer</button>` : ''}
+      <button class="btn-secondary" onclick="closeSourceEditor()">Annuler</button>
+      <button class="btn-primary" onclick="saveSource('${id}')">Enregistrer</button>
+    </div>
+  `;
+
+  let modal = document.getElementById('source-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'source-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = '<div class="modal-backdrop"></div><div class="modal-content"></div>';
+    document.body.appendChild(modal);
+    modal.querySelector('.modal-backdrop').addEventListener('click', closeSourceEditor);
+  }
+  modal.querySelector('.modal-content').innerHTML = html;
+  modal.classList.remove('hidden');
+
+  // Switch entre les onglets
+  modal.querySelectorAll('.source-type-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      modal.querySelectorAll('.source-type-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const type = btn.dataset.sourceType;
+      modal.querySelectorAll('.source-fields').forEach(fields => {
+        fields.hidden = fields.dataset.sourceFields !== type;
+      });
+    });
+  });
+  pushOverlay('source');
+}
+window.openSourceEditor = openSourceEditor;
+
+function closeSourceEditor(skipHistory) {
+  const modal = document.getElementById('source-modal');
+  if (!modal || modal.classList.contains('hidden')) return;
+  if (!skipHistory) {
+    history.back();
+    return;
+  }
+  modal.classList.add('hidden');
+}
+window.closeSourceEditor = closeSourceEditor;
+
+function saveSource(id) {
+  const recipe = state.recipes.find(r => r.id === id);
+  if (!recipe) return;
+  const modal = document.getElementById('source-modal');
+  const activeType = modal.querySelector('.source-type-tab.active')?.dataset.sourceType || 'book';
+
+  let source = null;
+  if (activeType === 'book') {
+    const title = document.getElementById('source-book-title').value.trim();
+    const pageStr = document.getElementById('source-book-page').value.trim();
+    if (title) {
+      source = { type: 'book', title };
+      if (pageStr) source.page = Number(pageStr) || pageStr;
+    }
+  } else if (activeType === 'web') {
+    const url = document.getElementById('source-web-url').value.trim();
+    const siteName = document.getElementById('source-web-name').value.trim();
+    if (url) {
+      source = { type: 'web', url };
+      if (siteName) source.siteName = siteName;
+    }
+  } else if (activeType === 'instagram') {
+    const url = document.getElementById('source-insta-url').value.trim();
+    const account = document.getElementById('source-insta-account').value.trim().replace(/^@/, '');
+    if (url || account) {
+      source = { type: 'instagram' };
+      if (url) source.url = url;
+      if (account) source.account = account;
+    }
+  }
+
+  if (!source) {
+    showToast('Remplissez au moins un champ', 'error');
+    return;
+  }
+
+  recipe.source = source;
+  updateRecipeAndSync(recipe, 'source modifiée');
+  closeSourceEditor();
+  if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
+    state.currentRecipe.source = source;
+    renderRecipeDetail(recipe);
+  }
+  showToast('Source enregistrée ✓', 'success');
+}
+window.saveSource = saveSource;
+
+function clearSource(id) {
+  if (!confirm('Supprimer la source de cette recette ?')) return;
+  const recipe = state.recipes.find(r => r.id === id);
+  if (!recipe) return;
+  recipe.source = null;
+  updateRecipeAndSync(recipe, 'source supprimée');
+  closeSourceEditor();
+  if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
+    state.currentRecipe.source = null;
+    renderRecipeDetail(recipe);
+  }
+  showToast('Source supprimée');
+}
+window.clearSource = clearSource;
 
 // ============================================
 // MODE CUISINE (pas-à-pas plein écran, anti-veille)
@@ -2371,6 +3048,12 @@ IMPORTANT:
 - Si tu as des images, analyse-les pour identifier les ingrédients, étapes, et le titre.
 - Si la description est claire, génère la recette directement.
 
+MULTI-RECETTES (économie de tokens) :
+- Si l'utilisateur demande explicitement PLUSIEURS recettes en un seul message (ex: "Crée-moi 3 recettes : pizza, lasagnes, tiramisu" OU "Voici 5 recettes à enregistrer..."), tu peux les renvoyer toutes dans le même appel.
+- Format : un bloc <recipe>...</recipe> par recette, séparés par un saut de ligne. L'app extraira chacun individuellement.
+- Chaque recette doit être complète et autonome (avec son propre schéma JSON complet).
+- Si l'utilisateur n'a pas explicitement demandé plusieurs recettes, n'en renvoie qu'UNE seule.
+
 Format de sortie: ENTOURE TON JSON DE BALISES <recipe>...</recipe>
 
 Schéma JSON:
@@ -2383,6 +3066,8 @@ Schéma JSON:
   "prepTime": 15,
   "cookTime": 30,
   "tags": ["rapide", "végétarien"],
+  "dietTags": ["sans-lactose"],
+  "source": { "type": "web", "url": "https://...", "siteName": "Marmiton" },
   "ingredients": [
     { "id": "ing1", "name": "Nom de l'ingrédient", "amount": 200, "unit": "g" }
   ],
@@ -2397,8 +3082,21 @@ Règles GÉNÉRALES:
 - "baseServings" est le nombre de portions. Par défaut 4 si non précisé.
 - "prepTime" en MINUTES (préparation, hors cuisson). null si non précisé.
 - "cookTime" en MINUTES (cuisson). null si non précisé.
-- "tags" : 0 à 4 tags pertinents. Suggestions : "rapide" (<30min total), "facile", "festif", "réconfortant", "végétarien", "végan", "sans gluten", "sans lactose", "été", "hiver", "économique", "kids-friendly". N'invente pas de tags trop spécifiques.
-- "ingredientIds" lie chaque étape à ses ingrédients (avec leurs IDs). Lier autant que possible.
+- "tags" : 0 à 4 tags pertinents. Suggestions : "rapide" (<30min total), "facile", "festif", "réconfortant", "été", "hiver", "économique", "kids-friendly". N'invente pas de tags trop spécifiques.
+- "dietTags" : tags RÉGIME parmi cette liste EXACTE uniquement : "vegan", "vegetarien", "sans-gluten", "sans-lactose", "low-fodmap", "high-fodmap", "halal", "casher", "sans-sucre", "keto". Ne mets QUE ceux qui s'appliquent objectivement.
+  Concernant les FODMAP : ne renseigne PAS "low-fodmap" / "high-fodmap" toi-même, l'app les calcule automatiquement à partir des ingrédients. Tu peux les omettre.
+- "source" : si tu trouves une source clairement identifiable (URL fournie par l'utilisateur, nom de livre + page, compte Instagram), remplis cet objet. Types possibles : "web" (siteName + url), "book" (title + page), "instagram" (account + url). null si non identifiable.
+- "ingredientIds" lie chaque étape à ses ingrédients (avec leurs IDs).
+
+Règles CRITIQUES pour LIER les étapes aux ingrédients (ingredientIds):
+- Quand une étape mentionne un ingrédient, MÊME EN VERSION COURTE OU PARTIELLE, tu DOIS le lier à son ingredientId.
+- Exemple : ingrédient "Farine T45 (500g)" → étape "Mélanger la farine avec l'eau" → DOIT inclure l'id de la farine.
+- Exemple : ingrédient "Beurre demi-sel" → étape "Ajouter le beurre" → DOIT lier.
+- Exemple : ingrédient "Tomates cerises" → étape "Disposer les tomates" → DOIT lier.
+- Si une étape mentionne plusieurs ingrédients ("mélanger farine, sucre et œufs"), TOUS doivent être liés.
+- Si un mot dans une étape correspond partiellement à un ingrédient (le nom complet contient ce mot), c'est UN MATCH.
+- Cas particulier : "ail" dans une étape lie à "gousses d'ail" ou "ail rose". "Lait" lie à "lait demi-écrémé". "Huile" lie à "huile d'olive" sauf si plusieurs huiles sont listées.
+- N'omets PAS un ingredientId même si tu juges l'étape "évidente". Tous les ingrédients utilisés dans une étape doivent y figurer.
 - "emoji" un seul emoji représentatif.
 - Avant le JSON, écris UNE phrase courte (max 20 mots) pour confirmer ce que tu as trouvé.
 - Ne mets RIEN après le JSON.
@@ -2517,17 +3215,36 @@ async function callClaudeAPI(messages, options) {
 }
 
 function extractRecipeFromResponse(text) {
-  const match = text.match(/<recipe>([\s\S]*?)<\/recipe>/);
-  if (!match) return { text: text, recipe: null };
+  // Pour rétrocompat : extrait juste la première recette
+  const results = extractAllRecipesFromResponse(text);
+  return {
+    text: results.text,
+    recipe: results.recipes[0] || null
+  };
+}
 
-  let recipeJson = match[1].trim();
-  // Remove markdown code fences if any
-  recipeJson = recipeJson.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
+// Parse 1 OU plusieurs blocs <recipe>...</recipe> dans la réponse
+function extractAllRecipesFromResponse(text) {
+  const matches = [...text.matchAll(/<recipe>([\s\S]*?)<\/recipe>/g)];
+  if (matches.length === 0) return { text, recipes: [] };
 
+  const recipes = [];
+  for (const m of matches) {
+    const parsed = parseRecipeJson(m[1]);
+    if (parsed) recipes.push(parsed);
+  }
+
+  // Texte nettoyé : tout sans les blocs <recipe>
+  const cleanText = text.replace(/<recipe>[\s\S]*?<\/recipe>/g, '').trim();
+  return { text: cleanText, recipes };
+}
+
+function parseRecipeJson(rawJson) {
+  let recipeJson = rawJson.trim().replace(/^```json\s*/i, '').replace(/```$/, '').trim();
   try {
     const recipe = JSON.parse(recipeJson);
     if (!recipe.title || !Array.isArray(recipe.ingredients) || !Array.isArray(recipe.steps)) {
-      return { text: text.replace(/<recipe>[\s\S]*?<\/recipe>/, '').trim(), recipe: null };
+      return null;
     }
     recipe.ingredients = recipe.ingredients.map((ing, i) => ({
       id: ing.id || 'ing' + (i + 1),
@@ -2542,16 +3259,83 @@ function extractRecipeFromResponse(text) {
     }));
     const validCats = RECIPE_CATEGORIES.map(c => c.id);
     recipe.category = validCats.includes(recipe.category) ? recipe.category : 'plat';
-    // Nouveaux champs
     recipe.prepTime = recipe.prepTime != null && !isNaN(Number(recipe.prepTime)) ? Number(recipe.prepTime) : null;
     recipe.cookTime = recipe.cookTime != null && !isNaN(Number(recipe.cookTime)) ? Number(recipe.cookTime) : null;
     recipe.tags = Array.isArray(recipe.tags) ? recipe.tags.slice(0, 6).map(t => String(t).toLowerCase()) : [];
-    const cleanText = text.replace(/<recipe>[\s\S]*?<\/recipe>/, '').trim();
-    return { text: cleanText, recipe };
+
+    const VALID_DIETS = ['vegan', 'vegetarien', 'sans-gluten', 'sans-lactose', 'low-fodmap', 'high-fodmap', 'halal', 'casher', 'sans-sucre', 'keto'];
+    let dietTags = Array.isArray(recipe.dietTags)
+      ? recipe.dietTags.map(t => String(t).toLowerCase())
+      : [];
+    // Migration : ancien tag 'fodmap' (sans précision) → on l'ignore (sera recalculé)
+    dietTags = dietTags.filter(t => t !== 'fodmap');
+    // Valider contre la whitelist
+    dietTags = dietTags.filter(t => VALID_DIETS.includes(t));
+
+    // Calcul auto FODMAP si l'utilisateur n'a pas explicitement choisi un tag FODMAP
+    const hasFodmapTag = dietTags.some(t => t === 'low-fodmap' || t === 'high-fodmap');
+    if (!hasFodmapTag && typeof calculateFodmapTags === 'function') {
+      const autoTags = calculateFodmapTags(recipe.ingredients);
+      dietTags = dietTags.concat(autoTags);
+    }
+    recipe.dietTags = dietTags;
+
+    if (recipe.source && typeof recipe.source === 'object') {
+      const validTypes = ['web', 'book', 'instagram'];
+      if (!validTypes.includes(recipe.source.type)) recipe.source = null;
+    } else {
+      recipe.source = null;
+    }
+
+    // Fallback : matching textuel pour combler les ingredientIds
+    recipe.steps = enrichStepIngredientIds(recipe.steps, recipe.ingredients);
+
+    return recipe;
   } catch (e) {
     console.error('Recipe parse error:', e);
-    return { text: text.replace(/<recipe>[\s\S]*?<\/recipe>/, '').trim(), recipe: null };
+    return null;
   }
+}
+
+// Améliore le matching ingrédient ↔ étape par recherche textuelle
+// Capte les cas où Claude omettrait un id (ex: étape "Mélanger la farine" + ingrédient "Farine T45" → match)
+function enrichStepIngredientIds(steps, ingredients) {
+  if (!steps || !ingredients) return steps;
+
+  // Liste des mots fréquents à ignorer pour le matching (sinon "huile" match dans "feuille", etc.)
+  const STOP_WORDS = new Set(['de', 'la', 'le', 'les', 'du', 'des', 'un', 'une', 'à', 'au', 'et', 'ou', 'avec', 'sans', 'pour', 'dans', 'sur', 'en', 'cl', 'ml', 'l', 'g', 'kg']);
+
+  // Pré-calcul : pour chaque ingrédient, extraire les mots-clés significatifs
+  const ingredientKeywords = ingredients.map(ing => {
+    const normalized = (ing.name || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // sans accents
+      .replace(/\([^)]*\)/g, ' ') // sans parenthèses
+      .replace(/[^a-z0-9\s'-]/g, ' '); // alphanum + espaces uniquement
+    const words = normalized.split(/\s+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
+    return { id: ing.id, words, fullName: normalized.trim() };
+  });
+
+  return steps.map(step => {
+    const stepText = (step.text || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s'-]/g, ' ');
+    const existingIds = new Set(step.ingredientIds || []);
+
+    for (const ing of ingredientKeywords) {
+      if (existingIds.has(ing.id)) continue; // déjà présent
+      if (ing.words.length === 0) continue;
+
+      // Match si AU MOINS un des mots-clés significatifs apparaît comme mot entier dans l'étape
+      const matched = ing.words.some(w => {
+        const regex = new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}s?\\b`, 'i');
+        return regex.test(stepText);
+      });
+
+      if (matched) existingIds.add(ing.id);
+    }
+
+    return { ...step, ingredientIds: Array.from(existingIds) };
+  });
 }
 
 async function sendChat() {
@@ -2612,7 +3396,7 @@ async function sendChat() {
     const responseText = await callClaudeAPI(state.chatHistory, { enableWebSearch: useWebSearch });
     hideLoadingMessage();
 
-    const { text: cleanText, recipe } = extractRecipeFromResponse(responseText);
+    const { text: cleanText, recipes } = extractAllRecipesFromResponse(responseText);
 
     state.chatHistory.push({ role: 'assistant', content: responseText });
 
@@ -2620,14 +3404,26 @@ async function sendChat() {
       addChatMessage('assistant', cleanText);
     }
 
-    if (recipe) {
-      // Auto-calculate seasonality
+    if (recipes.length > 1) {
+      // Mode multi-recettes : on en stocke plusieurs en file et on les valide une par une
+      state.pendingRecipesQueue = recipes.map(r => {
+        r.months = calculateSeasonality(r.ingredients);
+        r.id = uid();
+        r.createdAt = Date.now();
+        return r;
+      });
+      addChatMessage('assistant', `📋 J'ai extrait ${recipes.length} recettes. Je vais te les présenter une par une pour validation.`);
+      setTimeout(() => {
+        const next = state.pendingRecipesQueue.shift();
+        state.pendingRecipe = next;
+        openValidationModal(next);
+      }, 800);
+    } else if (recipes.length === 1) {
+      const recipe = recipes[0];
       recipe.months = calculateSeasonality(recipe.ingredients);
       recipe.id = uid();
       recipe.createdAt = Date.now();
       state.pendingRecipe = recipe;
-
-      // Open validation modal after a brief delay so user sees the message
       setTimeout(() => openValidationModal(recipe), 600);
     }
   } catch (e) {
@@ -2851,6 +3647,117 @@ window.removeValidationIngredient = removeValidationIngredient;
 window.addValidationStep = addValidationStep;
 window.removeValidationStep = removeValidationStep;
 
+// Template HTML de l'écran d'accueil du chat (réutilisable pour le reset)
+const CHAT_WELCOME_HTML = `
+  <div class="chat-welcome">
+    <div class="chat-welcome-blob"></div>
+    <h2>Créez une recette</h2>
+    <p>Avec l'aide de l'IA ou en saisie manuelle, votre choix.</p>
+    <div class="chat-suggestions-label">Avec l'IA</div>
+    <div class="chat-suggestions">
+      <button class="chat-suggestion" data-suggest="📹 Coller un lien vidéo ou article">
+        <span>📹</span><span>Coller un lien vidéo ou article</span>
+      </button>
+      <button class="chat-suggestion" data-suggest="📸 Joindre des photos d'une recette">
+        <span>📸</span><span>Joindre des photos d'une recette</span>
+      </button>
+      <button class="chat-suggestion" data-suggest="✍️ Décrire une recette">
+        <span>✍️</span><span>Décrire une recette en texte libre</span>
+      </button>
+      <button class="chat-suggestion" id="generate-menu-btn">
+        <span>🍱</span><span>Suggérer un menu depuis ma bibliothèque</span>
+      </button>
+    </div>
+    <div class="chat-suggestions-divider"><span>ou</span></div>
+    <div class="chat-suggestions">
+      <button class="chat-suggestion chat-suggestion-manual" id="manual-create-btn">
+        <span>✏️</span><span>Saisir une recette à la main</span>
+      </button>
+    </div>
+  </div>
+`;
+
+// Reset complet du chat : retour à l'écran initial vierge
+function resetChatView() {
+  state.chatHistory = [];
+  state.chatAttachments = [];
+  state.pendingRecipe = null;
+  state.editingRecipeId = null;
+
+  const msgs = document.getElementById('chat-messages');
+  if (msgs) msgs.innerHTML = CHAT_WELCOME_HTML;
+
+  const input = document.getElementById('chat-input');
+  if (input) {
+    input.value = '';
+    input.style.height = 'auto';
+  }
+
+  const attachments = document.getElementById('chat-attachments');
+  if (attachments) {
+    attachments.innerHTML = '';
+    attachments.classList.add('hidden');
+  }
+
+  rebindChatSuggestions();
+}
+window.resetChatView = resetChatView;
+
+// ============================================
+// CLAVIER VIRTUEL : repositionner la barre input
+// ============================================
+// Problème : avec position:fixed bottom, la barre chat se retrouve cachée sous
+// le clavier virtuel (iOS Safari et Android Chrome). Solution : on écoute
+// visualViewport et on ajuste dynamiquement la position avec une CSS variable.
+
+function initKeyboardHandling() {
+  if (!window.visualViewport) return;
+
+  const root = document.documentElement;
+  let lastOffset = 0;
+
+  const update = () => {
+    const vv = window.visualViewport;
+    // Espace en bas masqué par le clavier (positif quand clavier ouvert)
+    const kbHeight = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    
+    if (kbHeight > 100) {
+      // Clavier ouvert : on colle la barre input à `kbHeight` du bas pour qu'elle soit juste au-dessus du clavier
+      root.style.setProperty('--input-bar-bottom', `${kbHeight}px`);
+      document.body.classList.add('keyboard-open');
+    } else {
+      // Clavier fermé : barre juste au-dessus de la nav
+      root.style.setProperty('--input-bar-bottom', 'var(--nav-h)');
+      document.body.classList.remove('keyboard-open');
+    }
+    lastOffset = kbHeight;
+  };
+
+  window.visualViewport.addEventListener('resize', update);
+  window.visualViewport.addEventListener('scroll', update);
+  update();
+}
+
+function rebindChatSuggestions() {
+  document.querySelectorAll('.chat-suggestion[data-suggest]').forEach(btn => {
+    btn.onclick = () => {
+      const input = document.getElementById('chat-input');
+      input.value = btn.dataset.suggest;
+      input.focus();
+    };
+  });
+  const manualBtn = document.getElementById('manual-create-btn');
+  if (manualBtn) manualBtn.onclick = createManualRecipe;
+  const menuBtn = document.getElementById('generate-menu-btn');
+  if (menuBtn) {
+    menuBtn.onclick = (e) => {
+      e.stopPropagation();
+      const occasion = prompt("Pour quelle occasion ? (ex: \"menu végétarien rapide\", \"dîner d'été pour 6\", \"soirée raclette\")", 'Menu équilibré pour ce soir');
+      if (occasion) generateMenu(occasion);
+    };
+  }
+}
+
 function saveValidatedRecipe() {
   const title = document.getElementById('val-title').value.trim();
   if (!title) {
@@ -2953,21 +3860,16 @@ function saveValidatedRecipe() {
     state.editingRecipeId = null;
     state.currentRecipe = { ...recipe, currentServings: recipe.baseServings };
     navigateTo('recipe', recipe);
+  } else if (state.pendingRecipesQueue && state.pendingRecipesQueue.length > 0) {
+    // File de recettes en attente (multi-recettes en un seul appel IA) : passer à la suivante
+    closeValidationModal(true);
+    const next = state.pendingRecipesQueue.shift();
+    state.pendingRecipe = next;
+    showToast(`Suivante : ${next.title}`, 'success');
+    setTimeout(() => openValidationModal(next), 400);
   } else {
-    // Nouvelle recette : reset chat + retour bibliothèque
-    state.chatHistory = [];
-    document.getElementById('chat-messages').innerHTML = `
-      <div class="chat-welcome">
-        <div class="chat-welcome-blob"></div>
-        <h2>Recette créée !</h2>
-        <p>Vous pouvez la retrouver dans votre bibliothèque, ou créer une nouvelle recette.</p>
-        <div class="chat-suggestions">
-          <button class="chat-suggestion" onclick="navigateTo('library')">
-            <span>📚</span><span>Voir ma bibliothèque</span>
-          </button>
-        </div>
-      </div>
-    `;
+    // Nouvelle recette : reset complet du chat pour pouvoir en créer une autre
+    resetChatView();
     navigateTo('library');
   }
 }
@@ -2976,7 +3878,11 @@ function closeValidationModal(skipHistory) {
   const modal = document.getElementById('validation-modal');
   if (modal.classList.contains('hidden')) return;
   if (!skipHistory) {
-    // Appelé depuis un clic UI : on fait un history.back() qui déclenchera popstate → handleBack → fermeture
+    // Si on est au milieu d'une file multi-recettes, prévenir l'utilisateur
+    if (state.pendingRecipesQueue && state.pendingRecipesQueue.length > 0) {
+      if (!confirm(`Il reste ${state.pendingRecipesQueue.length} recette(s) à valider. Annuler tout ?`)) return;
+      state.pendingRecipesQueue = [];
+    }
     history.back();
     return;
   }
@@ -3094,6 +4000,320 @@ async function forceUpdate() {
   }
 }
 window.forceUpdate = forceUpdate;
+
+// ============================================
+// PLANNING DES REPAS (2 semaines)
+// ============================================
+
+// Décalage en jours par rapport à la semaine courante (0 = cette semaine et suivante, 1 = +1 semaine, etc.)
+let _planningWeekOffset = 0;
+
+const MEAL_SLOTS = [
+  { id: 'midi', label: 'Midi', emoji: '☀️' },
+  { id: 'soir', label: 'Soir', emoji: '🌙' }
+];
+
+const DAY_LABELS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+const DAY_LABELS_LONG = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+
+// Retourne le lundi de la semaine de la date donnée
+function getMonday(d) {
+  const date = new Date(d);
+  const day = date.getDay() || 7; // 0 (dim) → 7
+  if (day !== 1) date.setDate(date.getDate() - (day - 1));
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+// Retourne les 14 jours du planning (2 semaines) en partant du lundi de la semaine courante + offset
+function getPlanningDays() {
+  const monday = getMonday(new Date());
+  monday.setDate(monday.getDate() + _planningWeekOffset * 7);
+  const days = [];
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(monday);
+    d.setDate(d.getDate() + i);
+    days.push(d);
+  }
+  return days;
+}
+
+function renderPlanning() {
+  const grid = document.getElementById('planning-grid');
+  if (!grid) return;
+  const days = getPlanningDays();
+  const today = formatPlanningDate(new Date());
+
+  // Période affichée (header)
+  const period = document.getElementById('planning-period');
+  if (period) {
+    const start = days[0];
+    const end = days[13];
+    const sameMonth = start.getMonth() === end.getMonth();
+    const startFmt = start.toLocaleDateString('fr-FR', { day: 'numeric', month: sameMonth ? undefined : 'short' });
+    const endFmt = end.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+    period.textContent = `${startFmt} → ${endFmt}`;
+  }
+
+  // Construction de la grille : 1 carte par jour, avec les 2 slots (midi/soir) à l'intérieur
+  let html = '';
+
+  // Séparer en 2 semaines visuellement
+  for (let weekIdx = 0; weekIdx < 2; weekIdx++) {
+    const weekDays = days.slice(weekIdx * 7, weekIdx * 7 + 7);
+    const weekLabel = weekIdx === 0 ? 'Cette semaine' : 'Semaine suivante';
+    html += `<div class="planning-week"><div class="planning-week-label">${weekLabel}</div>`;
+
+    for (const d of weekDays) {
+      const dateStr = formatPlanningDate(d);
+      const isToday = dateStr === today;
+      const isPast = dateStr < today;
+      const dayLabel = DAY_LABELS_LONG[(d.getDay() + 6) % 7];
+      const dayNum = d.getDate();
+      const monthShort = d.toLocaleDateString('fr-FR', { month: 'short' });
+
+      html += `<div class="planning-day ${isToday ? 'is-today' : ''} ${isPast ? 'is-past' : ''}">
+        <div class="planning-day-header">
+          <span class="planning-day-name">${dayLabel}</span>
+          <span class="planning-day-date">${dayNum} ${monthShort}</span>
+        </div>
+        <div class="planning-day-slots">`;
+
+      for (const slot of MEAL_SLOTS) {
+        const key = `${dateStr}-${slot.id}`;
+        const entry = state.planning[key];
+        if (entry && entry.recipeId) {
+          const recipe = state.recipes.find(r => r.id === entry.recipeId);
+          if (recipe) {
+            html += `<div class="planning-slot is-filled" onclick="openPlanningSlot('${dateStr}', '${slot.id}')">
+              <div class="planning-slot-label">${slot.emoji} ${slot.label}</div>
+              <div class="planning-slot-recipe">
+                <span class="planning-slot-emoji">${recipe.photo ? `<img src="${recipe.photo}" alt="">` : (recipe.emoji || '🍽️')}</span>
+                <span class="planning-slot-title">${escapeHtml(recipe.title)}</span>
+                <span class="planning-slot-servings">${entry.servings || recipe.baseServings} pers.</span>
+              </div>
+              <button class="planning-slot-remove" onclick="event.stopPropagation(); removeFromPlanning('${dateStr}', '${slot.id}')" aria-label="Retirer">×</button>
+            </div>`;
+          } else {
+            // recette supprimée
+            html += `<div class="planning-slot is-empty" onclick="openPlanningSlot('${dateStr}', '${slot.id}')">
+              <div class="planning-slot-label">${slot.emoji} ${slot.label}</div>
+              <div class="planning-slot-add">Recette introuvable, retoucher</div>
+            </div>`;
+          }
+        } else {
+          html += `<div class="planning-slot is-empty" onclick="openPlanningSlot('${dateStr}', '${slot.id}')">
+            <div class="planning-slot-label">${slot.emoji} ${slot.label}</div>
+            <div class="planning-slot-add">+ Choisir une recette</div>
+          </div>`;
+        }
+      }
+
+      html += `</div></div>`;
+    }
+    html += `</div>`;
+  }
+
+  grid.innerHTML = html;
+}
+
+function openPlanningSlot(dateStr, slotId) {
+  // Modal pour choisir une recette
+  const html = `
+    <div class="modal-header">
+      <h2>Planifier ce repas</h2>
+      <button class="modal-close" onclick="closePlanningSlotPicker()" aria-label="Fermer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="planning-picker-body">
+      <input type="search" id="planning-search" class="search-input" placeholder="Rechercher une recette...">
+      <div id="planning-recipes-list" class="planning-recipes-list"></div>
+    </div>
+  `;
+
+  let modal = document.getElementById('planning-picker-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'planning-picker-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = '<div class="modal-backdrop"></div><div class="modal-content"></div>';
+    document.body.appendChild(modal);
+    modal.querySelector('.modal-backdrop').addEventListener('click', closePlanningSlotPicker);
+  }
+  modal.querySelector('.modal-content').innerHTML = html;
+  modal.classList.remove('hidden');
+
+  // Stocker le contexte
+  modal.dataset.dateStr = dateStr;
+  modal.dataset.slotId = slotId;
+
+  // Render initial des recettes
+  renderPlanningPickerList('');
+  document.getElementById('planning-search').addEventListener('input', e => {
+    renderPlanningPickerList(e.target.value);
+  });
+  pushOverlay('planning-picker');
+}
+window.openPlanningSlot = openPlanningSlot;
+
+function renderPlanningPickerList(query) {
+  const wrap = document.getElementById('planning-recipes-list');
+  if (!wrap) return;
+  const q = (query || '').toLowerCase().trim();
+  let recipes = [...state.recipes];
+  if (q) {
+    recipes = recipes.filter(r =>
+      r.title.toLowerCase().includes(q) ||
+      (r.tags || []).some(t => t.includes(q))
+    );
+  }
+  // Trier par favoris + récents
+  recipes.sort((a, b) => {
+    if (a.favorite && !b.favorite) return -1;
+    if (!a.favorite && b.favorite) return 1;
+    return (b.updatedAt || 0) - (a.updatedAt || 0);
+  });
+  recipes = recipes.slice(0, 50);
+
+  if (recipes.length === 0) {
+    wrap.innerHTML = '<p class="planning-picker-empty">Aucune recette trouvée</p>';
+    return;
+  }
+
+  wrap.innerHTML = recipes.map(r => {
+    const cat = getCategoryById(r.category);
+    return `<button class="planning-picker-item" onclick="pickRecipeForPlanning('${r.id}')">
+      <span class="planning-picker-item-emoji">${r.photo ? `<img src="${r.photo}" alt="">` : (r.emoji || '🍽️')}</span>
+      <div class="planning-picker-item-text">
+        <div class="planning-picker-item-title">${r.favorite ? '⭐ ' : ''}${escapeHtml(r.title)}</div>
+        <div class="planning-picker-item-meta">${cat.emoji} ${cat.label}${r.prepTime || r.cookTime ? ' · ' + ((r.prepTime || 0) + (r.cookTime || 0)) + ' min' : ''}</div>
+      </div>
+    </button>`;
+  }).join('');
+}
+
+function pickRecipeForPlanning(recipeId) {
+  const modal = document.getElementById('planning-picker-modal');
+  if (!modal) return;
+  const dateStr = modal.dataset.dateStr;
+  const slotId = modal.dataset.slotId;
+  if (!dateStr || !slotId) return;
+
+  const recipe = state.recipes.find(r => r.id === recipeId);
+  if (!recipe) return;
+
+  const key = `${dateStr}-${slotId}`;
+  state.planning[key] = {
+    recipeId,
+    servings: recipe.baseServings,
+    updatedAt: Date.now(),
+    deletedAt: null
+  };
+  savePlanning();
+  syncPlanningEntry(key); // push vers le cloud si sync activée
+  closePlanningSlotPicker();
+  renderPlanning();
+  showToast('Repas planifié ✓', 'success');
+}
+window.pickRecipeForPlanning = pickRecipeForPlanning;
+
+function closePlanningSlotPicker(skipHistory) {
+  const modal = document.getElementById('planning-picker-modal');
+  if (!modal || modal.classList.contains('hidden')) return;
+  if (!skipHistory) {
+    history.back();
+    return;
+  }
+  modal.classList.add('hidden');
+}
+window.closePlanningSlotPicker = closePlanningSlotPicker;
+
+function removeFromPlanning(dateStr, slotId) {
+  const key = `${dateStr}-${slotId}`;
+  if (!state.planning[key] || state.planning[key].deletedAt) return;
+  // Soft delete : marquer comme supprimé pour propager la suppression via sync
+  state.planning[key] = {
+    ...state.planning[key],
+    recipeId: null,
+    deletedAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  savePlanning();
+  syncPlanningEntry(key);
+  renderPlanning();
+}
+window.removeFromPlanning = removeFromPlanning;
+
+function clearPlanning() {
+  if (!confirm('Vider tout le planning des 2 semaines affichées ?')) return;
+  const days = getPlanningDays();
+  const now = Date.now();
+  const keysToSync = [];
+  for (const d of days) {
+    const dateStr = formatPlanningDate(d);
+    for (const slot of MEAL_SLOTS) {
+      const key = `${dateStr}-${slot.id}`;
+      if (state.planning[key] && !state.planning[key].deletedAt) {
+        state.planning[key] = {
+          ...state.planning[key],
+          recipeId: null,
+          deletedAt: now,
+          updatedAt: now
+        };
+        keysToSync.push(key);
+      }
+    }
+  }
+  savePlanning();
+  // Sync toutes les suppressions
+  keysToSync.forEach(syncPlanningEntry);
+  renderPlanning();
+  showToast('Planning vidé');
+}
+window.clearPlanning = clearPlanning;
+
+function planningToShopping() {
+  const days = getPlanningDays();
+  const today = formatPlanningDate(new Date());
+  let count = 0;
+  const list = getActiveShoppingList();
+  if (!list) {
+    showToast('Erreur : pas de liste de courses active', 'error');
+    return;
+  }
+  for (const d of days) {
+    const dateStr = formatPlanningDate(d);
+    if (dateStr < today) continue; // ignorer les jours passés
+    for (const slot of MEAL_SLOTS) {
+      const entry = state.planning[`${dateStr}-${slot.id}`];
+      if (!entry || !entry.recipeId) continue;
+      // Vérifier que la recette existe
+      const recipe = state.recipes.find(r => r.id === entry.recipeId);
+      if (!recipe) continue;
+      // Vérifier qu'elle n'est pas déjà dans la liste active
+      if (list.items.some(it => it.recipeId === entry.recipeId)) continue;
+      list.items.push({ recipeId: entry.recipeId, servings: entry.servings || recipe.baseServings });
+      count++;
+    }
+  }
+  state.shopping = list.items;
+  saveShoppingLists();
+  updateShoppingBadge();
+  if (count === 0) {
+    showToast('Aucune nouvelle recette à ajouter');
+  } else {
+    showToast(`${count} recette${count > 1 ? 's' : ''} ajoutée${count > 1 ? 's' : ''} à la liste`, 'success');
+    navigateTo('shopping');
+  }
+}
+window.planningToShopping = planningToShopping;
+
+function changePlanningWeek(delta) {
+  _planningWeekOffset += delta;
+  renderPlanning();
+}
+window.changePlanningWeek = changePlanningWeek;
 
 // ============================================
 // EVENT BINDINGS
@@ -3287,6 +4507,22 @@ function bindEvents() {
 
   // Settings
   document.getElementById('settings-btn').addEventListener('click', showSettings);
+
+  // Planning button (header)
+  const planningBtn = document.getElementById('planning-btn');
+  if (planningBtn) {
+    planningBtn.addEventListener('click', () => navigateTo('planning'));
+  }
+
+  // Planning navigation et actions
+  const planningPrevBtn = document.getElementById('planning-prev-week');
+  if (planningPrevBtn) planningPrevBtn.addEventListener('click', () => changePlanningWeek(-1));
+  const planningNextBtn = document.getElementById('planning-next-week');
+  if (planningNextBtn) planningNextBtn.addEventListener('click', () => changePlanningWeek(1));
+  const planningToShoppingBtn = document.getElementById('planning-to-shopping');
+  if (planningToShoppingBtn) planningToShoppingBtn.addEventListener('click', planningToShopping);
+  const planningClearBtn = document.getElementById('planning-clear');
+  if (planningClearBtn) planningClearBtn.addEventListener('click', clearPlanning);
   document.getElementById('settings-close').addEventListener('click', hideSettings);
   document.querySelector('#settings-modal .modal-backdrop').addEventListener('click', hideSettings);
   document.getElementById('settings-save-key').addEventListener('click', () => {
@@ -3449,6 +4685,7 @@ function init() {
   loadState();
   applyTheme(); // doit être appelé tôt pour éviter le flash
   initHistory(); // initialise l'historique pour le bouton retour
+  initKeyboardHandling(); // ajuste la barre chat avec le clavier virtuel
   bindEvents();
 
   // Splash
@@ -3476,6 +4713,7 @@ function init() {
   // First render
   renderLibrary();
   renderIngredientsFilter();
+  renderDietFilter();
   updateFiltersUI();
   updateShoppingBadge();
 }

@@ -33,86 +33,192 @@ function categorizeIngredient(name) {
 
 // Saisonnalité des ingrédients en France (mois de récolte/disponibilité optimale)
 const SEASONALITY = {
-  // Légumes
-  'asperge': [4, 5, 6],
-  'asperges': [4, 5, 6],
-  'artichaut': [5, 6, 7, 8, 9, 10],
-  'artichauts': [5, 6, 7, 8, 9, 10],
-  'aubergine': [7, 8, 9, 10],
-  'aubergines': [7, 8, 9, 10],
-  'betterave': [6, 7, 8, 9, 10, 11, 12, 1, 2],
-  'brocoli': [6, 7, 8, 9, 10, 11],
-  'carotte': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-  'céleri': [9, 10, 11, 12, 1, 2, 3],
-  'chou': [9, 10, 11, 12, 1, 2, 3, 4],
-  'choux': [9, 10, 11, 12, 1, 2, 3, 4],
-  'chou-fleur': [9, 10, 11, 12, 1, 2, 3, 4],
-  'concombre': [5, 6, 7, 8, 9],
-  'courgette': [5, 6, 7, 8, 9, 10],
-  'courgettes': [5, 6, 7, 8, 9, 10],
-  'endive': [10, 11, 12, 1, 2, 3, 4],
-  'épinard': [3, 4, 5, 6, 9, 10, 11],
-  'épinards': [3, 4, 5, 6, 9, 10, 11],
-  'fenouil': [5, 6, 7, 8, 9, 10],
-  'haricot vert': [6, 7, 8, 9, 10],
-  'haricots verts': [6, 7, 8, 9, 10],
-  'maïs': [8, 9, 10],
-  'navet': [9, 10, 11, 12, 1, 2, 3, 4, 5],
-  'oignon': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-  'panais': [10, 11, 12, 1, 2, 3],
-  'patate douce': [9, 10, 11, 12, 1],
-  'petit pois': [5, 6, 7],
-  'petits pois': [5, 6, 7],
-  'poireau': [9, 10, 11, 12, 1, 2, 3, 4, 5],
-  'poivron': [7, 8, 9, 10],
-  'pomme de terre': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-  'potiron': [9, 10, 11, 12, 1],
-  'potimarron': [9, 10, 11, 12, 1],
-  'butternut': [9, 10, 11, 12, 1],
-  'radis': [3, 4, 5, 6, 7, 8, 9, 10],
-  'rhubarbe': [4, 5, 6, 7],
-  'salade': [4, 5, 6, 7, 8, 9, 10],
-  'tomate': [6, 7, 8, 9, 10],
-  'tomates': [6, 7, 8, 9, 10],
-  'topinambour': [10, 11, 12, 1, 2, 3],
-  'cresson': [3, 4, 5, 9, 10, 11],
-  'roquette': [5, 6, 7, 8, 9],
-  'mâche': [10, 11, 12, 1, 2, 3, 4],
-
-  // Fruits
   'abricot': [6, 7, 8],
   'abricots': [6, 7, 8],
+  'ail': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'aneth': [5, 6, 7, 8, 9],
+  'artichaut': [4, 5, 6, 7, 8, 9],
+  'artichauts': [4, 5, 6, 7, 8, 9],
+  'asperge': [3, 4, 5, 6, 7],
+  'asperges': [3, 4, 5, 6, 7],
+  'aubergine': [5, 6, 7, 8, 9, 10],
+  'aubergines': [5, 6, 7, 8, 9, 10],
+  'basilic': [5, 6, 7, 8, 9, 10],
+  'betterave': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'betteraves': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'blette': [3, 4, 5, 6, 7, 8, 9, 10],
+  'blettes': [3, 4, 5, 6, 7, 8, 9, 10],
+  'brocoli': [6, 7, 8, 9, 10, 11],
+  'brocolis': [6, 7, 8, 9, 10, 11],
+  'brugnon': [6, 7, 8],
+  'brugnons': [6, 7, 8],
+  'cardon': [11],
+  'carotte': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'carottes': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'cassis': [6, 7, 8],
+  'celeri-branche': [1, 7, 8, 9, 10, 11, 12],
+  'celeri-rave': [1, 2, 3, 10, 11, 12],
   'cerise': [5, 6, 7],
   'cerises': [5, 6, 7],
-  'fraise': [4, 5, 6, 7],
-  'fraises': [4, 5, 6, 7],
-  'framboise': [6, 7, 8, 9],
-  'framboises': [6, 7, 8, 9],
-  'mûre': [7, 8, 9],
-  'myrtille': [6, 7, 8, 9],
-  'cassis': [7, 8],
-  'figue': [8, 9, 10],
-  'figues': [8, 9, 10],
+  'chataigne': [10, 11, 12],
+  'chataignes': [10, 11, 12],
+  'chou': [1, 3, 9, 10, 11, 12],
+  'chou blanc': [1, 2, 8, 9, 10, 11, 12],
+  'chou de bruxelles': [1, 2, 3, 9, 10, 11, 12],
+  'chou fleur': [3, 4, 5, 9, 10, 11],
+  'chou frise': [1, 2, 9, 10, 11, 12],
+  'chou frisé': [1, 2, 9, 10, 11, 12],
+  'chou romanesco': [6, 7, 8, 9],
+  'chou rouge': [1, 2, 8, 9, 10, 11, 12],
+  'chou-fleur': [3, 4, 5, 9, 10, 11],
+  'choux de bruxelles': [1, 2, 3, 9, 10, 11, 12],
+  'choux-fleurs': [3, 4, 5, 9, 10, 11],
+  'châtaigne': [10, 11, 12],
+  'châtaignes': [10, 11, 12],
+  'ciboulette': [3, 4, 5, 6, 7, 8, 9, 10],
+  'citron': [1, 2, 3, 4, 6, 10, 11, 12],
+  'citrons': [1, 2, 3, 4, 6, 10, 11, 12],
+  'citrouille': [9, 10, 11, 12],
+  'citrouilles': [9, 10, 11, 12],
+  'clementine': [1, 2, 11, 12],
+  'clementines': [1, 2, 11, 12],
+  'clémentine': [1, 2, 11, 12],
+  'clémentines': [1, 2, 11, 12],
+  'coing': [9, 10, 11],
+  'coings': [9, 10, 11],
+  'concombre': [4, 5, 6, 7, 8, 9, 10],
+  'concombres': [4, 5, 6, 7, 8, 9, 10],
+  'coriandre': [5, 6, 7, 8, 9, 10],
+  'courge': [1, 8, 9, 10, 11, 12],
+  'courges': [1, 8, 9, 10, 11, 12],
+  'courgette': [5, 6, 7, 8, 9, 10],
+  'courgettes': [5, 6, 7, 8, 9, 10],
+  'cresson': [3, 4, 5, 9, 10, 11],
+  'crosne': [1, 2, 3, 11, 12],
+  'crosnes': [1, 2, 3, 11, 12],
+  'céleri-branche': [1, 7, 8, 9, 10, 11, 12],
+  'céleri-rave': [1, 2, 3, 10, 11, 12],
+  'echalote': [10, 11, 12],
+  'echalotes': [10, 11, 12],
+  'endive': [1, 2, 3, 4, 10, 11, 12],
+  'endives': [1, 2, 3, 4, 10, 11, 12],
+  'epinard': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'epinards': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'estragon': [5, 6, 7, 8, 9, 10],
+  'fenouil': [6, 7, 8, 9, 10, 11],
+  'fenouils': [6, 7, 8, 9, 10, 11],
+  'figue': [7, 8, 9, 10],
+  'figues': [7, 8, 9, 10],
+  'fraise': [5, 6, 7, 8],
+  'fraises': [5, 6, 7, 8],
+  'framboise': [6, 7, 8, 10],
+  'framboises': [6, 7, 8, 10],
+  'frisee': [1, 2, 3, 4, 8, 9, 10, 11, 12],
+  'frisée': [1, 2, 3, 4, 8, 9, 10, 11, 12],
+  'groseille': [6, 7, 8],
+  'groseilles': [6, 7, 8],
+  'haricot vert': [6, 7, 8, 9, 10],
+  'haricots verts': [6, 7, 8, 9, 10],
+  'kaki': [1, 10, 11, 12],
+  'kakis': [1, 10, 11, 12],
+  'kale': [1, 2, 9, 10, 11, 12],
+  'kiwi': [1, 2, 3, 11, 12],
+  'kiwis': [1, 2, 3, 11, 12],
+  'laitue': [4, 5, 6, 7, 8, 9, 10],
+  'laitues': [4, 5, 6, 7, 8, 9, 10],
+  'laurier': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'mache': [1, 2, 11, 12],
+  'mandarine': [1, 2, 11, 12],
+  'mandarines': [1, 2, 11, 12],
   'melon': [6, 7, 8, 9],
+  'melons': [6, 7, 8, 9],
+  'menthe': [5, 6, 7, 8, 9, 10],
+  'mirabelle': [8, 9],
+  'mirabelles': [8, 9],
+  'mure': [8, 9],
+  'mures': [8, 9],
+  'myrtille': [7, 8, 9, 10],
+  'myrtilles': [7, 8, 9, 10],
+  'mâche': [1, 2, 11, 12],
+  'mûre': [8, 9],
+  'mûres': [8, 9],
+  'navet': [1, 2, 3, 4, 5, 6, 10, 11, 12],
+  'navets': [1, 2, 3, 4, 5, 6, 10, 11, 12],
+  'nectarine': [7, 8],
+  'nectarines': [7, 8],
+  'noisette': [8, 9, 10],
+  'noisettes': [8, 9, 10],
+  'noix': [9, 10],
+  'oignon': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'oignons': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'orange': [1, 2, 3, 11, 12],
+  'oranges': [1, 2, 3, 11, 12],
+  'oseille': [3, 4, 5, 6, 7, 8, 9],
+  'pamplemousse': [1, 2, 3, 4, 5, 6],
+  'pamplemousses': [1, 2, 3, 4, 5, 6],
+  'panais': [1, 2, 3, 9, 10, 11, 12],
+  'pasteque': [6, 7, 8, 9],
+  'pasteques': [6, 7, 8, 9],
   'pastèque': [6, 7, 8, 9],
-  'nectarine': [6, 7, 8, 9],
+  'pastèques': [6, 7, 8, 9],
+  'patate douce': [9, 10],
+  'patates douces': [9, 10],
+  'peche': [6, 7, 8, 9],
+  'peches': [6, 7, 8, 9],
+  'persil': [3, 4, 5, 6, 7, 8, 9, 10, 11],
+  'persil plat': [3, 4, 5, 6, 7, 8, 9, 10, 11],
+  'petit pois': [4, 5, 6, 7],
+  'petits pois': [4, 5, 6, 7],
+  'physalis': [1, 2, 10, 11, 12],
+  'poire': [1, 2, 3, 4, 7, 8, 9, 10, 11, 12],
+  'poireau': [1, 2, 3, 4, 9, 10, 11, 12],
+  'poireaux': [1, 2, 3, 4, 9, 10, 11, 12],
+  'poires': [1, 2, 3, 4, 7, 8, 9, 10, 11, 12],
+  'pois': [4, 5, 6, 7],
+  'poivron': [6, 7, 8, 9],
+  'poivrons': [6, 7, 8, 9],
+  'pomelo': [1, 2, 3, 4, 5, 6],
+  'pomelos': [1, 2, 3, 4, 5, 6],
+  'pomme': [1, 2, 3, 4, 6, 8, 9, 10, 11, 12],
+  'pomme de terre': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'pomme de terre de conservation': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'pomme de terre primeur': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'pommes': [1, 2, 3, 4, 6, 8, 9, 10, 11, 12],
+  'pommes de terre': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'potiron': [9, 10, 11, 12],
+  'potirons': [9, 10, 11, 12],
+  'prune': [6, 7, 8, 9],
+  'pruneau': [8, 9],
+  'pruneaux': [8, 9],
+  'prunes': [6, 7, 8, 9],
   'pêche': [6, 7, 8, 9],
   'pêches': [6, 7, 8, 9],
-  'prune': [7, 8, 9, 10],
-  'prunes': [7, 8, 9, 10],
-  'raisin': [8, 9, 10, 11],
-  'pomme': [9, 10, 11, 12, 1, 2, 3, 4],
-  'pommes': [9, 10, 11, 12, 1, 2, 3, 4],
-  'poire': [9, 10, 11, 12, 1, 2, 3, 4],
-  'poires': [9, 10, 11, 12, 1, 2, 3, 4],
-  'kiwi': [11, 12, 1, 2, 3, 4],
-  'orange': [11, 12, 1, 2, 3, 4],
-  'oranges': [11, 12, 1, 2, 3, 4],
-  'clémentine': [11, 12, 1],
-  'mandarine': [11, 12, 1, 2],
-  'pamplemousse': [11, 12, 1, 2, 3, 4],
-  'citron': [1, 2, 3, 4, 5, 11, 12],
-  'grenade': [10, 11, 12]
+  'radis': [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'raisin': [8, 9, 10],
+  'raisins': [8, 9, 10],
+  'rhubarbe': [5, 6, 7],
+  'romarin': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'roquette': [5, 6, 7, 8, 9],
+  'rutabaga': [10, 11, 12],
+  'rutabagas': [10, 11, 12],
+  'salade': [4, 5, 6, 7, 8, 9, 10],
+  'salade frisee': [1, 2, 3, 4, 8, 9, 10, 11, 12],
+  'salade frisée': [1, 2, 3, 4, 8, 9, 10, 11, 12],
+  'salade verte': [4, 5, 6, 7, 8, 9, 10],
+  'salsifi': [1, 2, 3, 10, 11, 12],
+  'salsifis': [1, 2, 3, 10, 11, 12],
+  'sauge': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'thym': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'tomate': [5, 6, 7, 8, 9, 10],
+  'tomate cerise': [5, 6, 7, 8, 9, 10],
+  'tomates': [5, 6, 7, 8, 9, 10],
+  'tomates cerises': [5, 6, 7, 8, 9, 10],
+  'topinambour': [1, 2, 3, 10, 11, 12],
+  'topinambours': [1, 2, 3, 10, 11, 12],
+  'échalote': [10, 11, 12],
+  'échalotes': [10, 11, 12],
+  'épinard': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  'épinards': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
 };
 
 // Calcule les mois de saisonnalité d'une recette à partir de ses ingrédients
@@ -309,6 +415,191 @@ function normalizeAmount(amount, unit) {
     baseUnit: conv.base,
     type: conv.type
   };
+}
+
+// ============================================
+// TAGS RÉGIME (prédéfinis, choix par cases à cocher)
+// ============================================
+const DIET_TAGS = [
+  { id: 'vegan', label: 'Vegan', emoji: '🌱', color: '#4ade80' },
+  { id: 'vegetarien', label: 'Végétarien', emoji: '🥗', color: '#86efac' },
+  { id: 'sans-gluten', label: 'Sans gluten', emoji: '🌾', color: '#fbbf24' },
+  { id: 'sans-lactose', label: 'Sans lactose', emoji: '🥛', color: '#7dd3fc' },
+  { id: 'low-fodmap', label: 'Low FODMAP', emoji: '💚', color: '#22c55e' },
+  { id: 'high-fodmap', label: 'High FODMAP', emoji: '⚠️', color: '#f97316' },
+  { id: 'sans-sucre', label: 'Sans sucre', emoji: '🚫', color: '#f87171' },
+  { id: 'keto', label: 'Keto', emoji: '🥑', color: '#65a30d' },
+  { id: 'halal', label: 'Halal', emoji: '🕌', color: '#10b981' },
+  { id: 'casher', label: 'Casher', emoji: '✡️', color: '#3b82f6' },
+];
+
+// ============================================
+// BASE FODMAP : classification des aliments
+// ============================================
+// Source : régime FODMAP, recommandations utilisateur.
+// Les noms sont normalisés (sans accents, minuscule) pour matcher facilement les ingrédients.
+// Quand un aliment apparaît à la fois en HIGH et LOW selon la quantité, on liste les deux
+// (le matching utilise toujours HIGH en priorité pour rester sécuritaire).
+
+const FODMAP_HIGH = new Set([
+  // Légumineuses
+  'pois chiches', 'pois chiche', 'haricots rouges', 'haricot rouge', 'haricots pinto', 'haricot pinto',
+  'haricots de lima', 'haricot de lima', 'pois cassés', 'pois casses', 'lentille', 'lentilles',
+  'flageolet', 'flageolets', 'feve de soja', 'fèves de soja', 'soja',
+  // Légumes high FODMAP
+  'asperge', 'asperges', 'betterave', 'betteraves', 'pois mange-tout', 'chou de bruxelles', 'choux de bruxelles',
+  'courge butternut', 'courges butternut', 'butternut', 'mais', 'maïs', 'petit pois', 'petits pois',
+  'artichaut', 'artichauts', 'brocoli', 'brocolis', 'chou', 'choux', 'fenouil',
+  'ail', 'poireau', 'poireaux', 'gombo', 'oignon', 'oignons', 'echalote', 'échalote', 'echalotes', 'échalotes',
+  'topinambour', 'topinambours', 'champignon', 'champignons', 'chou-fleur', 'choux-fleurs',
+  'fond d\'artichaut', 'coeur d\'artichaut', 'tomates sechees', 'tomates séchées', 'tomate sechee', 'tomate séchée',
+  // Fruits high FODMAP
+  'pomme', 'pommes', 'melon d\'eau', 'pasteque', 'pastèque', 'kaki', 'kakis', 'nectarine', 'nectarines',
+  'datte', 'dattes', 'figue', 'figues', 'pamplemousse', 'pamplemousses', 'abricot', 'abricots',
+  'cerise', 'cerises', 'poire', 'poires', 'mangue', 'mangues', 'mure', 'mûre', 'mures', 'mûres',
+  'litchi', 'litchis', 'peche', 'pêche', 'peches', 'pêches', 'prune', 'prunes', 'pruneau', 'pruneaux',
+  'cassis', 'avocat', 'avocats', 'raisin sec', 'raisins secs', 'fruits secs', 'fruit sec',
+  // Céréales
+  'ble', 'blé', 'seigle', 'pain', 'couscous', 'boulghour', 'boulgour', 'semoule de ble', 'semoule de blé',
+  'biscuit', 'biscuits', 'craquelin', 'craquelins',
+  // Produits laitiers (lactose)
+  'lait', 'lait de vache', 'lait de chevre', 'lait de chèvre', 'lait de brebis',
+  'creme glacee', 'crème glacée', 'glace', 'yaourt', 'yaourts', 'poudre de lait',
+  'cottage', 'mascarpone', 'ricotta', 'faisselle',
+  // Sucres et édulcorants
+  'miel', 'sirop de mais', 'sirop de maïs', 'fructose', 'sorbitol', 'mannitol', 'xylitol',
+  'maltitol', 'isomalt', 'edulcorant', 'édulcorant',
+  // Boissons
+  'jus de fruits', 'jus de pomme', 'jus de poire', 'vin liquoreux', 'porto', 'muscat',
+  // Noix
+  'noix de cajou', 'cajou', 'pistache', 'pistaches', 'amande', 'amandes', 'noisette', 'noisettes',
+  'houmous',
+  // Autres
+  'chicoree', 'chicorée', 'pissenlit', 'inuline'
+]);
+
+const FODMAP_LOW = new Set([
+  // Fruits low FODMAP
+  'banane', 'bananes', 'canneberge', 'canneberges', 'durian', 'melon', 'kiwi', 'kiwis',
+  'citron', 'citrons', 'lime', 'limes', 'citron vert', 'mandarine', 'mandarines',
+  'orange', 'oranges', 'fraise', 'fraises', 'framboise', 'framboises', 'myrtille', 'myrtilles',
+  'kumquat', 'kumquats', 'fruit de la passion', 'papaye', 'papayes', 'ananas', 'rhubarbe',
+  'clementine', 'clémentine', 'clementines', 'clémentines',
+  // Légumes low FODMAP
+  'pousses de bambou', 'bambou', 'coeur de palmier', 'coeurs de palmier', 'palmier',
+  'pousse de haricot', 'pousses de haricot', 'carotte', 'carottes', 'celeri rave', 'céleri rave',
+  'celeri-rave', 'céleri-rave', 'endive', 'endives', 'chou kale', 'kale', 'chou-rave', 'chou rave',
+  'chou chinois', 'gingembre', 'haricot vert', 'haricots verts', 'salade', 'salade verte', 'laitue',
+  'cresson', 'olive', 'olives', 'panais', 'potiron', 'patisson', 'pâtisson',
+  'courge spaghetti', 'epinard', 'epinards', 'épinard', 'épinards', 'radis', 'blette', 'blettes',
+  'navet', 'navets', 'tomate', 'tomates', 'tomate cerise', 'tomates cerises',
+  'courgette', 'courgettes', 'aubergine', 'aubergines', 'concombre', 'concombres', 'roquette',
+  // Herbes low FODMAP
+  'basilic', 'chili', 'coriandre', 'thym', 'menthe', 'origan', 'persil', 'romarin', 'sauge', 'laurier',
+  'ciboulette', 'estragon', 'aneth',
+  // Céréales / Féculents low FODMAP
+  'pain au levain', 'levain', 'flocon d\'avoine', 'flocons d\'avoine', 'avoine',
+  'farine de sarrasin', 'farine de millet', 'farine de quinoa', 'farine de sorgho', 'farine de tapioca',
+  'sarrasin', 'millet', 'quinoa', 'sorgho', 'tapioca', 'pates sans gluten', 'pâtes sans gluten',
+  'pates de riz', 'pâtes de riz', 'pates de mais', 'pâtes de maïs', 'pates de quinoa', 'pâtes de quinoa',
+  'pomme de terre', 'pommes de terre', 'patate douce', 'patates douces', 'riz', 'riz basmati', 'riz complet',
+  'polenta',
+  // Produits laitiers low FODMAP
+  'lait sans lactose', 'lait de riz', 'lait d\'amande', 'lait d\'avoine', 'lait de coco',
+  'creme de coco', 'crème de coco', 'beurre', 'creme fraiche', 'crème fraîche',
+  'cheddar', 'gouda', 'parmesan', 'feta', 'fromage de chevre', 'fromage de chèvre', 'chevre', 'chèvre',
+  'mozzarella', 'brie', 'camembert', 'yaourt sans lactose', 'sorbet',
+  // Protéines (toujours low FODMAP)
+  'viande', 'viandes', 'boeuf', 'porc', 'agneau', 'veau', 'poulet', 'dinde', 'canard',
+  'poisson', 'saumon', 'thon', 'cabillaud', 'sardine', 'sardines', 'oeuf', 'oeufs', 'œuf', 'œufs',
+  'tofu', 'tofu nature',
+  // Condiments / Huiles
+  'moutarde', 'huile', 'huile d\'olive', 'huile de tournesol', 'huile de colza',
+  'vinaigre', 'vinaigre de vin', 'vinaigre balsamique', 'vinaigre de riz',
+  'capres', 'câpres', 'cornichon', 'cornichons',
+  // Sucres low FODMAP (modéré)
+  'sucre', 'sucre blanc', 'sucre roux', 'sucre de canne', 'sirop d\'erable', 'sirop d\'érable',
+  'chocolat noir', 'cacao',
+  // Noix low FODMAP
+  'cacahuete', 'cacahuète', 'cacahuetes', 'cacahuètes', 'beurre de cacahuete', 'beurre de cacahuète',
+  'noix de pecan', 'noix de pécan', 'pecan', 'pécan',
+]);
+
+// Stop words à ignorer dans le nom d'ingrédient
+const FODMAP_STOP_WORDS = new Set([
+  'de', 'la', 'le', 'les', 'du', 'des', 'un', 'une', 'à', 'au', 'aux',
+  'et', 'ou', 'avec', 'sans', 'en', 'd\'', 'l\'', 'pour'
+]);
+
+// Normalise un nom d'ingrédient pour le matching FODMAP
+function normalizeFodmapName(name) {
+  return (name || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // sans accents
+    .replace(/\([^)]*\)/g, ' ') // sans parenthèses
+    .replace(/[^a-z'\s-]/g, ' ') // garde lettres, espaces, ', -
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Détermine le statut FODMAP d'un ingrédient unique
+// Retourne 'high', 'low', ou 'unknown'
+function classifyIngredientFodmap(ingredientName) {
+  const normalized = normalizeFodmapName(ingredientName);
+  if (!normalized) return 'unknown';
+
+  // Match exact d'abord (plus précis : "tomate sechee" plutôt que "tomate")
+  if (FODMAP_HIGH.has(normalized)) return 'high';
+  if (FODMAP_LOW.has(normalized)) return 'low';
+
+  // Match par mots : on prend le statut le plus "sécuritaire" (high prime sur low)
+  // Ex: "farine de blé" → "blé" → high
+  // Ex: "huile d'olive" → "huile" → low
+  const words = normalized.split(/\s+/).filter(w => w.length > 2 && !FODMAP_STOP_WORDS.has(w));
+
+  let foundLow = false;
+  // Essayer des combinaisons de 2 mots adjacents d'abord (plus précis)
+  for (let i = 0; i < words.length - 1; i++) {
+    const bigram = words[i] + ' ' + words[i + 1];
+    if (FODMAP_HIGH.has(bigram)) return 'high';
+    if (FODMAP_LOW.has(bigram)) foundLow = true;
+  }
+
+  // Puis mots individuels
+  for (const w of words) {
+    if (FODMAP_HIGH.has(w)) return 'high';
+    if (FODMAP_LOW.has(w)) foundLow = true;
+  }
+
+  return foundLow ? 'low' : 'unknown';
+}
+
+// Calcule les tags FODMAP suggérés pour une recette
+// Règles :
+// - Si AU MOINS UN ingrédient est 'high' → high-fodmap
+// - Sinon si TOUS les ingrédients connus sont 'low' (au moins 50% connus) → low-fodmap
+// - Sinon : rien (incertain)
+function calculateFodmapTags(ingredients) {
+  if (!ingredients || ingredients.length === 0) return [];
+  let highCount = 0;
+  let lowCount = 0;
+  let unknownCount = 0;
+  const highIngredients = [];
+
+  for (const ing of ingredients) {
+    const status = classifyIngredientFodmap(ing.name);
+    if (status === 'high') {
+      highCount++;
+      highIngredients.push(ing.name);
+    } else if (status === 'low') lowCount++;
+    else unknownCount++;
+  }
+
+  if (highCount > 0) return ['high-fodmap'];
+  // Pour low : il faut qu'au moins la moitié des ingrédients soient identifiés en low
+  // (pour éviter de tagger une recette de 10 ingrédients dont 8 inconnus)
+  const knownRatio = (highCount + lowCount) / ingredients.length;
+  if (lowCount > 0 && knownRatio >= 0.5) return ['low-fodmap'];
+  return [];
 }
 
 // ============================================

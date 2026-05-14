@@ -56,10 +56,33 @@ CREATE POLICY "Public access" ON recipes
   FOR ALL 
   USING (true)
   WITH CHECK (true);
+
+-- Table du planning des repas synchronisé
+-- (une ligne par cellule jour+repas, ex: "2026-05-13-midi")
+CREATE TABLE planning (
+  slot_key TEXT NOT NULL,
+  foyer TEXT NOT NULL,
+  recipe_id TEXT,
+  servings INTEGER,
+  deleted_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (slot_key, foyer)
+);
+
+CREATE INDEX planning_foyer_idx ON planning(foyer);
+
+ALTER TABLE planning ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Public access" ON planning
+  FOR ALL
+  USING (true)
+  WITH CHECK (true);
 ```
 
 4. Cliquez **Run** (ou `Ctrl+Enter`)
 5. Vous devez voir "Success. No rows returned." en bas
+
+> **Déjà configuré sans la table `planning` ?** Pas besoin de tout refaire — exécutez juste les commandes à partir de `CREATE TABLE planning` dans une nouvelle query. La sync des recettes continuera comme avant.
 
 ## Étape 4 — Récupérer les identifiants
 
