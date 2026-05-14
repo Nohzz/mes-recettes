@@ -4061,3 +4061,795 @@ body.keyboard-open .bottom-nav {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
+/* ============================================
+   GÉNÉRATION DE MENU IA
+   ============================================ */
+.btn-ai {
+  background: linear-gradient(135deg, #B5532A 0%, #D5723C 100%);
+  color: white;
+  border: none;
+}
+.btn-ai:hover { transform: translateY(-1px); }
+.btn-ai .ai-icon {
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 18px;
+  animation: sparkle 3s ease-in-out infinite;
+}
+@keyframes sparkle {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(15deg) scale(1.15); }
+}
+.spinner-small {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.planning-menu-gen-body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.planning-menu-gen-hint {
+  font-size: 13px;
+  color: var(--color-gray-600);
+  background: var(--color-primary-cream);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  margin-bottom: 4px;
+}
+.planning-menu-gen-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-gray-600);
+  margin-top: 8px;
+  margin-bottom: -4px;
+}
+.planning-menu-gen-segmented {
+  display: flex;
+  gap: 4px;
+  background: var(--color-bg);
+  padding: 3px;
+  border-radius: var(--radius-full);
+}
+.seg-option {
+  flex: 1;
+  padding: 8px 4px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-full);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--color-gray-600);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.seg-option.active {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+}
+#planning-menu-gen-prompt {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 14px;
+  background: var(--color-bg);
+  resize: vertical;
+  min-height: 70px;
+}
+#planning-menu-gen-prompt:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  background: white;
+}
+.planning-menu-gen-toggle {
+  background: transparent;
+  border: none;
+  color: var(--color-primary);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  padding: 6px 0;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+/* Preview menu */
+.planning-menu-preview-body {
+  padding: 16px 20px;
+  max-height: 70vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.planning-menu-preview-hint {
+  font-size: 13px;
+  color: var(--color-gray-600);
+}
+.planning-menu-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.planning-menu-preview-item {
+  background: var(--color-surface);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.planning-menu-preview-date {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-gray-600);
+  padding: 8px 12px 4px;
+}
+.planning-menu-preview-recipe {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 12px;
+  background: transparent;
+  border: none;
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+}
+.planning-menu-preview-recipe:hover {
+  background: var(--color-primary-cream);
+}
+.planning-menu-preview-emoji {
+  font-size: 28px;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--color-bg);
+  overflow: hidden;
+}
+.planning-menu-preview-emoji img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+}
+.planning-menu-preview-text {
+  flex: 1;
+  min-width: 0;
+}
+.planning-menu-preview-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--color-gray-800);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.planning-menu-preview-reason {
+  font-size: 11px;
+  color: var(--color-gray-500);
+  font-style: italic;
+  margin-top: 2px;
+}
+.planning-menu-preview-edit {
+  font-size: 14px;
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+/* ============================================
+   PLANNING : multi-recettes par slot + toggle 1/2 sem
+   ============================================ */
+.planning-period {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.planning-period-range {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--color-gray-800);
+}
+.planning-view-toggle {
+  background: transparent;
+  border: none;
+  color: var(--color-primary);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+.planning-view-toggle:hover {
+  background: var(--color-primary-cream);
+}
+
+/* Slot avec plusieurs recettes */
+.planning-slot-recipes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.planning-slot-count {
+  display: inline-block;
+  background: var(--color-primary);
+  color: white;
+  border-radius: var(--radius-full);
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+.planning-slot.is-filled .planning-slot-recipe {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 6px;
+  position: relative;
+}
+.planning-slot-mini-remove {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.06);
+  border: none;
+  color: var(--color-gray-700);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.planning-slot-mini-remove:hover {
+  background: var(--color-red-500);
+  color: white;
+}
+.planning-slot-add-more {
+  margin-top: 6px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--color-primary);
+  text-align: center;
+  padding: 4px;
+  border-top: 1px dashed var(--color-primary-soft);
+}
+.planning-slot-recipe.is-missing {
+  background: var(--color-red-50, #fee);
+  color: var(--color-red-500);
+  font-style: italic;
+}
+
+/* ============================================
+   PICKER : filtres avancés
+   ============================================ */
+.picker-filters-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 4px 0;
+}
+.picker-filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.picker-filter-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-gray-600);
+}
+.picker-filter-label-inline {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--color-gray-700);
+}
+.picker-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 80px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.picker-filter-chip {
+  padding: 5px 11px;
+  background: var(--color-bg);
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-full);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--color-gray-700);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition);
+}
+.picker-filter-chip:hover {
+  background: var(--color-primary-cream);
+}
+.picker-filter-chip.active {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+.picker-filter-chip.diet.active {
+  background: var(--diet-color, var(--color-primary));
+  border-color: var(--diet-color, var(--color-primary));
+}
+.picker-filter-controls {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.picker-filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--color-gray-700);
+}
+.picker-filter-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+}
+.picker-filter-sort {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.picker-sort-select {
+  padding: 6px 10px;
+  border: 1.5px solid var(--color-gray-200);
+  border-radius: var(--radius-full);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  background: var(--color-bg);
+  color: var(--color-gray-700);
+}
+.planning-picker-count {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--color-gray-500);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin: 8px 0 4px;
+}
+.picker-item-not-season {
+  color: var(--color-orange-500, #f97316);
+  font-weight: 700;
+}
+
+/* ============================================
+   UI DIALOG : alert/confirm/prompt customs
+   ============================================ */
+.ui-dialog {
+  z-index: 200;
+  align-items: center !important;
+  justify-content: center;
+}
+.ui-dialog .modal-backdrop {
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+}
+.ui-dialog-content {
+  max-width: 380px;
+  width: calc(100% - 32px);
+  margin: auto;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  animation: ui-dialog-pop 0.18s ease-out;
+  position: relative;
+}
+@keyframes ui-dialog-pop {
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.ui-dialog-body {
+  padding: 24px 22px 16px;
+}
+.ui-dialog-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--color-gray-900);
+  margin: 0 0 10px;
+}
+.ui-dialog-message {
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--color-gray-800);
+  line-height: 1.4;
+  margin: 0;
+}
+.ui-dialog-input {
+  width: 100%;
+  padding: 11px 14px;
+  margin-top: 14px;
+  border: 1.5px solid var(--color-gray-300);
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 15px;
+  background: var(--color-bg);
+}
+.ui-dialog-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  background: white;
+}
+.ui-dialog-actions {
+  display: flex;
+  gap: 10px;
+  padding: 14px 22px 22px;
+}
+.ui-dialog-actions .btn-secondary,
+.ui-dialog-actions .btn-primary,
+.ui-dialog-actions .btn-danger {
+  flex: 1;
+  padding: 12px 16px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  border: none;
+}
+.ui-dialog-actions .btn-secondary {
+  background: var(--color-gray-100);
+  color: var(--color-gray-700);
+}
+.ui-dialog-actions .btn-primary {
+  background: var(--color-primary);
+  color: white;
+}
+.ui-dialog-actions .btn-danger {
+  background: #dc2626;
+  color: white;
+}
+.ui-dialog-actions .btn-secondary:hover { background: var(--color-gray-200); }
+.ui-dialog-actions .btn-primary:hover { background: var(--color-primary-dark); }
+.ui-dialog-actions .btn-danger:hover { background: #b91c1c; }
+
+/* ============================================
+   PLANNING : multi-recettes par slot + toggle vue
+   ============================================ */
+
+/* Header avec toggle 1/2 semaines */
+.planning-period {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.planning-period-range {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--color-gray-800);
+}
+.planning-view-toggle {
+  background: var(--color-primary-cream);
+  border: 1px solid var(--color-primary-soft);
+  color: var(--color-primary);
+  border-radius: var(--radius-full);
+  padding: 4px 12px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.planning-view-toggle:hover {
+  background: var(--color-primary-pale);
+}
+
+/* Slot avec plusieurs recettes */
+.planning-slot.is-filled {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 8px 10px;
+}
+.planning-slot-count {
+  background: var(--color-primary-pale);
+  color: var(--color-primary-dark);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+.planning-slot-recipes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.planning-slot-recipes-list .planning-slot-recipe {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  position: relative;
+  padding-right: 22px;
+}
+.planning-slot-recipes-list .planning-slot-recipe.is-missing {
+  background: var(--color-red-50, #fef2f2);
+  color: var(--color-red-500, #ef4444);
+  font-style: italic;
+  font-size: 11px;
+}
+.planning-slot-mini-remove {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.08);
+  border: none;
+  color: var(--color-gray-700);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.planning-slot-mini-remove:hover {
+  background: var(--color-red-500, #ef4444);
+  color: white;
+}
+.planning-slot-add-more {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--color-primary);
+  text-align: center;
+  padding: 4px 0;
+  border-top: 1px dashed var(--color-primary-soft);
+  margin-top: 2px;
+}
+
+/* ============================================
+   PICKER : filtres dans la modal de planification
+   ============================================ */
+.picker-filters-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-gray-200);
+  margin-bottom: 8px;
+}
+.picker-filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.picker-filter-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-gray-600);
+}
+.picker-filter-label-inline {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--color-gray-700);
+}
+.picker-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 92px;
+  overflow-y: auto;
+}
+.picker-filter-chip {
+  padding: 4px 10px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-full);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--color-gray-700);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.picker-filter-chip.active {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+.picker-filter-chip.diet.active {
+  background: var(--diet-color, var(--color-primary));
+  border-color: var(--diet-color, var(--color-primary));
+  color: white;
+}
+.picker-filter-controls {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.picker-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--color-gray-700);
+}
+.picker-filter-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-primary);
+}
+.picker-filter-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.picker-sort-select {
+  padding: 5px 10px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-full);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--color-gray-800);
+  cursor: pointer;
+}
+.planning-picker-count {
+  font-size: 11px;
+  color: var(--color-gray-500);
+  margin: 2px 0 4px 4px;
+}
+.picker-item-not-season {
+  color: var(--color-orange-500, #f97316);
+  font-weight: 700;
+}
+
+/* ============================================
+   DIALOGS personnalisés (alert/confirm/prompt)
+   ============================================ */
+.ui-dialog {
+  z-index: 1000; /* au-dessus de tout */
+}
+.ui-dialog .ui-dialog-content {
+  max-width: 360px;
+  width: 92%;
+  background: var(--color-surface);
+  border-radius: 18px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  animation: ui-dialog-pop 0.18s ease-out;
+}
+@keyframes ui-dialog-pop {
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.ui-dialog-body {
+  padding: 20px 22px 16px;
+}
+.ui-dialog-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 17px;
+  color: var(--color-gray-800);
+  margin: 0 0 8px 0;
+}
+.ui-dialog-message {
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--color-gray-700);
+  line-height: 1.5;
+  margin: 0;
+  white-space: pre-wrap;
+}
+.ui-dialog-input {
+  width: 100%;
+  padding: 11px 14px;
+  margin-top: 14px;
+  border: 1.5px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 14px;
+  background: var(--color-bg);
+}
+.ui-dialog-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  background: white;
+}
+.ui-dialog-actions {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  padding-bottom: calc(12px + var(--safe-bottom));
+  border-top: 1px solid var(--color-gray-100);
+  background: var(--color-bg);
+}
+.ui-dialog-actions .btn-secondary,
+.ui-dialog-actions .btn-primary,
+.ui-dialog-actions .btn-danger {
+  flex: 1;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  padding: 11px 16px;
+  border-radius: var(--radius-md);
+  border: none;
+  cursor: pointer;
+}
+.ui-dialog-actions .btn-secondary {
+  background: white;
+  color: var(--color-gray-700);
+  border: 1px solid var(--color-gray-200);
+}
+.ui-dialog-actions .btn-primary {
+  background: var(--color-primary);
+  color: white;
+}
+.ui-dialog-actions .btn-danger {
+  background: var(--color-red-500, #ef4444);
+  color: white;
+}

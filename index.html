@@ -255,7 +255,11 @@
         </div>
         <div id="planning-grid" class="planning-grid"></div>
         <div class="planning-actions">
-          <button id="planning-to-shopping" class="btn-primary btn-block">
+          <button id="planning-generate-ai" class="btn-primary btn-block btn-ai">
+            <span class="ai-icon">🪄</span>
+            Générer un menu avec l'IA
+          </button>
+          <button id="planning-to-shopping" class="btn-secondary btn-block">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="btn-icon">
               <path d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
@@ -348,6 +352,17 @@
           <button id="settings-save-sync" class="btn-primary btn-block">Activer la sync</button>
           <button id="settings-sync-now" class="btn-secondary btn-block">Synchroniser maintenant</button>
           <button id="settings-sync-disable" class="btn-link">Désactiver la synchronisation</button>
+        </div>
+        <div class="settings-section">
+          <label class="settings-label">📦 Garde-manger</label>
+          <p class="settings-desc">Durée par défaut avant qu'un ingrédient redevienne visible dans les courses :</p>
+          <select id="settings-pantry-days" class="settings-select">
+            <option value="3">3 jours</option>
+            <option value="7">7 jours (1 semaine)</option>
+            <option value="14">14 jours (2 semaines)</option>
+            <option value="30">30 jours (1 mois)</option>
+            <option value="60">60 jours (2 mois)</option>
+          </select>
         </div>
         <div class="settings-section">
           <label class="settings-label">Données</label>

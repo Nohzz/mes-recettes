@@ -133,6 +133,12 @@ function loadState() {
       if (dateStr < cutoffStr) delete state.planning[key];
     }
 
+    // Préférence d'affichage du planning (week / 2weeks)
+    const savedView = localStorage.getItem('mr_planning_view');
+    if (savedView === 'week' || savedView === '2weeks') {
+      _planningView = savedView;
+    }
+
     // Préférences
     state.prefs.theme = localStorage.getItem(STORAGE_KEYS.theme) || 'auto';
     state.prefs.enableWebSearch = localStorage.getItem(STORAGE_KEYS.enableWebSearch) === '1';
@@ -628,6 +634,127 @@ function showToast(message, type = '') {
   }, 2800);
 }
 
+// ============================================
+// DIALOGS personnalisés (remplacent alert/confirm/prompt natifs)
+// ============================================
+// Promesse résolue par "OK" ou null pour "Annuler" (prompt) / true/false (confirm) / undefined (alert)
+
+function _ensureDialogModal() {
+  let modal = document.getElementById('ui-dialog-modal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'ui-dialog-modal';
+  modal.className = 'modal ui-dialog hidden';
+  modal.innerHTML = `
+    <div class="modal-backdrop ui-dialog-backdrop"></div>
+    <div class="modal-content ui-dialog-content"></div>
+  `;
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function _showDialog({ type, message, title, defaultValue, confirmLabel, cancelLabel, danger }) {
+  return new Promise(resolve => {
+    const modal = _ensureDialogModal();
+    const content = modal.querySelector('.ui-dialog-content');
+
+    const titleHtml = title ? `<h2 class="ui-dialog-title">${escapeHtml(title)}</h2>` : '';
+    const messageHtml = `<p class="ui-dialog-message">${escapeHtml(message).replace(/\n/g, '<br>')}</p>`;
+
+    let inputHtml = '';
+    if (type === 'prompt') {
+      const safeDefault = escapeHtml(defaultValue || '');
+      inputHtml = `<input type="text" id="ui-dialog-input" class="ui-dialog-input" value="${safeDefault}">`;
+    }
+
+    const cancelBtn = (type !== 'alert')
+      ? `<button class="btn-secondary" id="ui-dialog-cancel">${escapeHtml(cancelLabel || 'Annuler')}</button>`
+      : '';
+    const confirmClass = danger ? 'btn-danger' : 'btn-primary';
+    const confirmText = escapeHtml(confirmLabel || (type === 'alert' ? 'OK' : 'Valider'));
+
+    content.innerHTML = `
+      <div class="ui-dialog-body">
+        ${titleHtml}
+        ${messageHtml}
+        ${inputHtml}
+      </div>
+      <div class="ui-dialog-actions">
+        ${cancelBtn}
+        <button class="${confirmClass}" id="ui-dialog-confirm">${confirmText}</button>
+      </div>
+    `;
+
+    modal.classList.remove('hidden');
+
+    const input = document.getElementById('ui-dialog-input');
+    if (input) {
+      setTimeout(() => { input.focus(); input.select(); }, 50);
+    }
+
+    const cleanup = () => {
+      modal.classList.add('hidden');
+      modal.removeEventListener('keydown', onKey);
+      if (state._uiDialogOverlayPushed) {
+        state._uiDialogOverlayPushed = false;
+      }
+    };
+
+    const onKey = (e) => {
+      if (e.key === 'Enter' && type === 'prompt') {
+        e.preventDefault();
+        confirm();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancel();
+      }
+    };
+
+    const confirm = () => {
+      let result;
+      if (type === 'alert') result = undefined;
+      else if (type === 'confirm') result = true;
+      else if (type === 'prompt') {
+        const inp = document.getElementById('ui-dialog-input');
+        result = inp ? inp.value : '';
+      }
+      cleanup();
+      resolve(result);
+    };
+
+    const cancel = () => {
+      let result;
+      if (type === 'alert') result = undefined;
+      else if (type === 'confirm') result = false;
+      else if (type === 'prompt') result = null;
+      cleanup();
+      resolve(result);
+    };
+
+    document.getElementById('ui-dialog-confirm').addEventListener('click', confirm);
+    const cancelEl = document.getElementById('ui-dialog-cancel');
+    if (cancelEl) cancelEl.addEventListener('click', cancel);
+    modal.querySelector('.ui-dialog-backdrop').addEventListener('click', cancel, { once: true });
+    document.addEventListener('keydown', onKey);
+    // Cleanup listener clavier en plus du reste
+    const oldCleanup = cleanup;
+  });
+}
+
+// Wrappers compatibles avec l'API native (mais asynchrones)
+function uiAlert(message, opts = {}) {
+  return _showDialog({ type: 'alert', message, ...opts });
+}
+function uiConfirm(message, opts = {}) {
+  return _showDialog({ type: 'confirm', message, ...opts });
+}
+function uiPrompt(message, defaultValue, opts = {}) {
+  return _showDialog({ type: 'prompt', message, defaultValue, ...opts });
+}
+window.uiAlert = uiAlert;
+window.uiConfirm = uiConfirm;
+window.uiPrompt = uiPrompt;
+
 function escapeHtml(s) {
   if (s == null) return '';
   return String(s).replace(/[&<>"']/g, c => ({
@@ -766,6 +893,18 @@ function handleBack() {
   const planningPickerModal = document.getElementById('planning-picker-modal');
   if (planningPickerModal && !planningPickerModal.classList.contains('hidden')) {
     closePlanningSlotPicker(true);
+    return true;
+  }
+  // Priorité 7b : Modal preview menu IA
+  const menuPreviewModal = document.getElementById('planning-menu-preview-modal');
+  if (menuPreviewModal && !menuPreviewModal.classList.contains('hidden')) {
+    closePlanningMenuPreview(true);
+    return true;
+  }
+  // Priorité 7c : Modal génération menu IA
+  const menuGenModal = document.getElementById('planning-menu-gen-modal');
+  if (menuGenModal && !menuGenModal.classList.contains('hidden')) {
+    closePlanningMenuGenerator(true);
     return true;
   }
   // Priorité 8 : Drawer Filtres
@@ -1210,6 +1349,12 @@ function renderRecipeDetail(recipe) {
           <div class="ingredients-list" id="ingredients-list">
             ${renderIngredientsList(r.ingredients, ratio)}
           </div>
+          ${(() => {
+            const inPantryCount = r.ingredients.filter(i => isInPantry(i.name)).length;
+            return inPantryCount > 0
+              ? `<p class="ingredients-pantry-hint">📦 ${inPantryCount} ingrédient${inPantryCount > 1 ? 's' : ''} déjà chez vous</p>`
+              : '';
+          })()}
         </div>
 
         <div class="recipe-section">
@@ -1438,9 +1583,10 @@ function updateServingsDisplay() {
 function renderIngredientsList(ingredients, ratio) {
   return ingredients.map(ing => {
     const amount = ing.amount != null && ing.amount !== '' ? Number(ing.amount) * ratio : '';
+    const inPantry = isInPantry(ing.name);
     return `
-      <div class="ingredient-row">
-        <span class="ingredient-name">${escapeHtml(ing.name)}</span>
+      <div class="ingredient-row ${inPantry ? 'in-pantry' : ''}">
+        <span class="ingredient-name">${escapeHtml(ing.name)}${inPantry ? ' <span class="ingredient-pantry-mark" title="Déjà chez vous">📦</span>' : ''}</span>
         <span class="ingredient-amount">${amount === '' ? '' : formatAmount(amount, ing.unit)}</span>
       </div>
     `;
@@ -1468,8 +1614,8 @@ function renderStepsList(steps, ingredients, ratio) {
   }).join('');
 }
 
-function confirmDeleteRecipe(id) {
-  if (!confirm('Supprimer cette recette ?')) return;
+async function confirmDeleteRecipe(id) {
+  if (!(await uiConfirm('Supprimer cette recette ?', { confirmLabel: 'Supprimer', danger: true }))) return;
   const deletedRecipe = state.recipes.find(r => r.id === id);
   state.recipes = state.recipes.filter(r => r.id !== id);
   state.shopping = state.shopping.filter(s => s.recipeId !== id);
@@ -1648,12 +1794,12 @@ function closeCookedHistoryModal(skipHistory) {
 }
 window.closeCookedHistoryModal = closeCookedHistoryModal;
 
-function addCookedDate(id) {
+async function addCookedDate(id) {
   const recipe = state.recipes.find(r => r.id === id);
   if (!recipe) return;
   // Prompt pour la date (par défaut aujourd'hui)
   const today = new Date().toISOString().slice(0, 10);
-  const dateStr = prompt('Date de cuisson (format AAAA-MM-JJ) :', today);
+  const dateStr = await uiPrompt('Date de cuisson (format AAAA-MM-JJ) :', today);
   if (!dateStr) return;
   const ts = new Date(dateStr).getTime();
   if (isNaN(ts)) {
@@ -1673,10 +1819,10 @@ function addCookedDate(id) {
 }
 window.addCookedDate = addCookedDate;
 
-function removeCookedDate(id, ts) {
+async function removeCookedDate(id, ts) {
   const recipe = state.recipes.find(r => r.id === id);
   if (!recipe || !recipe.cookedHistory) return;
-  if (!confirm('Supprimer cette date ?')) return;
+  if (!(await uiConfirm('Supprimer cette date ?', { confirmLabel: 'Supprimer', danger: true }))) return;
   recipe.cookedHistory = recipe.cookedHistory.filter(t => t !== ts);
   updateRecipeAndSync(recipe, 'date cuisson supprimée');
   if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
@@ -1688,11 +1834,11 @@ function removeCookedDate(id, ts) {
 }
 window.removeCookedDate = removeCookedDate;
 
-function editPersonalNotes(id) {
+async function editPersonalNotes(id) {
   const recipe = state.recipes.find(r => r.id === id);
   if (!recipe) return;
   const current = recipe.personalNotes || '';
-  const newValue = prompt('Vos notes personnelles (astuces, variantes, retours d\'expérience) :', current);
+  const newValue = await uiPrompt('Vos notes personnelles (astuces, variantes, retours d\'expérience) :', current);
   if (newValue === null) return;
   recipe.personalNotes = newValue.trim();
   updateRecipeAndSync(recipe, 'notes modifiées');
@@ -1733,10 +1879,10 @@ async function attachRecipePhoto(id) {
 }
 window.attachRecipePhoto = attachRecipePhoto;
 
-function removeRecipePhoto(id) {
+async function removeRecipePhoto(id) {
   const recipe = state.recipes.find(r => r.id === id);
   if (!recipe || !recipe.photo) return;
-  if (!confirm('Supprimer la photo ?')) return;
+  if (!(await uiConfirm('Supprimer la photo ?', { confirmLabel: 'Supprimer', danger: true }))) return;
   recipe.photo = null;
   updateRecipeAndSync(recipe, 'photo retirée');
   if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
@@ -1746,11 +1892,11 @@ function removeRecipePhoto(id) {
 }
 window.removeRecipePhoto = removeRecipePhoto;
 
-function editRecipeTags(id) {
+async function editRecipeTags(id) {
   const recipe = state.recipes.find(r => r.id === id);
   if (!recipe) return;
   const current = (recipe.tags || []).join(', ');
-  const newValue = prompt('Tags séparés par des virgules (ex: rapide, kids-friendly, comfort food) :', current);
+  const newValue = await uiPrompt('Tags séparés par des virgules (ex: rapide, kids-friendly, comfort food) :', current);
   if (newValue === null) return;
   recipe.tags = newValue.split(',').map(t => t.trim().toLowerCase()).filter(Boolean).slice(0, 8);
   updateRecipeAndSync(recipe, 'tags modifiés');
@@ -2074,8 +2220,8 @@ function saveSource(id) {
 }
 window.saveSource = saveSource;
 
-function clearSource(id) {
-  if (!confirm('Supprimer la source de cette recette ?')) return;
+async function clearSource(id) {
+  if (!(await uiConfirm('Supprimer la source de cette recette ?', { confirmLabel: 'Supprimer', danger: true }))) return;
   const recipe = state.recipes.find(r => r.id === id);
   if (!recipe) return;
   recipe.source = null;
@@ -2461,12 +2607,12 @@ function switchShoppingList(id) {
 }
 window.switchShoppingList = switchShoppingList;
 
-function deleteShoppingList(id) {
+async function deleteShoppingList(id) {
   if (state.shoppingLists.length <= 1) {
     showToast('Vous devez garder au moins une liste', 'error');
     return;
   }
-  if (!confirm('Supprimer cette liste ?')) return;
+  if (!(await uiConfirm('Supprimer cette liste ?', { confirmLabel: 'Supprimer', danger: true }))) return;
   state.shoppingLists = state.shoppingLists.filter(l => l.id !== id);
   if (state.activeShoppingListId === id) {
     state.activeShoppingListId = state.shoppingLists[0].id;
@@ -2478,10 +2624,10 @@ function deleteShoppingList(id) {
 }
 window.deleteShoppingList = deleteShoppingList;
 
-function renameShoppingList(id) {
+async function renameShoppingList(id) {
   const list = state.shoppingLists.find(l => l.id === id);
   if (!list) return;
-  const newName = prompt('Nom de la liste :', list.name);
+  const newName = await uiPrompt('Nom de la liste :', list.name);
   if (!newName || !newName.trim()) return;
   list.name = newName.trim();
   saveShoppingLists();
@@ -2489,8 +2635,8 @@ function renameShoppingList(id) {
 }
 window.renameShoppingList = renameShoppingList;
 
-function addNewShoppingList() {
-  const name = prompt('Nom de la nouvelle liste :', 'Nouvelle liste');
+async function addNewShoppingList() {
+  const name = await uiPrompt('Nom de la nouvelle liste :', 'Nouvelle liste');
   if (!name || !name.trim()) return;
   createShoppingList(name.trim());
   renderShopping();
@@ -2502,16 +2648,38 @@ window.addNewShoppingList = addNewShoppingList;
 // GARDE-MANGER
 // ============================================
 
-function addToPantry(name) {
+// Durée par défaut (en jours) avant qu'un ingrédient soit retiré automatiquement
+function getPantryDefaultDays() {
+  const stored = localStorage.getItem('mr_pantry_default_days');
+  const n = Number(stored);
+  return (n && n > 0 && n <= 365) ? n : 7;
+}
+
+function setPantryDefaultDays(days) {
+  localStorage.setItem('mr_pantry_default_days', String(days));
+}
+
+function addToPantry(name, customDays) {
   const normalized = normalizeIngredientName(name);
   if (!normalized) return;
-  // 7 jours par défaut
-  const until = Date.now() + 7 * 24 * 3600 * 1000;
+  const days = (customDays && customDays > 0) ? customDays : getPantryDefaultDays();
+  const until = Date.now() + days * 24 * 3600 * 1000;
   // Remplace si existe
   state.pantry = state.pantry.filter(p => normalizeIngredientName(p.name) !== normalized);
   state.pantry.push({ name, until });
   savePantry();
 }
+
+function extendPantryItem(name, daysToAdd) {
+  const normalized = normalizeIngredientName(name);
+  const item = state.pantry.find(p => normalizeIngredientName(p.name) === normalized);
+  if (!item) return;
+  // Si déjà expiré ou proche d'expirer, partir d'aujourd'hui
+  const base = Math.max(item.until || 0, Date.now());
+  item.until = base + (daysToAdd || 7) * 24 * 3600 * 1000;
+  savePantry();
+}
+window.extendPantryItem = extendPantryItem;
 
 function removeFromPantry(name) {
   const normalized = normalizeIngredientName(name);
@@ -2531,11 +2699,48 @@ function togglePantryFromShopping(name) {
     showToast('Retiré du garde-manger');
   } else {
     addToPantry(name);
-    showToast(`"${name}" : caché 7 jours (déjà dans mon stock)`, 'success');
+    const days = getPantryDefaultDays();
+    showToast(`"${name}" : caché ${days} jour${days > 1 ? 's' : ''} (déjà dans mon stock)`, 'success');
   }
   renderShopping();
 }
 window.togglePantryFromShopping = togglePantryFromShopping;
+
+// Ajout manuel d'un ingrédient au garde-manger (depuis la vue dédiée)
+async function addPantryItemFromInput() {
+  const name = await uiPrompt('Nom de l\'ingrédient à ajouter au garde-manger :');
+  if (!name || !name.trim()) return;
+  addToPantry(name.trim());
+  renderShopping();
+  showToast(`"${name.trim()}" ajouté au garde-manger ✓`, 'success');
+}
+window.addPantryItemFromInput = addPantryItemFromInput;
+
+// Modal de gestion d'un item du garde-manger (étendre, supprimer)
+async function openPantryItemActions(name) {
+  const item = state.pantry.find(p => normalizeIngredientName(p.name) === normalizeIngredientName(name));
+  if (!item) return;
+  const days = Math.max(0, Math.ceil((item.until - Date.now()) / (24 * 3600 * 1000)));
+  const message = `"${item.name}" expire dans ${days} jour${days !== 1 ? 's' : ''}.\n\nQue voulez-vous faire ?`;
+  const result = await _showDialog({
+    type: 'confirm',
+    message,
+    title: '📦 Garde-manger',
+    confirmLabel: 'Étendre +7j',
+    cancelLabel: 'Supprimer',
+    danger: false
+  });
+  if (result === true) {
+    extendPantryItem(name, 7);
+    renderShopping();
+    showToast('Étendu de 7 jours', 'success');
+  } else if (result === false) {
+    removeFromPantry(name);
+    renderShopping();
+    showToast('Retiré du garde-manger');
+  }
+}
+window.openPantryItemActions = openPantryItemActions;
 
 // ============================================
 // BACKUP AUTOMATIQUE MENSUEL
@@ -2601,7 +2806,7 @@ if (window.matchMedia) {
   });
 }
 
-function quickEditField(field, recipeId) {
+async function quickEditField(field, recipeId) {
   const recipe = state.recipes.find(r => r.id === recipeId);
   if (!recipe) return;
   const labels = {
@@ -2609,7 +2814,7 @@ function quickEditField(field, recipeId) {
     description: 'Description'
   };
   const current = recipe[field] || '';
-  const newValue = prompt(labels[field] + ' :', current);
+  const newValue = await uiPrompt(labels[field] + ' :', current);
   if (newValue === null) return; // annulé
   const trimmed = newValue.trim();
   if (field === 'title' && !trimmed) {
@@ -2827,19 +3032,32 @@ function renderShopping() {
     html += '</div>';
   }
 
-  // Si garde-manger non vide, ajouter une section info en bas
-  if (state.pantry.length > 0) {
-    html += `<div class="shopping-pantry-info">
-      <strong>📦 Garde-manger (${state.pantry.length})</strong>
-      <p>Ces ingrédients sont cachés des courses pour 7 jours :</p>
+  // Section garde-manger en bas (toujours visible, même si vide)
+  const days = getPantryDefaultDays();
+  html += `<div class="shopping-pantry-info ${state.pantry.length === 0 ? 'is-empty' : ''}">
+    <div class="shopping-pantry-header">
+      <strong>📦 Garde-manger ${state.pantry.length > 0 ? `(${state.pantry.length})` : ''}</strong>
+      <button class="shopping-pantry-add" onclick="addPantryItemFromInput()" title="Ajouter un ingrédient">+</button>
+    </div>`;
+
+  if (state.pantry.length === 0) {
+    html += `<p class="shopping-pantry-hint">Tapez 📦 sur un ingrédient pour le cacher des courses pendant ${days} jour${days > 1 ? 's' : ''}.</p>`;
+  } else {
+    html += `<p class="shopping-pantry-hint">Ces ingrédients sont cachés des courses. Tapez sur un chip pour étendre la durée ou le retirer.</p>
       <div class="shopping-pantry-list">`;
-    for (const p of state.pantry) {
-      const days = Math.max(0, Math.ceil((p.until - Date.now()) / (24 * 3600 * 1000)));
+    // Tri par durée restante croissante
+    const sorted = [...state.pantry].sort((a, b) => (a.until || 0) - (b.until || 0));
+    for (const p of sorted) {
+      const remaining = Math.max(0, Math.ceil((p.until - Date.now()) / (24 * 3600 * 1000)));
       const safeName = escapeHtml(p.name).replace(/'/g, "\\'");
-      html += `<button class="shopping-pantry-chip" onclick="togglePantryFromShopping('${safeName}')">${escapeHtml(p.name)} <span>${days}j</span> ✕</button>`;
+      const urgentClass = remaining <= 1 ? 'is-urgent' : '';
+      html += `<button class="shopping-pantry-chip ${urgentClass}" onclick="openPantryItemActions('${safeName}')">
+        ${escapeHtml(p.name)} <span>${remaining}j</span>
+      </button>`;
     }
-    html += `</div></div>`;
+    html += `</div>`;
   }
+  html += `</div>`;
 
   document.getElementById('shopping-list').innerHTML = html;
   document.getElementById('shopping-count').textContent = totalCount + ' article' + (totalCount > 1 ? 's' : '');
@@ -2933,9 +3151,9 @@ async function copyShoppingList() {
   }
 }
 
-function clearShopping() {
+async function clearShopping() {
   if (state.shopping.length === 0) return;
-  if (!confirm('Vider la liste de courses ?')) return;
+  if (!(await uiConfirm('Vider la liste de courses ?'))) return;
   state.shopping = [];
   state.shoppingChecked.clear();
   saveShopping();
@@ -3738,7 +3956,7 @@ function initKeyboardHandling() {
   update();
 }
 
-function rebindChatSuggestions() {
+async function rebindChatSuggestions() {
   document.querySelectorAll('.chat-suggestion[data-suggest]').forEach(btn => {
     btn.onclick = () => {
       const input = document.getElementById('chat-input');
@@ -3750,9 +3968,9 @@ function rebindChatSuggestions() {
   if (manualBtn) manualBtn.onclick = createManualRecipe;
   const menuBtn = document.getElementById('generate-menu-btn');
   if (menuBtn) {
-    menuBtn.onclick = (e) => {
+    menuBtn.onclick = async (e) => {
       e.stopPropagation();
-      const occasion = prompt("Pour quelle occasion ? (ex: \"menu végétarien rapide\", \"dîner d'été pour 6\", \"soirée raclette\")", 'Menu équilibré pour ce soir');
+      const occasion = await uiPrompt("Pour quelle occasion ? (ex: \"menu végétarien rapide\", \"dîner d'été pour 6\", \"soirée raclette\")", 'Menu équilibré pour ce soir');
       if (occasion) generateMenu(occasion);
     };
   }
@@ -3874,13 +4092,13 @@ function saveValidatedRecipe() {
   }
 }
 
-function closeValidationModal(skipHistory) {
+async function closeValidationModal(skipHistory) {
   const modal = document.getElementById('validation-modal');
   if (modal.classList.contains('hidden')) return;
   if (!skipHistory) {
     // Si on est au milieu d'une file multi-recettes, prévenir l'utilisateur
     if (state.pendingRecipesQueue && state.pendingRecipesQueue.length > 0) {
-      if (!confirm(`Il reste ${state.pendingRecipesQueue.length} recette(s) à valider. Annuler tout ?`)) return;
+      if (!(await uiConfirm(`Il reste ${state.pendingRecipesQueue.length} recette(s) à valider. Annuler tout ?`))) return;
       state.pendingRecipesQueue = [];
     }
     history.back();
@@ -3903,6 +4121,9 @@ function showSettings() {
   // Web search toggle
   const wsCheckbox = document.getElementById('settings-web-search');
   if (wsCheckbox) wsCheckbox.checked = !!state.prefs.enableWebSearch;
+  // Pantry days
+  const pantrySelect = document.getElementById('settings-pantry-days');
+  if (pantrySelect) pantrySelect.value = String(getPantryDefaultDays());
   // Theme buttons : marquer celui actif
   document.querySelectorAll('.theme-option').forEach(b => {
     b.classList.toggle('active', b.dataset.theme === state.prefs.theme);
@@ -3958,9 +4179,9 @@ function importData(file) {
   reader.readAsText(file);
 }
 
-function clearAllData() {
-  if (!confirm('Supprimer TOUTES vos recettes et données ? Cette action est irréversible.')) return;
-  if (!confirm('Vraiment ? Cette action ne peut pas être annulée.')) return;
+async function clearAllData() {
+  if (!(await uiConfirm('Supprimer TOUTES vos recettes et données ? Cette action est irréversible.', { title: 'Suppression définitive', confirmLabel: 'Tout supprimer', danger: true }))) return;
+  if (!(await uiConfirm('Vraiment ? Cette action ne peut pas être annulée.', { title: 'Confirmation finale', confirmLabel: 'Oui, tout supprimer', danger: true }))) return;
   state.recipes = [];
   state.shopping = [];
   state.shoppingChecked.clear();
@@ -3973,7 +4194,7 @@ function clearAllData() {
 }
 
 async function forceUpdate() {
-  if (!confirm('Vider le cache et recharger l\'app ? Vos recettes ne seront PAS supprimées.')) return;
+  if (!(await uiConfirm('Vider le cache et recharger l\'app ? Vos recettes ne seront PAS supprimées.'))) return;
   showToast('Vérification des mises à jour…');
   try {
     // 1. Vider tous les caches
@@ -4005,12 +4226,15 @@ window.forceUpdate = forceUpdate;
 // PLANNING DES REPAS (2 semaines)
 // ============================================
 
-// Décalage en jours par rapport à la semaine courante (0 = cette semaine et suivante, 1 = +1 semaine, etc.)
+// Décalage en jours par rapport à la semaine courante (0 = cette semaine, 1 = +1 semaine, etc.)
 let _planningWeekOffset = 0;
+// Vue : 'week' (7 jours par défaut) ou '2weeks' (14 jours)
+let _planningView = 'week';
 
 const MEAL_SLOTS = [
   { id: 'midi', label: 'Midi', emoji: '☀️' },
-  { id: 'soir', label: 'Soir', emoji: '🌙' }
+  { id: 'soir', label: 'Soir', emoji: '🌙' },
+  { id: 'autre', label: 'Autre', emoji: '🥐' } // petit-déj, goûter, apéro...
 ];
 
 const DAY_LABELS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
@@ -4025,17 +4249,35 @@ function getMonday(d) {
   return date;
 }
 
-// Retourne les 14 jours du planning (2 semaines) en partant du lundi de la semaine courante + offset
+// Retourne 7 ou 14 jours selon _planningView
 function getPlanningDays() {
   const monday = getMonday(new Date());
   monday.setDate(monday.getDate() + _planningWeekOffset * 7);
   const days = [];
-  for (let i = 0; i < 14; i++) {
+  const total = _planningView === '2weeks' ? 14 : 7;
+  for (let i = 0; i < total; i++) {
     const d = new Date(monday);
     d.setDate(d.getDate() + i);
     days.push(d);
   }
   return days;
+}
+
+// Lit les recettes d'un slot, en gérant l'ancien et le nouveau format
+// Ancien : { recipeId, servings, ... }
+// Nouveau : { recipeIds: [{id, servings}, ...], ... }
+// Retourne toujours un tableau [{id, servings}, ...] (vide si slot vide ou soft-deleted)
+function getSlotRecipes(entry) {
+  if (!entry || entry.deletedAt) return [];
+  // Nouveau format
+  if (Array.isArray(entry.recipeIds)) {
+    return entry.recipeIds.filter(r => r && r.id);
+  }
+  // Ancien format : un recipeId simple
+  if (entry.recipeId) {
+    return [{ id: entry.recipeId, servings: entry.servings }];
+  }
+  return [];
 }
 
 function renderPlanning() {
@@ -4044,24 +4286,29 @@ function renderPlanning() {
   const days = getPlanningDays();
   const today = formatPlanningDate(new Date());
 
-  // Période affichée (header)
+  // Header : période + bouton toggle vue 1/2 semaines
   const period = document.getElementById('planning-period');
   if (period) {
     const start = days[0];
-    const end = days[13];
+    const end = days[days.length - 1];
     const sameMonth = start.getMonth() === end.getMonth();
     const startFmt = start.toLocaleDateString('fr-FR', { day: 'numeric', month: sameMonth ? undefined : 'short' });
     const endFmt = end.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-    period.textContent = `${startFmt} → ${endFmt}`;
+    const toggleLabel = _planningView === 'week' ? '+ 2 semaines' : '— 1 semaine';
+    period.innerHTML = `
+      <span class="planning-period-range">${startFmt} → ${endFmt}</span>
+      <button class="planning-view-toggle" onclick="togglePlanningView()">${toggleLabel}</button>
+    `;
   }
 
-  // Construction de la grille : 1 carte par jour, avec les 2 slots (midi/soir) à l'intérieur
   let html = '';
 
-  // Séparer en 2 semaines visuellement
-  for (let weekIdx = 0; weekIdx < 2; weekIdx++) {
+  // Découper en semaines (1 ou 2)
+  const numWeeks = _planningView === '2weeks' ? 2 : 1;
+  for (let weekIdx = 0; weekIdx < numWeeks; weekIdx++) {
     const weekDays = days.slice(weekIdx * 7, weekIdx * 7 + 7);
-    const weekLabel = weekIdx === 0 ? 'Cette semaine' : 'Semaine suivante';
+    if (weekDays.length === 0) continue;
+    const weekLabel = numWeeks === 2 ? (weekIdx === 0 ? 'Cette semaine' : 'Semaine suivante') : 'Cette semaine';
     html += `<div class="planning-week"><div class="planning-week-label">${weekLabel}</div>`;
 
     for (const d of weekDays) {
@@ -4082,29 +4329,35 @@ function renderPlanning() {
       for (const slot of MEAL_SLOTS) {
         const key = `${dateStr}-${slot.id}`;
         const entry = state.planning[key];
-        if (entry && entry.recipeId) {
-          const recipe = state.recipes.find(r => r.id === entry.recipeId);
-          if (recipe) {
-            html += `<div class="planning-slot is-filled" onclick="openPlanningSlot('${dateStr}', '${slot.id}')">
-              <div class="planning-slot-label">${slot.emoji} ${slot.label}</div>
-              <div class="planning-slot-recipe">
-                <span class="planning-slot-emoji">${recipe.photo ? `<img src="${recipe.photo}" alt="">` : (recipe.emoji || '🍽️')}</span>
-                <span class="planning-slot-title">${escapeHtml(recipe.title)}</span>
-                <span class="planning-slot-servings">${entry.servings || recipe.baseServings} pers.</span>
-              </div>
-              <button class="planning-slot-remove" onclick="event.stopPropagation(); removeFromPlanning('${dateStr}', '${slot.id}')" aria-label="Retirer">×</button>
-            </div>`;
-          } else {
-            // recette supprimée
-            html += `<div class="planning-slot is-empty" onclick="openPlanningSlot('${dateStr}', '${slot.id}')">
-              <div class="planning-slot-label">${slot.emoji} ${slot.label}</div>
-              <div class="planning-slot-add">Recette introuvable, retoucher</div>
-            </div>`;
-          }
-        } else {
+        const recipes = getSlotRecipes(entry);
+
+        if (recipes.length === 0) {
           html += `<div class="planning-slot is-empty" onclick="openPlanningSlot('${dateStr}', '${slot.id}')">
             <div class="planning-slot-label">${slot.emoji} ${slot.label}</div>
             <div class="planning-slot-add">+ Choisir une recette</div>
+          </div>`;
+        } else {
+          // Slot rempli avec une ou plusieurs recettes
+          const items = recipes.map((rr, idx) => {
+            const recipe = state.recipes.find(rcp => rcp.id === rr.id);
+            if (!recipe) {
+              return `<div class="planning-slot-recipe is-missing">
+                <span class="planning-slot-title">Recette introuvable</span>
+                <button class="planning-slot-mini-remove" onclick="event.stopPropagation(); removeRecipeFromSlot('${dateStr}', '${slot.id}', '${rr.id}')" aria-label="Retirer">×</button>
+              </div>`;
+            }
+            return `<div class="planning-slot-recipe">
+              <span class="planning-slot-emoji">${recipe.photo ? `<img src="${recipe.photo}" alt="">` : (recipe.emoji || '🍽️')}</span>
+              <span class="planning-slot-title">${escapeHtml(recipe.title)}</span>
+              <span class="planning-slot-servings">${rr.servings || recipe.baseServings} pers.</span>
+              <button class="planning-slot-mini-remove" onclick="event.stopPropagation(); removeRecipeFromSlot('${dateStr}', '${slot.id}', '${rr.id}')" aria-label="Retirer">×</button>
+            </div>`;
+          }).join('');
+
+          html += `<div class="planning-slot is-filled" onclick="openPlanningSlot('${dateStr}', '${slot.id}')">
+            <div class="planning-slot-label">${slot.emoji} ${slot.label}${recipes.length > 1 ? ` <span class="planning-slot-count">×${recipes.length}</span>` : ''}</div>
+            <div class="planning-slot-recipes-list">${items}</div>
+            <div class="planning-slot-add-more">+ Ajouter une recette</div>
           </div>`;
         }
       }
@@ -4117,17 +4370,74 @@ function renderPlanning() {
   grid.innerHTML = html;
 }
 
+function togglePlanningView() {
+  _planningView = _planningView === 'week' ? '2weeks' : 'week';
+  localStorage.setItem('mr_planning_view', _planningView);
+  renderPlanning();
+}
+window.togglePlanningView = togglePlanningView;
+
+// État des filtres du picker planning
+const _planningPickerFilters = {
+  category: 'all',
+  dietTags: [],      // tableau d'ids
+  seasonOnly: false, // true = uniquement de saison
+  sort: 'alpha'      // 'alpha' | 'recent' | 'favorites'
+};
+
 function openPlanningSlot(dateStr, slotId) {
-  // Modal pour choisir une recette
+  // Construire la barre de filtres
+  const catChips = `
+    <button class="picker-filter-chip ${_planningPickerFilters.category === 'all' ? 'active' : ''}" data-filter-cat="all">Toutes</button>
+    ${RECIPE_CATEGORIES.map(c =>
+      `<button class="picker-filter-chip ${_planningPickerFilters.category === c.id ? 'active' : ''}" data-filter-cat="${c.id}">${c.emoji} ${escapeHtml(c.label)}</button>`
+    ).join('')}
+  `;
+
+  const dietChips = DIET_TAGS
+    .filter(t => !['low-fodmap', 'high-fodmap'].includes(t.id)) // évitons surcharge
+    .map(t => {
+      const active = _planningPickerFilters.dietTags.includes(t.id);
+      return `<button class="picker-filter-chip diet ${active ? 'active' : ''}" data-filter-diet="${t.id}" style="--diet-color:${t.color}">${t.emoji} ${escapeHtml(t.label)}</button>`;
+    }).join('');
+
   const html = `
     <div class="modal-header">
-      <h2>Planifier ce repas</h2>
+      <h2>Choisir une recette</h2>
       <button class="modal-close" onclick="closePlanningSlotPicker()" aria-label="Fermer">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
       </button>
     </div>
     <div class="planning-picker-body">
       <input type="search" id="planning-search" class="search-input" placeholder="Rechercher une recette...">
+
+      <div class="picker-filters-row">
+        <div class="picker-filter-section">
+          <div class="picker-filter-label">Catégorie</div>
+          <div class="picker-filter-chips">${catChips}</div>
+        </div>
+
+        <div class="picker-filter-section">
+          <div class="picker-filter-label">Régime alimentaire</div>
+          <div class="picker-filter-chips">${dietChips}</div>
+        </div>
+
+        <div class="picker-filter-section picker-filter-controls">
+          <label class="picker-filter-toggle">
+            <input type="checkbox" id="picker-filter-season" ${_planningPickerFilters.seasonOnly ? 'checked' : ''}>
+            <span>De saison uniquement</span>
+          </label>
+          <div class="picker-filter-sort">
+            <span class="picker-filter-label-inline">Tri :</span>
+            <select id="picker-filter-sort" class="picker-sort-select">
+              <option value="alpha" ${_planningPickerFilters.sort === 'alpha' ? 'selected' : ''}>A → Z</option>
+              <option value="recent" ${_planningPickerFilters.sort === 'recent' ? 'selected' : ''}>Récentes</option>
+              <option value="favorites" ${_planningPickerFilters.sort === 'favorites' ? 'selected' : ''}>Favorites d'abord</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       <div id="planning-recipes-list" class="planning-recipes-list"></div>
     </div>
   `;
@@ -4143,12 +4453,36 @@ function openPlanningSlot(dateStr, slotId) {
   }
   modal.querySelector('.modal-content').innerHTML = html;
   modal.classList.remove('hidden');
-
-  // Stocker le contexte
   modal.dataset.dateStr = dateStr;
   modal.dataset.slotId = slotId;
 
-  // Render initial des recettes
+  // Bindings filtres
+  modal.querySelectorAll('[data-filter-cat]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _planningPickerFilters.category = btn.dataset.filterCat;
+      modal.querySelectorAll('[data-filter-cat]').forEach(b => b.classList.toggle('active', b.dataset.filterCat === _planningPickerFilters.category));
+      renderPlanningPickerList(document.getElementById('planning-search').value);
+    });
+  });
+  modal.querySelectorAll('[data-filter-diet]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.filterDiet;
+      const idx = _planningPickerFilters.dietTags.indexOf(id);
+      if (idx >= 0) _planningPickerFilters.dietTags.splice(idx, 1);
+      else _planningPickerFilters.dietTags.push(id);
+      btn.classList.toggle('active');
+      renderPlanningPickerList(document.getElementById('planning-search').value);
+    });
+  });
+  document.getElementById('picker-filter-season').addEventListener('change', e => {
+    _planningPickerFilters.seasonOnly = e.target.checked;
+    renderPlanningPickerList(document.getElementById('planning-search').value);
+  });
+  document.getElementById('picker-filter-sort').addEventListener('change', e => {
+    _planningPickerFilters.sort = e.target.value;
+    renderPlanningPickerList(document.getElementById('planning-search').value);
+  });
+
   renderPlanningPickerList('');
   document.getElementById('planning-search').addEventListener('input', e => {
     renderPlanningPickerList(e.target.value);
@@ -4160,37 +4494,68 @@ window.openPlanningSlot = openPlanningSlot;
 function renderPlanningPickerList(query) {
   const wrap = document.getElementById('planning-recipes-list');
   if (!wrap) return;
-  const q = (query || '').toLowerCase().trim();
+  const q = (query || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  const currentMonth = new Date().getMonth() + 1;
   let recipes = [...state.recipes];
+
+  // Filtre texte
   if (q) {
-    recipes = recipes.filter(r =>
-      r.title.toLowerCase().includes(q) ||
-      (r.tags || []).some(t => t.includes(q))
-    );
+    recipes = recipes.filter(r => {
+      const title = (r.title || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const tags = (r.tags || []).map(t => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+      return title.includes(q) || tags.some(t => t.includes(q));
+    });
   }
-  // Trier par favoris + récents
-  recipes.sort((a, b) => {
-    if (a.favorite && !b.favorite) return -1;
-    if (!a.favorite && b.favorite) return 1;
-    return (b.updatedAt || 0) - (a.updatedAt || 0);
-  });
-  recipes = recipes.slice(0, 50);
+  // Filtre catégorie
+  if (_planningPickerFilters.category && _planningPickerFilters.category !== 'all') {
+    recipes = recipes.filter(r => r.category === _planningPickerFilters.category);
+  }
+  // Filtre régime (intersection : la recette doit avoir TOUS les régimes cochés)
+  if (_planningPickerFilters.dietTags.length > 0) {
+    recipes = recipes.filter(r => {
+      const tags = r.dietTags || [];
+      return _planningPickerFilters.dietTags.every(d => tags.includes(d));
+    });
+  }
+  // Filtre saison
+  if (_planningPickerFilters.seasonOnly) {
+    recipes = recipes.filter(r => {
+      const months = r.months || [];
+      return months.length === 0 || months.includes(currentMonth);
+    });
+  }
+
+  // Tri
+  const sort = _planningPickerFilters.sort;
+  if (sort === 'alpha') {
+    recipes.sort((a, b) => (a.title || '').localeCompare(b.title || '', 'fr'));
+  } else if (sort === 'recent') {
+    recipes.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  } else if (sort === 'favorites') {
+    recipes.sort((a, b) => {
+      if (a.favorite && !b.favorite) return -1;
+      if (!a.favorite && b.favorite) return 1;
+      return (a.title || '').localeCompare(b.title || '', 'fr');
+    });
+  }
 
   if (recipes.length === 0) {
-    wrap.innerHTML = '<p class="planning-picker-empty">Aucune recette trouvée</p>';
+    wrap.innerHTML = '<p class="planning-picker-empty">Aucune recette ne correspond aux filtres</p>';
     return;
   }
 
-  wrap.innerHTML = recipes.map(r => {
-    const cat = getCategoryById(r.category);
-    return `<button class="planning-picker-item" onclick="pickRecipeForPlanning('${r.id}')">
-      <span class="planning-picker-item-emoji">${r.photo ? `<img src="${r.photo}" alt="">` : (r.emoji || '🍽️')}</span>
-      <div class="planning-picker-item-text">
-        <div class="planning-picker-item-title">${r.favorite ? '⭐ ' : ''}${escapeHtml(r.title)}</div>
-        <div class="planning-picker-item-meta">${cat.emoji} ${cat.label}${r.prepTime || r.cookTime ? ' · ' + ((r.prepTime || 0) + (r.cookTime || 0)) + ' min' : ''}</div>
-      </div>
-    </button>`;
-  }).join('');
+  wrap.innerHTML = `<p class="planning-picker-count">${recipes.length} recette${recipes.length > 1 ? 's' : ''}</p>` +
+    recipes.map(r => {
+      const cat = getCategoryById(r.category);
+      const inSeason = !r.months || r.months.length === 0 || r.months.includes(currentMonth);
+      return `<button class="planning-picker-item" onclick="pickRecipeForPlanning('${r.id}')">
+        <span class="planning-picker-item-emoji">${r.photo ? `<img src="${r.photo}" alt="">` : (r.emoji || '🍽️')}</span>
+        <div class="planning-picker-item-text">
+          <div class="planning-picker-item-title">${r.favorite ? '⭐ ' : ''}${escapeHtml(r.title)}</div>
+          <div class="planning-picker-item-meta">${cat.emoji} ${escapeHtml(cat.label)}${r.prepTime || r.cookTime ? ' · ' + ((r.prepTime || 0) + (r.cookTime || 0)) + ' min' : ''}${inSeason ? '' : ' · <span class="picker-item-not-season">hors saison</span>'}</div>
+        </div>
+      </button>`;
+    }).join('');
 }
 
 function pickRecipeForPlanning(recipeId) {
@@ -4203,18 +4568,49 @@ function pickRecipeForPlanning(recipeId) {
   const recipe = state.recipes.find(r => r.id === recipeId);
   if (!recipe) return;
 
+  // Interception : si on est en édition d'une proposition de menu IA
+  if (state._menuPreviewIntercept && state._menuPreviewEditingIdx != null) {
+    const idx = state._menuPreviewEditingIdx;
+    if (state._pendingMenuProposal && state._pendingMenuProposal[idx]) {
+      state._pendingMenuProposal[idx].recipe = recipe;
+      state._pendingMenuProposal[idx].reason = '(choix manuel)';
+    }
+    state._menuPreviewIntercept = false;
+    state._menuPreviewEditingIdx = null;
+    closePlanningSlotPicker(true);
+    openPlanningMenuPreview(state._pendingMenuProposal);
+    return;
+  }
+
   const key = `${dateStr}-${slotId}`;
+  const existing = state.planning[key];
+  // Liste actuelle des recettes du slot
+  let currentRecipes = getSlotRecipes(existing);
+
+  // Si la recette y est déjà : pas de doublon
+  if (currentRecipes.some(r => r.id === recipeId)) {
+    showToast('Cette recette est déjà dans ce repas', 'info');
+    return;
+  }
+
+  // Ajout
+  currentRecipes.push({ id: recipeId, servings: recipe.baseServings });
+
   state.planning[key] = {
-    recipeId,
-    servings: recipe.baseServings,
+    ...(existing && !existing.deletedAt ? existing : {}),
+    recipeIds: currentRecipes,
+    recipeId: null, // on nettoie l'ancien format
     updatedAt: Date.now(),
     deletedAt: null
   };
   savePlanning();
-  syncPlanningEntry(key); // push vers le cloud si sync activée
-  closePlanningSlotPicker();
+  syncPlanningEntry(key);
   renderPlanning();
-  showToast('Repas planifié ✓', 'success');
+
+  // Notifier l'utilisateur sans forcément fermer le picker (pour ajouts multiples rapides)
+  showToast(`${recipe.title} ajouté ✓`, 'success');
+  // Fermeture après court délai (toast visible)
+  closePlanningSlotPicker();
 }
 window.pickRecipeForPlanning = pickRecipeForPlanning;
 
@@ -4229,12 +4625,45 @@ function closePlanningSlotPicker(skipHistory) {
 }
 window.closePlanningSlotPicker = closePlanningSlotPicker;
 
+// Retire UNE recette d'un slot (laisse les autres)
+function removeRecipeFromSlot(dateStr, slotId, recipeId) {
+  const key = `${dateStr}-${slotId}`;
+  const entry = state.planning[key];
+  if (!entry) return;
+  const current = getSlotRecipes(entry);
+  const filtered = current.filter(r => r.id !== recipeId);
+
+  if (filtered.length === 0) {
+    // Plus aucune recette : soft delete
+    state.planning[key] = {
+      ...entry,
+      recipeIds: [],
+      recipeId: null,
+      deletedAt: Date.now(),
+      updatedAt: Date.now()
+    };
+  } else {
+    state.planning[key] = {
+      ...entry,
+      recipeIds: filtered,
+      recipeId: null,
+      deletedAt: null,
+      updatedAt: Date.now()
+    };
+  }
+  savePlanning();
+  syncPlanningEntry(key);
+  renderPlanning();
+}
+window.removeRecipeFromSlot = removeRecipeFromSlot;
+
+// Vide tout un slot (compat avec ancien removeFromPlanning)
 function removeFromPlanning(dateStr, slotId) {
   const key = `${dateStr}-${slotId}`;
   if (!state.planning[key] || state.planning[key].deletedAt) return;
-  // Soft delete : marquer comme supprimé pour propager la suppression via sync
   state.planning[key] = {
     ...state.planning[key],
+    recipeIds: [],
     recipeId: null,
     deletedAt: Date.now(),
     updatedAt: Date.now()
@@ -4245,8 +4674,9 @@ function removeFromPlanning(dateStr, slotId) {
 }
 window.removeFromPlanning = removeFromPlanning;
 
-function clearPlanning() {
-  if (!confirm('Vider tout le planning des 2 semaines affichées ?')) return;
+async function clearPlanning() {
+  const periodLabel = _planningView === '2weeks' ? '2 semaines' : 'semaine';
+  if (!(await uiConfirm(`Vider tout le planning de la ${periodLabel} affichée ?`))) return;
   const days = getPlanningDays();
   const now = Date.now();
   const keysToSync = [];
@@ -4254,9 +4684,11 @@ function clearPlanning() {
     const dateStr = formatPlanningDate(d);
     for (const slot of MEAL_SLOTS) {
       const key = `${dateStr}-${slot.id}`;
-      if (state.planning[key] && !state.planning[key].deletedAt) {
+      const entry = state.planning[key];
+      if (entry && !entry.deletedAt && getSlotRecipes(entry).length > 0) {
         state.planning[key] = {
-          ...state.planning[key],
+          ...entry,
+          recipeIds: [],
           recipeId: null,
           deletedAt: now,
           updatedAt: now
@@ -4266,7 +4698,6 @@ function clearPlanning() {
     }
   }
   savePlanning();
-  // Sync toutes les suppressions
   keysToSync.forEach(syncPlanningEntry);
   renderPlanning();
   showToast('Planning vidé');
@@ -4284,17 +4715,17 @@ function planningToShopping() {
   }
   for (const d of days) {
     const dateStr = formatPlanningDate(d);
-    if (dateStr < today) continue; // ignorer les jours passés
+    if (dateStr < today) continue;
     for (const slot of MEAL_SLOTS) {
       const entry = state.planning[`${dateStr}-${slot.id}`];
-      if (!entry || !entry.recipeId) continue;
-      // Vérifier que la recette existe
-      const recipe = state.recipes.find(r => r.id === entry.recipeId);
-      if (!recipe) continue;
-      // Vérifier qu'elle n'est pas déjà dans la liste active
-      if (list.items.some(it => it.recipeId === entry.recipeId)) continue;
-      list.items.push({ recipeId: entry.recipeId, servings: entry.servings || recipe.baseServings });
-      count++;
+      const recipes = getSlotRecipes(entry);
+      for (const rr of recipes) {
+        const recipe = state.recipes.find(r => r.id === rr.id);
+        if (!recipe) continue;
+        if (list.items.some(it => it.recipeId === rr.id)) continue;
+        list.items.push({ recipeId: rr.id, servings: rr.servings || recipe.baseServings });
+        count++;
+      }
     }
   }
   state.shopping = list.items;
@@ -4316,10 +4747,370 @@ function changePlanningWeek(delta) {
 window.changePlanningWeek = changePlanningWeek;
 
 // ============================================
+// GÉNÉRATION DE MENU IA → PLANNING
+// ============================================
+
+function openPlanningMenuGenerator() {
+  // Modal qui demande les paramètres puis appelle Claude
+  const dietOptions = DIET_TAGS.filter(t => !['low-fodmap', 'high-fodmap'].includes(t.id)) // FODMAP auto-calculé
+    .map(t => `<label class="diet-tag-option" style="--diet-color: ${t.color}">
+      <input type="checkbox" data-diet-id="${t.id}">
+      <span class="diet-tag-emoji">${t.emoji}</span>
+      <span class="diet-tag-label">${escapeHtml(t.label)}</span>
+    </label>`).join('');
+
+  const html = `
+    <div class="modal-header">
+      <h2>🪄 Générer un menu avec l'IA</h2>
+      <button class="modal-close" onclick="closePlanningMenuGenerator()" aria-label="Fermer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="planning-menu-gen-body">
+      <p class="planning-menu-gen-hint">L'IA va proposer des recettes équilibrées depuis votre bibliothèque, en respectant la saison et vos critères.</p>
+
+      <label class="planning-menu-gen-label">Durée</label>
+      <div class="planning-menu-gen-segmented">
+        <button class="seg-option active" data-duration="3">3 jours</button>
+        <button class="seg-option" data-duration="7">1 semaine</button>
+        <button class="seg-option" data-duration="14">2 semaines</button>
+      </div>
+
+      <label class="planning-menu-gen-label">Repas</label>
+      <div class="planning-menu-gen-segmented">
+        <button class="seg-option" data-meals="midi">Midi seul</button>
+        <button class="seg-option" data-meals="soir">Soir seul</button>
+        <button class="seg-option active" data-meals="midi+soir">Midi + Soir</button>
+      </div>
+
+      <label class="planning-menu-gen-label">Démarrer à partir de</label>
+      <div class="planning-menu-gen-segmented">
+        <button class="seg-option active" data-start="today">Aujourd'hui</button>
+        <button class="seg-option" data-start="next-empty">Prochain repas vide</button>
+      </div>
+
+      <label class="planning-menu-gen-label">Contraintes (optionnel)</label>
+      <textarea id="planning-menu-gen-prompt" placeholder="Ex: pas de gluten, des plats rapides en semaine, plus festif le weekend..." rows="3"></textarea>
+
+      <div class="planning-menu-gen-collapse">
+        <button class="planning-menu-gen-toggle" onclick="document.getElementById('planning-menu-gen-diets').classList.toggle('hidden')">
+          Régimes alimentaires à respecter ▼
+        </button>
+        <div id="planning-menu-gen-diets" class="diet-tags-grid hidden" style="margin-top:8px">
+          ${dietOptions}
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closePlanningMenuGenerator()">Annuler</button>
+      <button class="btn-primary" id="planning-menu-gen-submit" onclick="runPlanningMenuGenerator()">
+        <span class="btn-label">Générer</span>
+      </button>
+    </div>
+  `;
+
+  let modal = document.getElementById('planning-menu-gen-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'planning-menu-gen-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = '<div class="modal-backdrop"></div><div class="modal-content"></div>';
+    document.body.appendChild(modal);
+    modal.querySelector('.modal-backdrop').addEventListener('click', closePlanningMenuGenerator);
+  }
+  modal.querySelector('.modal-content').innerHTML = html;
+  modal.classList.remove('hidden');
+
+  // Behaviour : segmented buttons
+  modal.querySelectorAll('.seg-option').forEach(btn => {
+    btn.addEventListener('click', () => {
+      // Sélection exclusive par groupe (data-duration, data-meals, data-start)
+      const group = ['duration', 'meals', 'start'].find(g => btn.dataset[g] !== undefined);
+      if (!group) return;
+      modal.querySelectorAll(`.seg-option[data-${group}]`).forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  // Toggle visuel des diet labels
+  modal.querySelectorAll('.diet-tag-option input').forEach(input => {
+    input.addEventListener('change', e => {
+      e.target.closest('.diet-tag-option').classList.toggle('checked', e.target.checked);
+    });
+  });
+
+  pushOverlay('planning-menu-gen');
+}
+window.openPlanningMenuGenerator = openPlanningMenuGenerator;
+
+function closePlanningMenuGenerator(skipHistory) {
+  const modal = document.getElementById('planning-menu-gen-modal');
+  if (!modal || modal.classList.contains('hidden')) return;
+  if (!skipHistory) {
+    history.back();
+    return;
+  }
+  modal.classList.add('hidden');
+}
+window.closePlanningMenuGenerator = closePlanningMenuGenerator;
+
+async function runPlanningMenuGenerator() {
+  if (!state.apiKey) {
+    showToast('Clé API requise (Paramètres)', 'error');
+    return;
+  }
+  if (state.recipes.length < 3) {
+    showToast('Il faut au moins 3 recettes dans la bibliothèque', 'error');
+    return;
+  }
+
+  const modal = document.getElementById('planning-menu-gen-modal');
+  const duration = Number(modal.querySelector('.seg-option[data-duration].active')?.dataset.duration || 7);
+  const mealsMode = modal.querySelector('.seg-option[data-meals].active')?.dataset.meals || 'midi+soir';
+  const startMode = modal.querySelector('.seg-option[data-start].active')?.dataset.start || 'today';
+  const userPrompt = (document.getElementById('planning-menu-gen-prompt').value || '').trim();
+  const selectedDiets = Array.from(modal.querySelectorAll('.diet-tag-option input:checked')).map(i => i.dataset.dietId);
+
+  // Quels slots remplir ?
+  const slotIds = mealsMode === 'midi+soir' ? ['midi', 'soir'] : [mealsMode];
+
+  // Construire la liste de dates concernées
+  const dates = [];
+  const startDate = new Date();
+  startDate.setHours(0, 0, 0, 0);
+  for (let i = 0; i < duration; i++) {
+    const d = new Date(startDate);
+    d.setDate(d.getDate() + i);
+    dates.push(formatPlanningDate(d));
+  }
+
+  // Filtrer pour ne garder que les slots vides si "next-empty"
+  let targetSlots = [];
+  for (const dateStr of dates) {
+    for (const slot of slotIds) {
+      const key = `${dateStr}-${slot}`;
+      const entry = state.planning[key];
+      const isEmpty = !entry || !entry.recipeId || entry.deletedAt;
+      if (startMode === 'next-empty' && !isEmpty) continue;
+      targetSlots.push({ dateStr, slot, key });
+    }
+  }
+
+  if (targetSlots.length === 0) {
+    showToast('Aucun créneau disponible', 'error');
+    return;
+  }
+
+  // Filtrer la bibliothèque selon les régimes choisis
+  const currentMonth = new Date().getMonth() + 1;
+  let candidates = state.recipes.slice();
+  if (selectedDiets.length > 0) {
+    candidates = candidates.filter(r => {
+      const tags = r.dietTags || [];
+      return selectedDiets.every(d => tags.includes(d));
+    });
+  }
+
+  if (candidates.length < 3) {
+    showToast('Trop peu de recettes correspondent aux critères', 'error');
+    return;
+  }
+
+  // Construire un résumé des recettes disponibles pour l'IA
+  const recipeBrief = candidates.map(r => {
+    const cookCount = (r.cookedHistory || []).length;
+    const inSeason = !r.months || r.months.length === 0 || r.months.includes(currentMonth);
+    const totalTime = (r.prepTime || 0) + (r.cookTime || 0);
+    return {
+      id: r.id,
+      title: r.title,
+      category: r.category,
+      tags: r.tags || [],
+      dietTags: r.dietTags || [],
+      totalTime: totalTime || null,
+      inSeason,
+      cookCount
+    };
+  });
+
+  const submitBtn = document.getElementById('planning-menu-gen-submit');
+  const originalLabel = submitBtn.innerHTML;
+  submitBtn.innerHTML = '<span class="spinner-small"></span> Génération...';
+  submitBtn.disabled = true;
+
+  try {
+    const prompt = `Tu es un chef qui aide à planifier des repas équilibrés.
+J'ai besoin que tu sélectionnes ${targetSlots.length} recettes parmi ma bibliothèque pour remplir mon planning.
+
+CRITÈRES À RESPECTER:
+- Variété : ne pas répéter une recette plus de 2 fois sur la période
+- Équilibre : alterner viandes/poissons/végétarien, plats lourds/légers
+- Saisonnalité : privilégier les recettes "inSeason: true"
+- Roulement : privilégier les recettes peu cuisinées récemment (cookCount bas)
+- Contraintes utilisateur: ${userPrompt || '(aucune)'}
+
+Repas demandés (dans l'ordre) :
+${targetSlots.map((s, i) => `${i + 1}. ${s.dateStr} - ${s.slot}`).join('\n')}
+
+Recettes disponibles dans la bibliothèque (id, title, category, tags, dietTags, totalTime, inSeason, cookCount):
+${JSON.stringify(recipeBrief, null, 1)}
+
+RÉPONSE ATTENDUE : un JSON STRICT entre balises <menu>...</menu>, format:
+<menu>
+[
+  { "slot": 1, "recipeId": "abc", "reason": "Plat de saison, équilibré" },
+  { "slot": 2, "recipeId": "def", "reason": "Léger pour le soir" }
+]
+</menu>
+
+L'array doit avoir exactement ${targetSlots.length} éléments. Chaque "recipeId" doit exister dans les recettes disponibles. "reason" est une phrase TRÈS courte (max 8 mots).`;
+
+    const response = await callClaudeAPI([{ role: 'user', content: prompt }], { maxTokens: 4000 });
+
+    // Parser la réponse
+    const match = response.match(/<menu>([\s\S]*?)<\/menu>/);
+    if (!match) throw new Error("Réponse IA invalide");
+
+    const cleanJson = match[1].trim().replace(/^```json\s*/i, '').replace(/```$/, '').trim();
+    const menu = JSON.parse(cleanJson);
+    if (!Array.isArray(menu)) throw new Error("Format JSON inattendu");
+
+    // Construire l'aperçu pour validation utilisateur
+    const proposal = [];
+    for (let i = 0; i < targetSlots.length; i++) {
+      const item = menu[i];
+      if (!item || !item.recipeId) continue;
+      const recipe = candidates.find(r => r.id === item.recipeId);
+      if (!recipe) continue;
+      proposal.push({
+        ...targetSlots[i],
+        recipe,
+        reason: item.reason || ''
+      });
+    }
+
+    if (proposal.length === 0) throw new Error("Aucune recette valide proposée");
+
+    // Fermer la modal de génération, ouvrir la modal de validation
+    closePlanningMenuGenerator(true);
+    openPlanningMenuPreview(proposal);
+
+  } catch (e) {
+    console.error('Génération menu erreur:', e);
+    showToast('Erreur: ' + e.message, 'error');
+    submitBtn.innerHTML = originalLabel;
+    submitBtn.disabled = false;
+  }
+}
+window.runPlanningMenuGenerator = runPlanningMenuGenerator;
+
+function openPlanningMenuPreview(proposal) {
+  // Modal d'aperçu avec possibilité de regénérer ou valider chaque repas
+  const html = `
+    <div class="modal-header">
+      <h2>Menu proposé</h2>
+      <button class="modal-close" onclick="closePlanningMenuPreview()" aria-label="Fermer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="planning-menu-preview-body">
+      <p class="planning-menu-preview-hint">Validez ou ajustez. Tapez un repas pour le changer.</p>
+      <div class="planning-menu-preview-list">
+        ${proposal.map((p, i) => `
+          <div class="planning-menu-preview-item" data-idx="${i}">
+            <div class="planning-menu-preview-date">${formatPreviewDate(p.dateStr)} · ${p.slot === 'midi' ? '☀️ Midi' : '🌙 Soir'}</div>
+            <button class="planning-menu-preview-recipe" onclick="changePreviewRecipe(${i})">
+              <span class="planning-menu-preview-emoji">${p.recipe.photo ? `<img src="${p.recipe.photo}" alt="">` : (p.recipe.emoji || '🍽️')}</span>
+              <div class="planning-menu-preview-text">
+                <div class="planning-menu-preview-title">${escapeHtml(p.recipe.title)}</div>
+                ${p.reason ? `<div class="planning-menu-preview-reason">${escapeHtml(p.reason)}</div>` : ''}
+              </div>
+              <span class="planning-menu-preview-edit">✏️</span>
+            </button>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closePlanningMenuPreview()">Annuler</button>
+      <button class="btn-primary" onclick="confirmPlanningMenu()">Valider tout</button>
+    </div>
+  `;
+
+  // On stocke la proposition dans le state pour pouvoir la modifier
+  state._pendingMenuProposal = proposal;
+
+  let modal = document.getElementById('planning-menu-preview-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'planning-menu-preview-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = '<div class="modal-backdrop"></div><div class="modal-content"></div>';
+    document.body.appendChild(modal);
+    modal.querySelector('.modal-backdrop').addEventListener('click', closePlanningMenuPreview);
+  }
+  modal.querySelector('.modal-content').innerHTML = html;
+  modal.classList.remove('hidden');
+  pushOverlay('planning-menu-preview');
+}
+
+function formatPreviewDate(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function closePlanningMenuPreview(skipHistory) {
+  const modal = document.getElementById('planning-menu-preview-modal');
+  if (!modal || modal.classList.contains('hidden')) return;
+  if (!skipHistory) {
+    history.back();
+    return;
+  }
+  modal.classList.add('hidden');
+  state._pendingMenuProposal = null;
+}
+window.closePlanningMenuPreview = closePlanningMenuPreview;
+
+function changePreviewRecipe(idx) {
+  // Ouvrir un picker simple
+  const proposal = state._pendingMenuProposal;
+  if (!proposal || !proposal[idx]) return;
+  // Utiliser le picker existant en flag spécial
+  state._menuPreviewEditingIdx = idx;
+  openPlanningSlot(proposal[idx].dateStr, proposal[idx].slot);
+  // Override : interception du pick pour rester en preview
+  state._menuPreviewIntercept = true;
+}
+window.changePreviewRecipe = changePreviewRecipe;
+
+function confirmPlanningMenu() {
+  const proposal = state._pendingMenuProposal;
+  if (!proposal) return;
+  const now = Date.now();
+  let count = 0;
+  for (const p of proposal) {
+    state.planning[p.key] = {
+      recipeId: p.recipe.id,
+      servings: p.recipe.baseServings,
+      updatedAt: now + count, // léger décalage pour préserver l'ordre
+      deletedAt: null
+    };
+    syncPlanningEntry(p.key);
+    count++;
+  }
+  savePlanning();
+  closePlanningMenuPreview(true);
+  renderPlanning();
+  showToast(`${count} repas planifié${count > 1 ? 's' : ''} ✓`, 'success');
+}
+window.confirmPlanningMenu = confirmPlanningMenu;
+
+// ============================================
 // EVENT BINDINGS
 // ============================================
 
-function bindEvents() {
+async function bindEvents() {
   // Bottom nav
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => navigateTo(btn.dataset.view));
@@ -4381,8 +5172,8 @@ function bindEvents() {
   // Filtre par ingrédients (dans le drawer)
   const addIngBtn = document.getElementById('add-ingredient-filter');
   if (addIngBtn) {
-    addIngBtn.addEventListener('click', () => {
-      const name = prompt('Nom de l\'ingrédient à filtrer (ex: courgette) :');
+    addIngBtn.addEventListener('click', async () => {
+      const name = await uiPrompt('Nom de l\'ingrédient à filtrer (ex: courgette) :');
       if (!name || !name.trim()) return;
       state.ingredientsFilter.push(name.trim());
       renderIngredientsFilter();
@@ -4472,9 +5263,9 @@ function bindEvents() {
   // Menu IA button
   const menuBtn = document.getElementById('generate-menu-btn');
   if (menuBtn) {
-    menuBtn.addEventListener('click', (e) => {
+    menuBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      const occasion = prompt('Pour quelle occasion ? (ex: "menu végétarien rapide", "dîner d\'été pour 6", "soirée raclette")', 'Menu équilibré pour ce soir');
+      const occasion = await uiPrompt('Pour quelle occasion ? (ex: "menu végétarien rapide", "dîner d\'été pour 6", "soirée raclette")', 'Menu équilibré pour ce soir');
       if (occasion) generateMenu(occasion);
     });
   }
@@ -4523,6 +5314,8 @@ function bindEvents() {
   if (planningToShoppingBtn) planningToShoppingBtn.addEventListener('click', planningToShopping);
   const planningClearBtn = document.getElementById('planning-clear');
   if (planningClearBtn) planningClearBtn.addEventListener('click', clearPlanning);
+  const planningGenAIBtn = document.getElementById('planning-generate-ai');
+  if (planningGenAIBtn) planningGenAIBtn.addEventListener('click', openPlanningMenuGenerator);
   document.getElementById('settings-close').addEventListener('click', hideSettings);
   document.querySelector('#settings-modal .modal-backdrop').addEventListener('click', hideSettings);
   document.getElementById('settings-save-key').addEventListener('click', () => {
@@ -4591,8 +5384,8 @@ function bindEvents() {
     await performSync(false);
   });
 
-  document.getElementById('settings-sync-disable').addEventListener('click', () => {
-    if (!confirm('Désactiver la synchronisation ? Vos recettes locales restent intactes.')) return;
+  document.getElementById('settings-sync-disable').addEventListener('click', async () => {
+    if (!(await uiConfirm('Désactiver la synchronisation ? Vos recettes locales restent intactes.'))) return;
     saveSyncConfig({ url: '', key: '', foyer: '' });
     state.sync.status = 'idle';
     updateSyncIndicator();

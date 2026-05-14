@@ -417,9 +417,7 @@ function normalizeAmount(amount, unit) {
   };
 }
 
-// ============================================
-// TAGS RÉGIME (prédéfinis, choix par cases à cocher)
-// ============================================
+
 const DIET_TAGS = [
   { id: 'vegan', label: 'Vegan', emoji: '🌱', color: '#4ade80' },
   { id: 'vegetarien', label: 'Végétarien', emoji: '🥗', color: '#86efac' },
