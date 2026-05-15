@@ -4853,3 +4853,767 @@ body.keyboard-open .bottom-nav {
   background: var(--color-red-500, #ef4444);
   color: white;
 }
+
+/* ============================================
+   GARDE-MANGER amélioré
+   ============================================ */
+.shopping-pantry-info {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--color-primary-cream);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-primary-soft);
+}
+.shopping-pantry-info.is-empty {
+  background: var(--color-bg);
+  border-color: var(--color-gray-200);
+}
+.shopping-pantry-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.shopping-pantry-header strong {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--color-primary-dark);
+}
+.shopping-pantry-info.is-empty .shopping-pantry-header strong {
+  color: var(--color-gray-700);
+}
+.shopping-pantry-add {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.shopping-pantry-add:hover {
+  background: var(--color-primary-dark);
+}
+.shopping-pantry-hint {
+  font-size: 12px;
+  color: var(--color-gray-600);
+  margin: 0 0 10px 0;
+  line-height: 1.4;
+}
+.shopping-pantry-chip.is-urgent {
+  background: var(--color-orange-100, #fed7aa);
+  border-color: var(--color-orange-500, #f97316);
+  color: var(--color-orange-700, #c2410c);
+}
+.shopping-pantry-chip.is-urgent span {
+  color: var(--color-orange-700, #c2410c);
+  font-weight: 800;
+}
+
+/* Indicateur garde-manger sur fiche recette */
+.ingredient-row.in-pantry {
+  opacity: 0.7;
+}
+.ingredient-row.in-pantry .ingredient-name {
+  text-decoration: line-through;
+  text-decoration-color: var(--color-primary-soft);
+}
+.ingredient-pantry-mark {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 12px;
+  vertical-align: middle;
+}
+.ingredients-pantry-hint {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: var(--color-primary-cream);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--color-primary-dark);
+  text-align: center;
+}
+
+/* Settings : select */
+.settings-select {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 14px;
+  background: var(--color-bg);
+  color: var(--color-gray-800);
+  cursor: pointer;
+}
+.settings-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  background: white;
+}
+
+/* ============================================
+   CHANGELOG / HISTORIQUE
+   ============================================ */
+.recipe-changelog-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: calc(100% - 32px);
+  margin: 8px 16px 4px;
+  padding: 9px 14px;
+  background: var(--color-surface);
+  color: var(--color-gray-700);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  position: relative;
+}
+.recipe-changelog-btn:hover {
+  background: var(--color-bg);
+  border-color: var(--color-primary-soft);
+}
+.recipe-changelog-btn.has-new {
+  background: var(--color-primary-cream);
+  border-color: var(--color-primary-soft);
+  color: var(--color-primary-dark);
+}
+.recipe-changelog-badge {
+  position: absolute;
+  top: -4px;
+  right: 8px;
+  background: var(--color-red-500, #ef4444);
+  color: white;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  min-width: 16px;
+  text-align: center;
+  border: 2px solid var(--color-bg);
+}
+
+.changelog-body {
+  padding: 16px 20px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.changelog-summary {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--color-gray-600);
+  margin: 0 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--color-gray-100);
+}
+.changelog-empty {
+  text-align: center;
+  color: var(--color-gray-500);
+  padding: 24px 0;
+  font-size: 14px;
+}
+.changelog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.changelog-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 8px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+}
+.changelog-item:hover {
+  background: var(--color-bg);
+}
+.changelog-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary-cream);
+  border-radius: var(--radius-full);
+}
+.changelog-text {
+  flex: 1;
+  min-width: 0;
+}
+.changelog-action {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--color-gray-800);
+  text-transform: capitalize;
+}
+.changelog-date {
+  font-size: 11px;
+  color: var(--color-gray-500);
+  margin-top: 2px;
+}
+.changelog-note {
+  text-align: center;
+  font-size: 11px;
+  color: var(--color-gray-500);
+  margin: 16px 0 0;
+  font-style: italic;
+}
+
+/* ============================================
+   PICKER : boutons collapse (Voir autres / Catégorie)
+   ============================================ */
+
+/* Bouton "Voir autres régimes" : ressemble à un chip neutre */
+.picker-filter-more {
+  background: var(--color-bg);
+  color: var(--color-gray-600);
+  border-style: dashed;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.picker-filter-more:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.picker-filter-more.has-active {
+  background: var(--color-primary-pale);
+  border-color: var(--color-primary);
+  color: var(--color-primary-dark);
+  border-style: solid;
+}
+.picker-filter-more-icon {
+  font-size: 9px;
+  display: inline-block;
+  transition: transform 0.15s;
+}
+
+/* Bouton de section "Catégorie ▼" : full-width, plus visible */
+.picker-filter-collapse-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--color-bg);
+  border: 1px dashed var(--color-gray-300);
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--color-gray-700);
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.picker-filter-collapse-toggle:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.picker-filter-collapse-toggle.has-active {
+  background: var(--color-primary-pale);
+  border-color: var(--color-primary);
+  color: var(--color-primary-dark);
+  border-style: solid;
+}
+
+/* Lignes de chips qui peuvent être cachées : transition douce */
+.picker-other-diets,
+.picker-category-row {
+  margin-top: 6px;
+}
+.picker-other-diets.hidden,
+.picker-category-row.hidden {
+  display: none;
+}
+
+/* ============================================
+   PLANNING : 2 boutons segmentés 1 sem / 2 sem
+   ============================================ */
+.planning-view-segmented {
+  display: inline-flex;
+  gap: 0;
+  background: var(--color-bg);
+  padding: 3px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-gray-200);
+}
+.planning-view-seg {
+  padding: 6px 14px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-full);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--color-gray-600);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.planning-view-seg.active {
+  background: var(--color-primary);
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+.planning-view-seg:not(.active):hover {
+  color: var(--color-primary);
+}
+
+/* ============================================
+   FICHE RECETTE : barre meta compacte
+   (remplace : tags + dietTags + source + cooked + changelog)
+   ============================================ */
+.recipe-meta-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 16px;
+  align-items: center;
+}
+
+.recipe-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: var(--radius-full);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  max-width: 100%;
+  position: relative;
+}
+
+/* Chip rempli : style filled subtle */
+.recipe-meta-chip.is-filled {
+  background: var(--color-primary-cream);
+  color: var(--color-primary-dark);
+  border-color: var(--color-primary-soft);
+}
+.recipe-meta-chip.is-filled:hover {
+  background: var(--color-primary-pale);
+}
+
+/* Chip vide : pointillés discrets */
+.recipe-meta-chip.is-empty {
+  background: transparent;
+  color: var(--color-gray-500);
+  border: 1px dashed var(--color-gray-300);
+  font-weight: 500;
+  font-size: 11px;
+  padding: 4px 9px;
+}
+.recipe-meta-chip.is-empty:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.recipe-meta-chip-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.recipe-meta-chip-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.recipe-meta-diet-emoji {
+  font-size: 15px;
+  line-height: 1;
+}
+.recipe-meta-diet-emoji + .recipe-meta-diet-emoji {
+  margin-left: 2px;
+}
+
+.recipe-meta-chip-badge {
+  background: var(--color-red-500, #ef4444);
+  color: white;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: var(--radius-full);
+  min-width: 14px;
+  text-align: center;
+  margin-left: 2px;
+}
+.recipe-meta-chip.has-new {
+  border-color: var(--color-primary);
+}
+
+/* Saisonnalité : compacter aussi (taille des chips réduite) */
+.recipe-detail-tags {
+  margin: 0 16px 4px;
+}
+
+/* ============================================
+   ÉDITION INLINE INGRÉDIENTS / ÉTAPES
+   ============================================ */
+
+/* Indicateur visuel : tap pour modifier */
+.ingredient-row,
+.step-item {
+  cursor: pointer;
+  transition: background var(--transition);
+  -webkit-tap-highlight-color: transparent;
+}
+.ingredient-row:hover {
+  background: var(--color-bg);
+}
+.step-item:hover {
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+}
+
+/* Bouton "+ Ajouter un ingrédient" / "+ Ajouter une étape" */
+.recipe-inline-add {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 14px;
+  background: transparent;
+  color: var(--color-primary);
+  border: 1.5px dashed var(--color-primary-soft);
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.recipe-inline-add:hover {
+  background: var(--color-primary-cream);
+  border-color: var(--color-primary);
+}
+
+/* === DIALOG : formulaire ingrédient et étape === */
+.ui-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ui-dialog-row {
+  display: flex;
+  gap: 10px;
+}
+.ui-dialog-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.ui-dialog-field-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-gray-600);
+  margin-bottom: 4px;
+  display: block;
+}
+.ui-dialog-textarea {
+  width: 100%;
+  padding: 11px 14px;
+  margin-top: 14px;
+  border: 1.5px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 14px;
+  background: var(--color-bg);
+  resize: vertical;
+  min-height: 90px;
+  line-height: 1.5;
+}
+.ui-dialog-textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  background: white;
+}
+
+.ui-dialog-move-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.ui-dialog-move-btn {
+  flex: 1;
+  font-size: 12px !important;
+  padding: 8px 10px !important;
+}
+
+/* ============================================
+   PHOTO : dialog de choix source
+   ============================================ */
+.photo-source-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.photo-source-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--color-bg);
+  border: 1.5px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+  font-family: var(--font-display);
+}
+
+.photo-source-btn:hover {
+  background: var(--color-primary-cream);
+  border-color: var(--color-primary);
+}
+
+.photo-source-btn.photo-source-delete {
+  border-color: var(--color-red-200, #fecaca);
+  background: var(--color-red-50, #fef2f2);
+}
+
+.photo-source-btn.photo-source-delete:hover {
+  background: var(--color-red-100, #fee2e2);
+  border-color: var(--color-red-500, #ef4444);
+}
+
+.photo-source-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+
+.photo-source-label {
+  display: block;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--color-gray-800);
+}
+
+.photo-source-desc {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-gray-600);
+  margin-top: 2px;
+}
+
+.photo-source-delete .photo-source-label {
+  color: var(--color-red-600, #dc2626);
+}
+
+/* Bouton photo : toujours visible, plus contrasté quand photo présente */
+.recipe-photo-add.has-photo {
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.recipe-photo-add.has-photo:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+/* ============================================
+   TIMER : boutons dans les étapes + overlay
+   ============================================ */
+
+/* Boutons minuteur sous les étapes */
+.step-timers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.step-timer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  background: var(--color-primary-cream);
+  color: var(--color-primary-dark);
+  border: 1px solid var(--color-primary-soft);
+  border-radius: var(--radius-full);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.step-timer-btn:hover {
+  background: var(--color-primary-pale);
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+}
+
+.step-timer-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Overlay timer flottant */
+.timer-overlay {
+  position: fixed;
+  bottom: calc(var(--nav-h, 60px) + 12px + var(--safe-bottom, 0px));
+  left: 12px;
+  right: 12px;
+  z-index: 200;
+  pointer-events: none;
+  display: flex;
+  justify-content: center;
+}
+
+.timer-overlay.hidden {
+  display: none;
+}
+
+.timer-overlay-content {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 420px;
+  padding: 12px 14px;
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  animation: timer-slide-up 0.3s ease;
+}
+
+@keyframes timer-slide-up {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Barre de progression en arrière-plan */
+.timer-overlay-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: var(--color-primary-pale);
+  z-index: 0;
+  transition: width 0.5s linear;
+}
+
+.timer-overlay-body,
+.timer-overlay-actions {
+  position: relative;
+  z-index: 1;
+}
+
+.timer-overlay-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.timer-overlay-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--color-primary-dark);
+  letter-spacing: 0.04em;
+}
+
+.timer-overlay-display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 24px;
+  color: var(--color-gray-900);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  margin-top: 2px;
+}
+
+.timer-overlay-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.timer-overlay-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: white;
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary-soft);
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.timer-overlay-btn:hover {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+.timer-overlay-btn-primary {
+  width: auto;
+  padding: 0 16px;
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+.timer-overlay-btn-primary:hover {
+  background: var(--color-primary-dark);
+}
+
+/* État terminé : couleur d'alerte + animation */
+.timer-overlay-content.is-finished {
+  border-color: var(--color-red-500, #ef4444);
+  background: var(--color-red-50, #fef2f2);
+  animation: timer-pulse 1s ease infinite;
+}
+
+@keyframes timer-pulse {
+  0%, 100% { box-shadow: 0 8px 24px rgba(239, 68, 68, 0.3); }
+  50% { box-shadow: 0 8px 32px rgba(239, 68, 68, 0.6); }
+}
+
+.timer-overlay-content.is-finished .timer-overlay-label,
+.timer-overlay-content.is-finished .timer-overlay-display {
+  color: var(--color-red-600, #dc2626);
+}
+
+.timer-overlay-content.is-finished .timer-overlay-progress {
+  background: rgba(239, 68, 68, 0.15);
+  width: 100% !important;
+}

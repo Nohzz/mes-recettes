@@ -193,6 +193,21 @@ function loadState() {
         try { localStorage.setItem(STORAGE_KEYS.recipes, JSON.stringify(state.recipes)); } catch {}
       }
     }
+
+    // Migration INGREDIENT_IDS : refait le matching textuel pour combler les oublis de l'IA
+    // (ex: étape "Monter les blancs en neige" qui ne référence pas l'ingrédient "Blancs d'œufs")
+    if (typeof enrichStepIngredientIds === 'function') {
+      const STEPS_VERSION = 'enrich-v2';
+      const stepsMigrated = localStorage.getItem('mr_steps_enrich_version');
+      if (stepsMigrated !== STEPS_VERSION) {
+        state.recipes = state.recipes.map(r => {
+          if (!r.steps || !r.ingredients) return r;
+          return { ...r, steps: enrichStepIngredientIds(r.steps, r.ingredients) };
+        });
+        localStorage.setItem('mr_steps_enrich_version', STEPS_VERSION);
+        try { localStorage.setItem(STORAGE_KEYS.recipes, JSON.stringify(state.recipes)); } catch {}
+      }
+    }
   } catch (e) {
     console.error('Load state error:', e);
   }
@@ -907,6 +922,12 @@ function handleBack() {
     closePlanningMenuGenerator(true);
     return true;
   }
+  // Priorité 7d : Modal changeLog
+  const changelogModal = document.getElementById('changelog-modal');
+  if (changelogModal && !changelogModal.classList.contains('hidden')) {
+    closeChangeLog(true);
+    return true;
+  }
   // Priorité 8 : Drawer Filtres
   const drawer = document.getElementById('filters-drawer');
   if (drawer && !drawer.classList.contains('hidden')) {
@@ -981,15 +1002,22 @@ function getFilteredRecipes() {
 
   // Filtrage texte (recherche libre)
   if (state.searchQuery) {
-    const q = state.searchQuery.toLowerCase().trim();
-    recipes = recipes.filter(r => {
-      if (r.title.toLowerCase().includes(q)) return true;
-      if ((r.description || '').toLowerCase().includes(q)) return true;
-      if ((r.tags || []).some(t => t.includes(q))) return true;
-      if (r.ingredients.some(ing => ing.name.toLowerCase().includes(q))) return true;
-      if ((r.personalNotes || '').toLowerCase().includes(q)) return true;
-      return false;
-    });
+    // Normalisation : minuscules + suppression d'accents pour une recherche tolérante
+    const normalize = s => (s || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const q = normalize(state.searchQuery.trim());
+    if (q) {
+      recipes = recipes.filter(r => {
+        if (normalize(r.title).includes(q)) return true;
+        if (normalize(r.description || '').includes(q)) return true;
+        if ((r.tags || []).some(t => normalize(t).includes(q))) return true;
+        if (r.ingredients.some(ing => normalize(ing.name).includes(q))) return true;
+        if (normalize(r.personalNotes || '').includes(q)) return true;
+        // NOUVEAU : recherche dans le texte des étapes
+        if ((r.steps || []).some(s => normalize(s.text || '').includes(q))) return true;
+        return false;
+      });
+    }
   }
 
   // Filtrage par ingrédients multiples (recherche inversée)
@@ -1216,35 +1244,87 @@ function renderRecipeDetail(recipe) {
     timesHtml = `<div class="recipe-times">${items.join('')}</div>`;
   }
 
-  // Tags
-  const tagsHtml = (r.tags && r.tags.length)
-    ? `<div class="recipe-detail-custom-tags">${r.tags.map(t => `<span class="recipe-tag">${escapeHtml(t)}</span>`).join('')}<button class="recipe-tag-edit" onclick="editRecipeTags('${r.id}')">✏️</button></div>`
-    : `<button class="recipe-tag-empty" onclick="editRecipeTags('${r.id}')">+ Ajouter des tags</button>`;
+  // === Barre compacte de méta-infos (tags, régimes, source, cuisson, historique) ===
+  // Toutes ces infos étaient autrefois sur 5 lignes distinctes : on les regroupe en chips sur une seule
+  // barre wrappante. Chips remplis = info présente ; chips vides en pointillés = "ajouter".
 
-  // Diet tags (régimes alimentaires, prédéfinis)
-  const dietTagsHtml = renderDietTags(r);
+  const metaChips = [];
 
-  // Source de la recette
-  const sourceHtml = renderRecipeSource(r);
+  // Tags personnalisés
+  if (r.tags && r.tags.length) {
+    const tagsList = r.tags.map(t => escapeHtml(t)).join(', ');
+    metaChips.push(`<button class="recipe-meta-chip is-filled" onclick="editRecipeTags('${r.id}')" title="${escapeHtml(tagsList)}">
+      <span class="recipe-meta-chip-icon">🏷️</span>
+      <span class="recipe-meta-chip-text">${escapeHtml(tagsList)}</span>
+    </button>`);
+  } else {
+    metaChips.push(`<button class="recipe-meta-chip is-empty" onclick="editRecipeTags('${r.id}')">+ Tags</button>`);
+  }
 
-  // Historique cuisson
+  // Régimes alimentaires (chips compactes : juste les emojis si remplis)
+  const dietTags = r.dietTags || [];
+  if (dietTags.length > 0) {
+    const emojis = dietTags.map(id => {
+      const t = DIET_TAGS.find(x => x.id === id);
+      return t ? `<span class="recipe-meta-diet-emoji" style="color:${t.color}" title="${escapeHtml(t.label)}">${t.emoji}</span>` : '';
+    }).join('');
+    metaChips.push(`<button class="recipe-meta-chip is-filled" onclick="openDietTagsEditor('${r.id}')">
+      ${emojis}
+    </button>`);
+  } else {
+    metaChips.push(`<button class="recipe-meta-chip is-empty" onclick="openDietTagsEditor('${r.id}')">+ Régime</button>`);
+  }
+
+  // Source
+  const src = r.source;
+  if (src && src.type) {
+    let icon = '🔗', text = '';
+    if (src.type === 'book') { icon = '📖'; text = src.title || 'Livre'; }
+    else if (src.type === 'web') { icon = '🌐'; text = src.siteName || (src.url ? new URL(src.url).hostname.replace(/^www\./, '') : 'Web'); }
+    else if (src.type === 'instagram') { icon = '📷'; text = src.account ? '@' + src.account.replace(/^@/, '') : 'Instagram'; }
+    metaChips.push(`<button class="recipe-meta-chip is-filled" onclick="openSourceEditor('${r.id}')" title="${escapeHtml(text)}">
+      <span class="recipe-meta-chip-icon">${icon}</span>
+      <span class="recipe-meta-chip-text">${escapeHtml(text)}</span>
+    </button>`);
+  } else {
+    metaChips.push(`<button class="recipe-meta-chip is-empty" onclick="openSourceEditor('${r.id}')">+ Source</button>`);
+  }
+
+  // Historique cuisson (chip)
   const cookedHistory = r.cookedHistory || [];
   const lastCooked = cookedHistory.length ? cookedHistory[cookedHistory.length - 1] : 0;
-  let cookedSummary = '';
   if (lastCooked) {
     const days = Math.floor((Date.now() - lastCooked) / (24 * 3600 * 1000));
     let when = '';
     if (days === 0) when = "aujourd'hui";
     else if (days === 1) when = "hier";
-    else if (days < 7) when = `il y a ${days} jours`;
-    else if (days < 30) when = `il y a ${Math.floor(days/7)} semaine${Math.floor(days/7) > 1 ? 's' : ''}`;
-    else if (days < 365) when = `il y a ${Math.floor(days/30)} mois`;
-    else when = `il y a ${Math.floor(days/365)} an${Math.floor(days/365) > 1 ? 's' : ''}`;
-    cookedSummary = `<div class="recipe-cooked-info" onclick="manageCookedHistory('${r.id}')">✓ Cuisinée ${cookedHistory.length} fois · dernière fois ${when} <span class="recipe-cooked-info-edit">Modifier</span></div>`;
+    else if (days < 7) when = `${days}j`;
+    else if (days < 30) when = `${Math.floor(days/7)}sem`;
+    else if (days < 365) when = `${Math.floor(days/30)}mo`;
+    else when = `${Math.floor(days/365)}an${Math.floor(days/365) > 1 ? 's' : ''}`;
+    metaChips.push(`<button class="recipe-meta-chip is-filled" onclick="manageCookedHistory('${r.id}')" title="Cuisinée ${cookedHistory.length} fois">
+      <span class="recipe-meta-chip-icon">✓</span>
+      <span class="recipe-meta-chip-text">${cookedHistory.length} · ${when}</span>
+    </button>`);
   } else {
-    // Pas d'historique : petit lien discret pour ouvrir le gestionnaire (ex: pour ajouter une date passée)
-    cookedSummary = `<button class="recipe-cooked-empty" onclick="manageCookedHistory('${r.id}')">📅 Jamais cuisinée · Ajouter une date passée</button>`;
+    metaChips.push(`<button class="recipe-meta-chip is-empty" onclick="manageCookedHistory('${r.id}')">📅 Cuisson</button>`);
   }
+
+  // Historique modifications (changelog) : badge si nouvelles modifs
+  const changeLog = r.changeLog || [];
+  const lastViewedKey = `mr_log_viewed_${r.id}`;
+  const lastViewed = Number(localStorage.getItem(lastViewedKey)) || 0;
+  const newCount = changeLog.filter(e => (e.at || 0) > lastViewed).length;
+  const showBadge = lastViewed > 0 && newCount > 0;
+  if (changeLog.length > 0) {
+    metaChips.push(`<button class="recipe-meta-chip is-filled ${showBadge ? 'has-new' : ''}" onclick="openChangeLog('${r.id}')">
+      <span class="recipe-meta-chip-icon">📋</span>
+      <span class="recipe-meta-chip-text">${changeLog.length}</span>
+      ${showBadge ? `<span class="recipe-meta-chip-badge">${newCount > 9 ? '9+' : newCount}</span>` : ''}
+    </button>`);
+  }
+
+  const metaBarHtml = `<div class="recipe-meta-bar">${metaChips.join('')}</div>`;
 
   // Notes personnelles
   const notesHtml = r.personalNotes
@@ -1289,7 +1369,7 @@ function renderRecipeDetail(recipe) {
           </button>
         </div>
         ${heroVisual}
-        ${!r.photo ? `<button class="recipe-photo-add" onclick="attachRecipePhoto('${r.id}')" aria-label="Ajouter une photo">📷</button>` : `<button class="recipe-photo-remove" onclick="removeRecipePhoto('${r.id}')" aria-label="Retirer la photo">✕</button>`}
+        <button class="recipe-photo-add ${r.photo ? 'has-photo' : ''}" onclick="attachRecipePhoto('${r.id}')" aria-label="${r.photo ? 'Modifier la photo' : 'Ajouter une photo'}">📷</button>
       </div>
       <div class="recipe-detail-body">
         <h1 class="recipe-detail-title" onclick="quickEditField('title', '${r.id}')" title="Toucher pour modifier">${escapeHtml(r.title)}</h1>
@@ -1302,13 +1382,7 @@ function renderRecipeDetail(recipe) {
             months.map(m => `<span class="month-tag ${m === currentMonth ? 'current' : ''}">${MONTH_NAMES[m]}</span>`).join('')}
         </div>
 
-        ${tagsHtml}
-
-        ${dietTagsHtml}
-
-        ${sourceHtml}
-
-        ${cookedSummary}
+        ${metaBarHtml}
 
         <div class="recipe-quick-actions">
           <button class="btn-cook" onclick="markAsCooked('${r.id}')">
@@ -1347,8 +1421,9 @@ function renderRecipeDetail(recipe) {
             Ingrédients
           </h3>
           <div class="ingredients-list" id="ingredients-list">
-            ${renderIngredientsList(r.ingredients, ratio)}
+            ${renderIngredientsList(r.ingredients, ratio, r.id)}
           </div>
+          <button class="recipe-inline-add" onclick="addIngredientInline('${r.id}')">+ Ajouter un ingrédient</button>
           ${(() => {
             const inPantryCount = r.ingredients.filter(i => isInPantry(i.name)).length;
             return inPantryCount > 0
@@ -1367,8 +1442,9 @@ function renderRecipeDetail(recipe) {
             Étapes
           </h3>
           <div class="steps-list" id="steps-list">
-            ${renderStepsList(r.steps, r.ingredients, ratio)}
+            ${renderStepsList(r.steps, r.ingredients, ratio, r.id)}
           </div>
+          <button class="recipe-inline-add" onclick="addStepInline('${r.id}')">+ Ajouter une étape</button>
         </div>
 
         <div class="recipe-add-shopping">
@@ -1569,8 +1645,8 @@ function updateServingsDisplay() {
   document.getElementById('servings-value').textContent = r.currentServings;
   document.getElementById('servings-minus').disabled = r.currentServings <= 1;
   const ratio = r.currentServings / r.baseServings;
-  document.getElementById('ingredients-list').innerHTML = renderIngredientsList(r.ingredients, ratio);
-  document.getElementById('steps-list').innerHTML = renderStepsList(r.steps, r.ingredients, ratio);
+  document.getElementById('ingredients-list').innerHTML = renderIngredientsList(r.ingredients, ratio, r.id);
+  document.getElementById('steps-list').innerHTML = renderStepsList(r.steps, r.ingredients, ratio, r.id);
 
   // Update shopping CTA
   const isInShopping = state.shopping.some(s => s.recipeId === r.id);
@@ -1580,12 +1656,12 @@ function updateServingsDisplay() {
   }
 }
 
-function renderIngredientsList(ingredients, ratio) {
-  return ingredients.map(ing => {
+function renderIngredientsList(ingredients, ratio, recipeId) {
+  return ingredients.map((ing, idx) => {
     const amount = ing.amount != null && ing.amount !== '' ? Number(ing.amount) * ratio : '';
     const inPantry = isInPantry(ing.name);
     return `
-      <div class="ingredient-row ${inPantry ? 'in-pantry' : ''}">
+      <div class="ingredient-row ${inPantry ? 'in-pantry' : ''}" onclick="editIngredientInline('${recipeId}', ${idx})" title="Toucher pour modifier">
         <span class="ingredient-name">${escapeHtml(ing.name)}${inPantry ? ' <span class="ingredient-pantry-mark" title="Déjà chez vous">📦</span>' : ''}</span>
         <span class="ingredient-amount">${amount === '' ? '' : formatAmount(amount, ing.unit)}</span>
       </div>
@@ -1593,7 +1669,7 @@ function renderIngredientsList(ingredients, ratio) {
   }).join('');
 }
 
-function renderStepsList(steps, ingredients, ratio) {
+function renderStepsList(steps, ingredients, ratio, recipeId) {
   return steps.map((step, i) => {
     const stepIngredients = (step.ingredientIds || []).map(id => {
       const ing = ingredients.find(x => x.id === id);
@@ -1602,16 +1678,357 @@ function renderStepsList(steps, ingredients, ratio) {
       return `<span class="step-ingredient-chip">${escapeHtml(ing.name)}${amount === '' ? '' : ' · ' + formatAmount(amount, ing.unit)}</span>`;
     }).filter(Boolean).join('');
 
+    // NOUVEAU : détecter les durées dans le texte de l'étape
+    const durations = extractDurations(step.text || '');
+    const timerButtons = durations.map(d => {
+      const seconds = d.minutes * 60;
+      return `<button class="step-timer-btn" onclick="event.stopPropagation(); startStepTimer(${seconds}, '${escapeHtml(d.label)}', '${recipeId}', ${i})" title="Démarrer un minuteur de ${d.label}">
+        <span class="step-timer-icon">⏱️</span>
+        <span class="step-timer-label">${escapeHtml(d.label)}</span>
+      </button>`;
+    }).join('');
+
     return `
-      <div class="step-item">
+      <div class="step-item" onclick="editStepInline('${recipeId}', ${i})" title="Toucher pour modifier">
         <div class="step-number">${i + 1}</div>
         <div class="step-content">
           <div class="step-text">${escapeHtml(step.text)}</div>
-          ${stepIngredients ? `<div class="step-ingredients">${stepIngredients}</div>` : ''}
+          ${stepIngredients ? `<div class="step-ingredients" onclick="event.stopPropagation()">${stepIngredients}</div>` : ''}
+          ${timerButtons ? `<div class="step-timers" onclick="event.stopPropagation()">${timerButtons}</div>` : ''}
         </div>
       </div>
     `;
   }).join('');
+}
+
+// ============================================
+// DÉTECTION DE DURÉES DANS LE TEXTE
+// ============================================
+// Repère les expressions "30 minutes", "2 h", "1 heure 30", "30s", etc.
+// Retourne un tableau de {label, minutes}
+function extractDurations(text) {
+  if (!text) return [];
+  const t = text.toLowerCase();
+  const results = [];
+  const seen = new Set();
+
+  // Patterns reconnus. On commence par les fractions (1/2, 1/4...) pour qu'elles soient
+  // matchées en priorité, puis on "consomme" la zone dans le texte pour éviter qu'elles
+  // soient re-matchées par les patterns plus génériques.
+  // Ex: "1/2 heure" doit donner 30 min, pas aussi "2 heures".
+
+  let workText = t; // copie modifiable du texte
+
+  const patterns = [
+    // FRACTIONS d'heure d'abord (plus spécifique)
+    { re: /\b1\s*\/\s*2\s*(?:d'?\s*)?heures?\b/g, fmt: () => ({ minutes: 30, label: '30 min' }) },
+    { re: /\b1\s*\/\s*4\s*(?:d'?\s*)?heures?\b/g, fmt: () => ({ minutes: 15, label: '15 min' }) },
+    { re: /\b3\s*\/\s*4\s*(?:d'?\s*)?heures?\b/g, fmt: () => ({ minutes: 45, label: '45 min' }) },
+    // "1h30", "2h 30"
+    { re: /\b(\d{1,2})\s*h(?:eures?)?\s*(\d{1,2})\s*(?:min(?:utes?)?)?\b/g, fmt: m => {
+        const h = parseInt(m[1]), min = parseInt(m[2]);
+        const total = h * 60 + min;
+        if (total < 1 || total > 24 * 60) return null;
+        return { minutes: total, label: `${h}h${String(min).padStart(2, '0')}` };
+    }},
+    // "2 heures", "3 h" — mais PAS si précédé d'un "/" (fraction)
+    { re: /(?<![\/\d])\b(\d{1,2})\s*h(?:eures?)?\b(?!\d)/g, fmt: m => {
+        const h = parseInt(m[1]);
+        if (h < 1 || h > 24) return null;
+        return { minutes: h * 60, label: h === 1 ? '1 heure' : `${h} heures` };
+    }},
+    // "30 minutes", "45 min", "5 mn"
+    { re: /\b(\d{1,3})\s*(?:min(?:ute)?s?|mn)\b/g, fmt: m => {
+        const min = parseInt(m[1]);
+        if (min < 1 || min > 24 * 60) return null;
+        return { minutes: min, label: `${min} min` };
+    }},
+  ];
+
+  for (const pattern of patterns) {
+    let m;
+    pattern.re.lastIndex = 0;
+    while ((m = pattern.re.exec(workText)) !== null) {
+      const parsed = pattern.fmt(m);
+      if (!parsed) continue;
+      if (seen.has(parsed.minutes)) continue;
+      seen.add(parsed.minutes);
+      results.push(parsed);
+      // Consommer la zone matchée pour éviter qu'un pattern suivant la re-traite
+      // (ex: "1/2 heure" déjà matché ne doit pas redonner "2 heures")
+      const start = m.index;
+      const end = m.index + m[0].length;
+      workText = workText.substring(0, start) + ' '.repeat(m[0].length) + workText.substring(end);
+    }
+  }
+
+  // Trier par durée croissante, limiter à 3 max
+  return results.sort((a, b) => a.minutes - b.minutes).slice(0, 3);
+}
+window.extractDurations = extractDurations;
+
+// ============================================
+// MINUTEUR (Timer)
+// ============================================
+// État du timer actif (un seul à la fois pour simplifier).
+// Si vous avez besoin de timers multiples, on pourrait migrer vers une Map.
+const _timers = {
+  active: null,           // {id, startedAt, durationSec, label, recipeId, stepIdx, intervalId, audio}
+  audioCtx: null,
+  notificationPermission: null
+};
+
+async function _requestNotificationPermission() {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission === 'denied') return false;
+  try {
+    const result = await Notification.requestPermission();
+    return result === 'granted';
+  } catch {
+    return false;
+  }
+}
+
+function startStepTimer(durationSec, label, recipeId, stepIdx) {
+  // Si un timer tourne déjà, demander confirmation
+  if (_timers.active) {
+    uiConfirm(`Un minuteur "${_timers.active.label}" est déjà actif. Le remplacer ?`, {
+      confirmLabel: 'Remplacer'
+    }).then(ok => {
+      if (ok) {
+        stopStepTimer(true);
+        _startTimerInternal(durationSec, label, recipeId, stepIdx);
+      }
+    });
+    return;
+  }
+  _startTimerInternal(durationSec, label, recipeId, stepIdx);
+}
+window.startStepTimer = startStepTimer;
+
+async function _startTimerInternal(durationSec, label, recipeId, stepIdx) {
+  // Demander la permission notification (silencieusement)
+  await _requestNotificationPermission();
+
+  _timers.active = {
+    id: 'tm_' + Date.now(),
+    startedAt: Date.now(),
+    durationSec,
+    label,
+    recipeId,
+    stepIdx,
+    remainingSec: durationSec,
+    paused: false,
+    pausedRemaining: null
+  };
+
+  // Sauver en localStorage pour résister à un refresh
+  _saveTimerState();
+
+  // Tick toutes les secondes
+  _timers.active.intervalId = setInterval(_tickTimer, 1000);
+
+  _showTimerOverlay();
+  showToast(`Minuteur ${label} démarré ⏱️`, 'success');
+}
+
+function _saveTimerState() {
+  if (_timers.active) {
+    const { intervalId, ...persistable } = _timers.active;
+    localStorage.setItem('mr_active_timer', JSON.stringify(persistable));
+  } else {
+    localStorage.removeItem('mr_active_timer');
+  }
+}
+
+function _loadTimerState() {
+  // Restaurer le timer à l'ouverture de l'app s'il y en a un actif
+  const raw = localStorage.getItem('mr_active_timer');
+  if (!raw) return;
+  try {
+    const saved = JSON.parse(raw);
+    if (saved.paused) {
+      // Restaurer pause : pas de tick
+      _timers.active = saved;
+      _showTimerOverlay();
+      return;
+    }
+    const elapsedSec = Math.floor((Date.now() - saved.startedAt) / 1000);
+    const remaining = saved.durationSec - elapsedSec;
+    if (remaining <= 0) {
+      // Timer expiré pendant que l'app était fermée
+      localStorage.removeItem('mr_active_timer');
+      // Note : on ne sonne pas car on n'a pas le focus, mais on prévient avec un toast
+      setTimeout(() => showToast(`⏰ Minuteur "${saved.label}" terminé pendant votre absence`, 'success'), 1000);
+      return;
+    }
+    _timers.active = { ...saved, remainingSec: remaining };
+    _timers.active.intervalId = setInterval(_tickTimer, 1000);
+    _showTimerOverlay();
+  } catch (e) {
+    localStorage.removeItem('mr_active_timer');
+  }
+}
+
+function _tickTimer() {
+  if (!_timers.active || _timers.active.paused) return;
+  const elapsed = Math.floor((Date.now() - _timers.active.startedAt) / 1000);
+  _timers.active.remainingSec = _timers.active.durationSec - elapsed;
+
+  if (_timers.active.remainingSec <= 0) {
+    _ringTimer();
+    return;
+  }
+
+  _updateTimerDisplay();
+}
+
+function _ringTimer() {
+  if (!_timers.active) return;
+  const label = _timers.active.label;
+  clearInterval(_timers.active.intervalId);
+  _timers.active.remainingSec = 0;
+  _timers.active.finished = true;
+  _updateTimerDisplay();
+
+  // Sonner avec WebAudio (cycles de bips)
+  _playTimerSound();
+
+  // Notification système si autorisée
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try {
+      const n = new Notification('Mes Recettes — Minuteur terminé', {
+        body: `Le minuteur "${label}" est arrivé à zéro.`,
+        icon: '/icons/icon-192.png',
+        tag: 'mr-timer',
+        renotify: true,
+        requireInteraction: true
+      });
+      n.onclick = () => { window.focus(); n.close(); };
+    } catch (e) {
+      console.warn('Notification failed', e);
+    }
+  }
+
+  // Vibration sur mobile
+  if (navigator.vibrate) {
+    try {
+      navigator.vibrate([400, 200, 400, 200, 400, 200, 800]);
+    } catch {}
+  }
+
+  _saveTimerState(); // garder en mémoire qu'il est fini
+}
+
+function _playTimerSound() {
+  // Synthèse audio simple : 3 bips
+  try {
+    if (!_timers.audioCtx) {
+      _timers.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    const ctx = _timers.audioCtx;
+    // 3 bips espacés
+    for (let i = 0; i < 3; i++) {
+      const startTime = ctx.currentTime + i * 0.4;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = 880; // La 5
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0, startTime);
+      gain.gain.linearRampToValueAtTime(0.3, startTime + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.3);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(startTime);
+      osc.stop(startTime + 0.3);
+    }
+  } catch (e) {
+    console.warn('Audio playback failed', e);
+  }
+}
+
+function pauseStepTimer() {
+  if (!_timers.active || _timers.active.paused) return;
+  _timers.active.paused = true;
+  _timers.active.pausedRemaining = _timers.active.remainingSec;
+  clearInterval(_timers.active.intervalId);
+  _saveTimerState();
+  _updateTimerDisplay();
+}
+window.pauseStepTimer = pauseStepTimer;
+
+function resumeStepTimer() {
+  if (!_timers.active || !_timers.active.paused) return;
+  // Recalculer startedAt pour que le tick reprenne correctement
+  _timers.active.startedAt = Date.now() - (_timers.active.durationSec - _timers.active.pausedRemaining) * 1000;
+  _timers.active.paused = false;
+  _timers.active.pausedRemaining = null;
+  _timers.active.intervalId = setInterval(_tickTimer, 1000);
+  _saveTimerState();
+  _updateTimerDisplay();
+}
+window.resumeStepTimer = resumeStepTimer;
+
+function stopStepTimer(silent) {
+  if (!_timers.active) return;
+  if (_timers.active.intervalId) clearInterval(_timers.active.intervalId);
+  const label = _timers.active.label;
+  _timers.active = null;
+  localStorage.removeItem('mr_active_timer');
+  _hideTimerOverlay();
+  if (!silent) showToast(`Minuteur arrêté`, '');
+}
+window.stopStepTimer = stopStepTimer;
+
+function _showTimerOverlay() {
+  let overlay = document.getElementById('timer-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'timer-overlay';
+    overlay.className = 'timer-overlay';
+    document.body.appendChild(overlay);
+  }
+  overlay.classList.remove('hidden');
+  _updateTimerDisplay();
+}
+
+function _hideTimerOverlay() {
+  const overlay = document.getElementById('timer-overlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+function _updateTimerDisplay() {
+  const overlay = document.getElementById('timer-overlay');
+  if (!overlay || !_timers.active) return;
+  const t = _timers.active;
+  const rem = Math.max(0, t.remainingSec);
+  const mm = Math.floor(rem / 60);
+  const ss = rem % 60;
+  const display = `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  const progress = ((t.durationSec - rem) / t.durationSec) * 100;
+  const finished = t.finished || rem === 0;
+
+  overlay.innerHTML = `
+    <div class="timer-overlay-content ${finished ? 'is-finished' : ''}">
+      <div class="timer-overlay-progress" style="width: ${progress}%"></div>
+      <div class="timer-overlay-body">
+        <div class="timer-overlay-label">${escapeHtml(t.label)}${finished ? ' · Terminé !' : ''}</div>
+        <div class="timer-overlay-display">${display}</div>
+      </div>
+      <div class="timer-overlay-actions">
+        ${finished ? `
+          <button class="timer-overlay-btn timer-overlay-btn-primary" onclick="stopStepTimer()">OK</button>
+        ` : t.paused ? `
+          <button class="timer-overlay-btn" onclick="resumeStepTimer()" aria-label="Reprendre">▶</button>
+          <button class="timer-overlay-btn" onclick="stopStepTimer()" aria-label="Arrêter">✕</button>
+        ` : `
+          <button class="timer-overlay-btn" onclick="pauseStepTimer()" aria-label="Pause">⏸</button>
+          <button class="timer-overlay-btn" onclick="stopStepTimer()" aria-label="Arrêter">✕</button>
+        `}
+      </div>
+    </div>
+  `;
 }
 
 async function confirmDeleteRecipe(id) {
@@ -1783,6 +2200,120 @@ function manageCookedHistory(id) {
 }
 window.manageCookedHistory = manageCookedHistory;
 
+// ============================================
+// CHANGELOG / HISTORIQUE DES MODIFICATIONS
+// ============================================
+
+function openChangeLog(id) {
+  const recipe = state.recipes.find(r => r.id === id);
+  if (!recipe) return;
+  const entries = (recipe.changeLog || []).slice().reverse(); // plus récent en premier
+
+  // Marquer comme vu (consomme le badge)
+  localStorage.setItem(`mr_log_viewed_${id}`, String(Date.now()));
+
+  let listHtml;
+  if (entries.length === 0) {
+    listHtml = `<p class="changelog-empty">Aucune modification enregistrée pour cette recette.</p>`;
+  } else {
+    listHtml = `<div class="changelog-list">${entries.map(e => {
+      const date = new Date(e.at || 0);
+      const dateStr = formatRelativeDate(date);
+      const fullDate = date.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const icon = changeLogIcon(e.action);
+      return `<div class="changelog-item">
+        <div class="changelog-icon">${icon}</div>
+        <div class="changelog-text">
+          <div class="changelog-action">${escapeHtml(e.action || '(modification)')}</div>
+          <div class="changelog-date" title="${escapeHtml(fullDate)}">${escapeHtml(dateStr)}</div>
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+  }
+
+  const html = `
+    <div class="modal-header">
+      <h2>📋 Historique</h2>
+      <button class="modal-close" onclick="closeChangeLog()" aria-label="Fermer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="changelog-body">
+      <p class="changelog-summary">${escapeHtml(recipe.title)}</p>
+      ${listHtml}
+      ${entries.length >= 20 ? '<p class="changelog-note">L\'historique conserve les 20 dernières modifications.</p>' : ''}
+    </div>
+  `;
+
+  let modal = document.getElementById('changelog-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'changelog-modal';
+    modal.className = 'modal hidden';
+    modal.innerHTML = '<div class="modal-backdrop"></div><div class="modal-content"></div>';
+    document.body.appendChild(modal);
+    modal.querySelector('.modal-backdrop').addEventListener('click', closeChangeLog);
+  }
+  modal.querySelector('.modal-content').innerHTML = html;
+  modal.classList.remove('hidden');
+  pushOverlay('changelog');
+}
+window.openChangeLog = openChangeLog;
+
+function closeChangeLog(skipHistory) {
+  const modal = document.getElementById('changelog-modal');
+  if (!modal || modal.classList.contains('hidden')) return;
+  if (!skipHistory) {
+    history.back();
+    return;
+  }
+  modal.classList.add('hidden');
+  // Rafraîchir la fiche pour faire disparaître le badge
+  if (state.currentView === 'recipe' && state.currentRecipe) {
+    renderRecipeDetail(state.currentRecipe);
+  }
+}
+window.closeChangeLog = closeChangeLog;
+
+// Mappe une action vers un emoji
+function changeLogIcon(action) {
+  if (!action) return '📝';
+  const a = action.toLowerCase();
+  if (a.includes('créée') || a.includes('cree')) return '✨';
+  if (a.includes('modifiée') || a.includes('modifie')) return '✏️';
+  if (a.includes('cuisin')) return '🍳';
+  if (a.includes('favoris')) return '⭐';
+  if (a.includes('photo')) return '📸';
+  if (a.includes('notes')) return '📝';
+  if (a.includes('tags')) return '🏷️';
+  if (a.includes('régime') || a.includes('regime')) return '🥗';
+  if (a.includes('source')) return '🔗';
+  if (a.includes('date cuisson')) return '📅';
+  if (a.includes('supprim')) return '🗑️';
+  return '📝';
+}
+
+// Date relative en français
+function formatRelativeDate(date) {
+  const now = new Date();
+  const diff = now - date;
+  if (diff < 60 * 1000) return 'à l\'instant';
+  if (diff < 60 * 60 * 1000) {
+    const m = Math.floor(diff / 60000);
+    return `il y a ${m} min`;
+  }
+  if (diff < 24 * 3600 * 1000) {
+    const h = Math.floor(diff / 3600000);
+    return `il y a ${h} h`;
+  }
+  const d = Math.floor(diff / (24 * 3600 * 1000));
+  if (d === 1) return 'hier';
+  if (d < 7) return `il y a ${d} jours`;
+  if (d < 30) return `il y a ${Math.floor(d / 7)} sem.`;
+  if (d < 365) return `il y a ${Math.floor(d / 30)} mois`;
+  return `il y a ${Math.floor(d / 365)} an${Math.floor(d / 365) > 1 ? 's' : ''}`;
+}
+
 function closeCookedHistoryModal(skipHistory) {
   const modal = document.getElementById('cooked-history-modal');
   if (!modal || modal.classList.contains('hidden')) return;
@@ -1853,15 +2384,31 @@ window.editPersonalNotes = editPersonalNotes;
 async function attachRecipePhoto(id) {
   const recipe = state.recipes.find(r => r.id === id);
   if (!recipe) return;
-  // Créer un input file
+
+  // Dialog pour choisir entre Caméra et Galerie
+  // Sur mobile, le navigateur ouvrira la caméra OU la galerie selon le bouton choisi
+  const choice = await _showPhotoSourceDialog(recipe.photo);
+  if (!choice) return;
+
+  if (choice === 'delete') {
+    await removeRecipePhoto(id);
+    return;
+  }
+
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
-  input.capture = 'environment'; // suggère caméra arrière sur mobile
+  // capture="environment" force l'ouverture de la caméra arrière sur mobile
+  // sans capture, l'utilisateur arrive sur la galerie/sélecteur de fichier
+  if (choice === 'camera') {
+    input.capture = 'environment';
+  }
+
   input.addEventListener('change', async () => {
     const file = input.files[0];
     if (!file) return;
     try {
+      showToast('Traitement de la photo...', '');
       const dataUrl = await processImageToDataUrl(file, 1024, 0.8);
       recipe.photo = dataUrl;
       updateRecipeAndSync(recipe, 'photo ajoutée');
@@ -1878,6 +2425,69 @@ async function attachRecipePhoto(id) {
   input.click();
 }
 window.attachRecipePhoto = attachRecipePhoto;
+
+// Dialog pour choisir la source de la photo
+// Retourne 'camera', 'gallery', 'delete' ou null (annulé)
+function _showPhotoSourceDialog(hasExistingPhoto) {
+  return new Promise(resolve => {
+    const modal = _ensureDialogModal();
+    const content = modal.querySelector('.ui-dialog-content');
+
+    content.innerHTML = `
+      <div class="ui-dialog-body">
+        <h2 class="ui-dialog-title">Photo de la recette</h2>
+        <p class="ui-dialog-message">Comment souhaitez-vous ${hasExistingPhoto ? 'remplacer' : 'ajouter'} la photo ?</p>
+        <div class="photo-source-options">
+          <button class="photo-source-btn" id="photo-src-camera">
+            <span class="photo-source-icon">📸</span>
+            <span class="photo-source-label">Prendre une photo</span>
+            <span class="photo-source-desc">Utiliser l'appareil photo</span>
+          </button>
+          <button class="photo-source-btn" id="photo-src-gallery">
+            <span class="photo-source-icon">🖼️</span>
+            <span class="photo-source-label">Choisir dans la galerie</span>
+            <span class="photo-source-desc">Sélectionner une image existante</span>
+          </button>
+          ${hasExistingPhoto ? `
+            <button class="photo-source-btn photo-source-delete" id="photo-src-delete">
+              <span class="photo-source-icon">🗑️</span>
+              <span class="photo-source-label">Supprimer la photo</span>
+            </button>
+          ` : ''}
+        </div>
+      </div>
+      <div class="ui-dialog-actions">
+        <button class="btn-secondary" id="photo-src-cancel" style="flex:1">Annuler</button>
+      </div>
+    `;
+    modal.classList.remove('hidden');
+
+    const cleanup = () => modal.classList.add('hidden');
+
+    document.getElementById('photo-src-camera').addEventListener('click', () => {
+      cleanup();
+      resolve('camera');
+    });
+    document.getElementById('photo-src-gallery').addEventListener('click', () => {
+      cleanup();
+      resolve('gallery');
+    });
+    if (hasExistingPhoto) {
+      document.getElementById('photo-src-delete').addEventListener('click', () => {
+        cleanup();
+        resolve('delete');
+      });
+    }
+    document.getElementById('photo-src-cancel').addEventListener('click', () => {
+      cleanup();
+      resolve(null);
+    });
+    modal.querySelector('.ui-dialog-backdrop').addEventListener('click', () => {
+      cleanup();
+      resolve(null);
+    }, { once: true });
+  });
+}
 
 async function removeRecipePhoto(id) {
   const recipe = state.recipes.find(r => r.id === id);
@@ -2836,6 +3446,297 @@ async function quickEditField(field, recipeId) {
 window.quickEditField = quickEditField;
 
 // ============================================
+// ÉDITION INLINE DES INGRÉDIENTS ET ÉTAPES
+// ============================================
+// Pas besoin d'ouvrir la modal de validation : un simple modal d'édition rapide.
+
+async function editIngredientInline(recipeId, idx) {
+  const recipe = state.recipes.find(r => r.id === recipeId);
+  if (!recipe) return;
+  const ing = recipe.ingredients[idx];
+  if (!ing) return;
+
+  const result = await _showIngredientEditDialog({
+    title: 'Modifier l\'ingrédient',
+    name: ing.name,
+    amount: ing.amount,
+    unit: ing.unit,
+    showDelete: recipe.ingredients.length > 1
+  });
+  if (!result) return;
+
+  if (result.action === 'delete') {
+    if (!(await uiConfirm(`Supprimer "${ing.name}" ?`, { confirmLabel: 'Supprimer', danger: true }))) return;
+    // Supprimer aussi des ingredientIds des étapes
+    const removedId = ing.id;
+    recipe.ingredients.splice(idx, 1);
+    recipe.steps = (recipe.steps || []).map(s => ({
+      ...s,
+      ingredientIds: (s.ingredientIds || []).filter(id => id !== removedId)
+    }));
+    updateRecipeAndSync(recipe, `ingrédient "${ing.name}" supprimé`);
+  } else {
+    ing.name = result.name;
+    ing.amount = result.amount;
+    ing.unit = result.unit;
+    // Refaire le matching textuel des étapes (en cas de rename)
+    if (typeof enrichStepIngredientIds === 'function') {
+      recipe.steps = enrichStepIngredientIds(recipe.steps, recipe.ingredients);
+    }
+    // Recalculer saisonnalité si on a touché un nom
+    if (typeof calculateSeasonality === 'function') {
+      recipe.months = calculateSeasonality(recipe.ingredients);
+    }
+    updateRecipeAndSync(recipe, `ingrédient "${ing.name}" modifié`);
+  }
+
+  // Re-render la vue
+  state.currentRecipe = { ...recipe, currentServings: state.currentRecipe?.currentServings || recipe.baseServings };
+  renderRecipeDetail(recipe);
+  showToast('Modifié ✓', 'success');
+}
+window.editIngredientInline = editIngredientInline;
+
+async function addIngredientInline(recipeId) {
+  const recipe = state.recipes.find(r => r.id === recipeId);
+  if (!recipe) return;
+  const result = await _showIngredientEditDialog({
+    title: 'Ajouter un ingrédient',
+    name: '',
+    amount: '',
+    unit: '',
+    showDelete: false
+  });
+  if (!result || result.action === 'delete') return;
+  if (!result.name.trim()) {
+    showToast('Le nom est requis', 'error');
+    return;
+  }
+  // Générer un id unique
+  const usedIds = new Set(recipe.ingredients.map(i => i.id));
+  let i = 1;
+  while (usedIds.has('ing' + i)) i++;
+  recipe.ingredients.push({
+    id: 'ing' + i,
+    name: result.name.trim(),
+    amount: result.amount,
+    unit: result.unit
+  });
+  // Re-matching automatique
+  if (typeof enrichStepIngredientIds === 'function') {
+    recipe.steps = enrichStepIngredientIds(recipe.steps, recipe.ingredients);
+  }
+  if (typeof calculateSeasonality === 'function') {
+    recipe.months = calculateSeasonality(recipe.ingredients);
+  }
+  updateRecipeAndSync(recipe, `ingrédient "${result.name}" ajouté`);
+  state.currentRecipe = { ...recipe, currentServings: state.currentRecipe?.currentServings || recipe.baseServings };
+  renderRecipeDetail(recipe);
+  showToast('Ajouté ✓', 'success');
+}
+window.addIngredientInline = addIngredientInline;
+
+// Dialog spécifique pour édition ingrédient (3 champs : nom, quantité, unité)
+function _showIngredientEditDialog({ title, name, amount, unit, showDelete }) {
+  return new Promise(resolve => {
+    const modal = _ensureDialogModal();
+    const content = modal.querySelector('.ui-dialog-content');
+
+    const safeName = escapeHtml(name || '');
+    const safeAmount = amount === null || amount === undefined ? '' : String(amount);
+    const safeUnit = escapeHtml(unit || '');
+
+    content.innerHTML = `
+      <div class="ui-dialog-body">
+        <h2 class="ui-dialog-title">${escapeHtml(title)}</h2>
+        <div class="ui-dialog-form">
+          <label class="ui-dialog-field-label">Nom</label>
+          <input type="text" id="ui-ing-name" class="ui-dialog-input" value="${safeName}" placeholder="Ex: Farine T55">
+          <div class="ui-dialog-row">
+            <div class="ui-dialog-col">
+              <label class="ui-dialog-field-label">Quantité</label>
+              <input type="text" id="ui-ing-amount" class="ui-dialog-input" inputmode="decimal" value="${safeAmount}" placeholder="200">
+            </div>
+            <div class="ui-dialog-col">
+              <label class="ui-dialog-field-label">Unité</label>
+              <input type="text" id="ui-ing-unit" class="ui-dialog-input" value="${safeUnit}" placeholder="g, ml, cl…">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="ui-dialog-actions">
+        ${showDelete ? '<button class="btn-danger-link" id="ui-ing-delete">Supprimer</button>' : ''}
+        <button class="btn-secondary" id="ui-ing-cancel">Annuler</button>
+        <button class="btn-primary" id="ui-ing-confirm">Enregistrer</button>
+      </div>
+    `;
+    modal.classList.remove('hidden');
+
+    setTimeout(() => {
+      const nameInput = document.getElementById('ui-ing-name');
+      if (nameInput) { nameInput.focus(); nameInput.select(); }
+    }, 50);
+
+    const cleanup = () => modal.classList.add('hidden');
+
+    document.getElementById('ui-ing-confirm').addEventListener('click', () => {
+      const n = document.getElementById('ui-ing-name').value;
+      const aRaw = document.getElementById('ui-ing-amount').value.trim().replace(',', '.');
+      const u = document.getElementById('ui-ing-unit').value.trim();
+      const a = aRaw === '' ? null : (isNaN(Number(aRaw)) ? aRaw : Number(aRaw));
+      cleanup();
+      resolve({ action: 'save', name: n, amount: a, unit: u });
+    });
+    document.getElementById('ui-ing-cancel').addEventListener('click', () => {
+      cleanup();
+      resolve(null);
+    });
+    if (showDelete) {
+      document.getElementById('ui-ing-delete').addEventListener('click', () => {
+        cleanup();
+        resolve({ action: 'delete' });
+      });
+    }
+    modal.querySelector('.ui-dialog-backdrop').addEventListener('click', () => {
+      cleanup();
+      resolve(null);
+    }, { once: true });
+  });
+}
+
+async function editStepInline(recipeId, idx) {
+  const recipe = state.recipes.find(r => r.id === recipeId);
+  if (!recipe) return;
+  const step = recipe.steps[idx];
+  if (!step) return;
+
+  const result = await _showStepEditDialog({
+    title: `Étape ${idx + 1}`,
+    text: step.text || '',
+    canDelete: recipe.steps.length > 1,
+    canMoveUp: idx > 0,
+    canMoveDown: idx < recipe.steps.length - 1
+  });
+  if (!result) return;
+
+  if (result.action === 'delete') {
+    if (!(await uiConfirm(`Supprimer cette étape ?`, { confirmLabel: 'Supprimer', danger: true }))) return;
+    recipe.steps.splice(idx, 1);
+    updateRecipeAndSync(recipe, `étape ${idx + 1} supprimée`);
+  } else if (result.action === 'moveUp') {
+    [recipe.steps[idx - 1], recipe.steps[idx]] = [recipe.steps[idx], recipe.steps[idx - 1]];
+    updateRecipeAndSync(recipe, `étape ${idx + 1} déplacée`);
+  } else if (result.action === 'moveDown') {
+    [recipe.steps[idx], recipe.steps[idx + 1]] = [recipe.steps[idx + 1], recipe.steps[idx]];
+    updateRecipeAndSync(recipe, `étape ${idx + 1} déplacée`);
+  } else {
+    step.text = result.text;
+    if (typeof enrichStepIngredientIds === 'function') {
+      recipe.steps = enrichStepIngredientIds(recipe.steps, recipe.ingredients);
+    }
+    updateRecipeAndSync(recipe, `étape ${idx + 1} modifiée`);
+  }
+  state.currentRecipe = { ...recipe, currentServings: state.currentRecipe?.currentServings || recipe.baseServings };
+  renderRecipeDetail(recipe);
+}
+window.editStepInline = editStepInline;
+
+async function addStepInline(recipeId) {
+  const recipe = state.recipes.find(r => r.id === recipeId);
+  if (!recipe) return;
+  const result = await _showStepEditDialog({
+    title: 'Nouvelle étape',
+    text: '',
+    canDelete: false,
+    canMoveUp: false,
+    canMoveDown: false
+  });
+  if (!result || result.action !== 'save') return;
+  if (!result.text.trim()) {
+    showToast('Le texte est requis', 'error');
+    return;
+  }
+  recipe.steps.push({ text: result.text.trim(), ingredientIds: [] });
+  if (typeof enrichStepIngredientIds === 'function') {
+    recipe.steps = enrichStepIngredientIds(recipe.steps, recipe.ingredients);
+  }
+  updateRecipeAndSync(recipe, 'étape ajoutée');
+  state.currentRecipe = { ...recipe, currentServings: state.currentRecipe?.currentServings || recipe.baseServings };
+  renderRecipeDetail(recipe);
+  showToast('Étape ajoutée ✓', 'success');
+}
+window.addStepInline = addStepInline;
+
+// Dialog spécifique pour édition d'étape (textarea + boutons up/down/delete)
+function _showStepEditDialog({ title, text, canDelete, canMoveUp, canMoveDown }) {
+  return new Promise(resolve => {
+    const modal = _ensureDialogModal();
+    const content = modal.querySelector('.ui-dialog-content');
+
+    const safeText = escapeHtml(text || '');
+    const moveBtns = (canMoveUp || canMoveDown) ? `
+      <div class="ui-dialog-move-row">
+        ${canMoveUp ? '<button class="btn-secondary ui-dialog-move-btn" id="ui-step-up">↑ Monter</button>' : ''}
+        ${canMoveDown ? '<button class="btn-secondary ui-dialog-move-btn" id="ui-step-down">↓ Descendre</button>' : ''}
+      </div>
+    ` : '';
+
+    content.innerHTML = `
+      <div class="ui-dialog-body">
+        <h2 class="ui-dialog-title">${escapeHtml(title)}</h2>
+        <textarea id="ui-step-text" class="ui-dialog-textarea" rows="4" placeholder="Description de l'étape...">${safeText}</textarea>
+        ${moveBtns}
+      </div>
+      <div class="ui-dialog-actions">
+        ${canDelete ? '<button class="btn-danger-link" id="ui-step-delete">Supprimer</button>' : ''}
+        <button class="btn-secondary" id="ui-step-cancel">Annuler</button>
+        <button class="btn-primary" id="ui-step-confirm">Enregistrer</button>
+      </div>
+    `;
+    modal.classList.remove('hidden');
+
+    setTimeout(() => {
+      const ta = document.getElementById('ui-step-text');
+      if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    }, 50);
+
+    const cleanup = () => modal.classList.add('hidden');
+
+    document.getElementById('ui-step-confirm').addEventListener('click', () => {
+      const v = document.getElementById('ui-step-text').value;
+      cleanup();
+      resolve({ action: 'save', text: v });
+    });
+    document.getElementById('ui-step-cancel').addEventListener('click', () => {
+      cleanup();
+      resolve(null);
+    });
+    if (canDelete) {
+      document.getElementById('ui-step-delete').addEventListener('click', () => {
+        cleanup();
+        resolve({ action: 'delete' });
+      });
+    }
+    if (canMoveUp) {
+      document.getElementById('ui-step-up').addEventListener('click', () => {
+        cleanup();
+        resolve({ action: 'moveUp' });
+      });
+    }
+    if (canMoveDown) {
+      document.getElementById('ui-step-down').addEventListener('click', () => {
+        cleanup();
+        resolve({ action: 'moveDown' });
+      });
+    }
+    modal.querySelector('.ui-dialog-backdrop').addEventListener('click', () => {
+      cleanup();
+      resolve(null);
+    }, { once: true });
+  });
+}
+
+// ============================================
 // SHOPPING LIST
 // ============================================
 
@@ -3520,17 +4421,46 @@ function parseRecipeJson(rawJson) {
 function enrichStepIngredientIds(steps, ingredients) {
   if (!steps || !ingredients) return steps;
 
-  // Liste des mots fréquents à ignorer pour le matching (sinon "huile" match dans "feuille", etc.)
-  const STOP_WORDS = new Set(['de', 'la', 'le', 'les', 'du', 'des', 'un', 'une', 'à', 'au', 'et', 'ou', 'avec', 'sans', 'pour', 'dans', 'sur', 'en', 'cl', 'ml', 'l', 'g', 'kg']);
+  // Stop words : articles + unités + petits mots
+  const STOP_WORDS = new Set([
+    'de', 'la', 'le', 'les', 'du', 'des', 'un', 'une', 'à', 'au', 'aux',
+    'et', 'ou', 'avec', 'sans', 'pour', 'dans', 'sur', 'en',
+    'cl', 'ml', 'dl', 'g', 'kg', 'mg', 'l',
+    'cuil', 'cuillere', 'cuilleres', 'cs', 'cc', 'tsp', 'tbsp',
+    'pcs', 'piece', 'pieces', 'tranche', 'tranches', 'gousse', 'gousses',
+    'bouquet', 'bouquets', 'pincee', 'pincees',
+    // Forme normalisée sans accent
+    'ufs', 'uf', // (œufs après suppression accent → uf/ufs ; ignoré seul)
+    'the', 'lit' // (mots trop courts ambigus)
+  ]);
 
-  // Pré-calcul : pour chaque ingrédient, extraire les mots-clés significatifs
+  // Mots qui SEULS sont trop génériques pour matcher (besoin d'un autre mot)
+  const WEAK_WORDS = new Set([
+    'sucre', 'sel', 'eau', 'huile', 'fruit', 'fruits', 'legume', 'legumes',
+    'fromage', 'viande', 'sauce', 'creme'
+  ]);
+
+  // Singulariser/pluraliser un mot pour matcher les deux formes
+  function variants(word) {
+    const v = new Set([word]);
+    if (word.endsWith('x')) v.add(word.slice(0, -1));
+    if (word.endsWith('s')) v.add(word.slice(0, -1));
+    v.add(word + 's');
+    return [...v];
+  }
+
+  // Pré-calcul : mots-clés par ingrédient
   const ingredientKeywords = ingredients.map(ing => {
     const normalized = (ing.name || '').toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // sans accents
-      .replace(/\([^)]*\)/g, ' ') // sans parenthèses
-      .replace(/[^a-z0-9\s'-]/g, ' '); // alphanum + espaces uniquement
-    const words = normalized.split(/\s+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
-    return { id: ing.id, words, fullName: normalized.trim() };
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\([^)]*\)/g, ' ')
+      .replace(/[^a-z0-9\s'-]/g, ' ');
+    const allWords = normalized.split(/\s+/).filter(w => w.length >= 3 && !STOP_WORDS.has(w));
+    // Mot "fort" : pas dans WEAK_WORDS et de longueur ≥ 4
+    const strongWords = allWords.filter(w => !WEAK_WORDS.has(w) && w.length >= 4);
+    // Mots faibles (génériques) qu'on n'utilisera que si combinés
+    const weakWords = allWords.filter(w => WEAK_WORDS.has(w) || w.length === 3);
+    return { id: ing.id, strongWords, weakWords, allWords, fullName: normalized.trim() };
   });
 
   return steps.map(step => {
@@ -3540,14 +4470,24 @@ function enrichStepIngredientIds(steps, ingredients) {
     const existingIds = new Set(step.ingredientIds || []);
 
     for (const ing of ingredientKeywords) {
-      if (existingIds.has(ing.id)) continue; // déjà présent
-      if (ing.words.length === 0) continue;
+      if (existingIds.has(ing.id)) continue;
+      if (ing.allWords.length === 0) continue;
 
-      // Match si AU MOINS un des mots-clés significatifs apparaît comme mot entier dans l'étape
-      const matched = ing.words.some(w => {
-        const regex = new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}s?\\b`, 'i');
-        return regex.test(stepText);
-      });
+      // Test fonction pour matcher un mot avec ses variantes
+      const wordMatches = (w) => {
+        const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(`\\b(${variants(escaped).join('|')})\\b`, 'i');
+        return re.test(stepText);
+      };
+
+      // Stratégie 1 : au moins un mot FORT dans l'étape
+      let matched = ing.strongWords.some(wordMatches);
+
+      // Stratégie 2 : si pas de mot fort, accepter un mot FAIBLE seulement si
+      // c'est le SEUL mot significatif de l'ingrédient (ex: "Sel", "Sucre" tout seul)
+      if (!matched && ing.strongWords.length === 0 && ing.weakWords.length > 0) {
+        matched = ing.weakWords.some(wordMatches);
+      }
 
       if (matched) existingIds.add(ing.id);
     }
@@ -4057,11 +4997,21 @@ function saveValidatedRecipe() {
     updatedAt: Date.now()
   };
 
+  // Toujours ré-enrichir les ingredientIds des étapes par matching textuel
+  // (rattrape les oublis de l'IA et les ingrédients modifiés à la main)
+  if (typeof enrichStepIngredientIds === 'function') {
+    recipe.steps = enrichStepIngredientIds(recipe.steps, recipe.ingredients);
+  }
+
   if (existing) {
-    // Mode édition : remplacer
+    // Mode édition : remplacer + logger
+    recipe.changeLog = existing.changeLog || [];
+    recipe.changeLog.push({ at: Date.now(), action: 'recette modifiée' });
+    if (recipe.changeLog.length > 20) recipe.changeLog = recipe.changeLog.slice(-20);
     state.recipes = state.recipes.map(r => r.id === editingId ? recipe : r);
   } else {
-    // Nouvelle recette
+    // Nouvelle recette : logger la création
+    recipe.changeLog = [{ at: Date.now(), action: 'recette créée' }];
     state.recipes.push(recipe);
   }
   saveRecipes();
@@ -4286,7 +5236,7 @@ function renderPlanning() {
   const days = getPlanningDays();
   const today = formatPlanningDate(new Date());
 
-  // Header : période + bouton toggle vue 1/2 semaines
+  // Header : période + 2 boutons segmentés 1 semaine / 2 semaines
   const period = document.getElementById('planning-period');
   if (period) {
     const start = days[0];
@@ -4294,10 +5244,12 @@ function renderPlanning() {
     const sameMonth = start.getMonth() === end.getMonth();
     const startFmt = start.toLocaleDateString('fr-FR', { day: 'numeric', month: sameMonth ? undefined : 'short' });
     const endFmt = end.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-    const toggleLabel = _planningView === 'week' ? '+ 2 semaines' : '— 1 semaine';
     period.innerHTML = `
       <span class="planning-period-range">${startFmt} → ${endFmt}</span>
-      <button class="planning-view-toggle" onclick="togglePlanningView()">${toggleLabel}</button>
+      <div class="planning-view-segmented">
+        <button class="planning-view-seg ${_planningView === 'week' ? 'active' : ''}" onclick="setPlanningView('week')">1 semaine</button>
+        <button class="planning-view-seg ${_planningView === '2weeks' ? 'active' : ''}" onclick="setPlanningView('2weeks')">2 semaines</button>
+      </div>
     `;
   }
 
@@ -4370,10 +5322,18 @@ function renderPlanning() {
   grid.innerHTML = html;
 }
 
-function togglePlanningView() {
-  _planningView = _planningView === 'week' ? '2weeks' : 'week';
+function setPlanningView(view) {
+  if (view !== 'week' && view !== '2weeks') return;
+  if (_planningView === view) return;
+  _planningView = view;
   localStorage.setItem('mr_planning_view', _planningView);
   renderPlanning();
+}
+window.setPlanningView = setPlanningView;
+
+// Compat : ancien toggle (au cas où appelé ailleurs)
+function togglePlanningView() {
+  setPlanningView(_planningView === 'week' ? '2weeks' : 'week');
 }
 window.togglePlanningView = togglePlanningView;
 
@@ -4394,12 +5354,25 @@ function openPlanningSlot(dateStr, slotId) {
     ).join('')}
   `;
 
-  const dietChips = DIET_TAGS
-    .filter(t => !['low-fodmap', 'high-fodmap'].includes(t.id)) // évitons surcharge
+  // Régimes : FODMAP visibles par défaut, le reste dans un collapse
+  const FODMAP_IDS = ['low-fodmap', 'high-fodmap'];
+  const fodmapChips = DIET_TAGS
+    .filter(t => FODMAP_IDS.includes(t.id))
     .map(t => {
       const active = _planningPickerFilters.dietTags.includes(t.id);
       return `<button class="picker-filter-chip diet ${active ? 'active' : ''}" data-filter-diet="${t.id}" style="--diet-color:${t.color}">${t.emoji} ${escapeHtml(t.label)}</button>`;
     }).join('');
+  const otherDietChips = DIET_TAGS
+    .filter(t => !FODMAP_IDS.includes(t.id))
+    .map(t => {
+      const active = _planningPickerFilters.dietTags.includes(t.id);
+      return `<button class="picker-filter-chip diet ${active ? 'active' : ''}" data-filter-diet="${t.id}" style="--diet-color:${t.color}">${t.emoji} ${escapeHtml(t.label)}</button>`;
+    }).join('');
+
+  // Catégorie active ? Si oui, on ouvre par défaut
+  const catActive = _planningPickerFilters.category && _planningPickerFilters.category !== 'all';
+  // Régimes "autres" actifs ? Si oui, on ouvre le collapse
+  const otherDietActive = _planningPickerFilters.dietTags.some(d => !FODMAP_IDS.includes(d));
 
   const html = `
     <div class="modal-header">
@@ -4413,13 +5386,27 @@ function openPlanningSlot(dateStr, slotId) {
 
       <div class="picker-filters-row">
         <div class="picker-filter-section">
-          <div class="picker-filter-label">Catégorie</div>
-          <div class="picker-filter-chips">${catChips}</div>
+          <div class="picker-filter-label">FODMAP</div>
+          <div class="picker-filter-chips">
+            ${fodmapChips}
+            <button class="picker-filter-chip picker-filter-more ${otherDietActive ? 'has-active' : ''}" id="picker-toggle-other-diets" type="button">
+              <span class="picker-filter-more-label">Voir autres régimes</span>
+              <span class="picker-filter-more-icon">▼</span>
+            </button>
+          </div>
+          <div class="picker-filter-chips picker-other-diets ${otherDietActive ? '' : 'hidden'}" id="picker-other-diets-row">
+            ${otherDietChips}
+          </div>
         </div>
 
         <div class="picker-filter-section">
-          <div class="picker-filter-label">Régime alimentaire</div>
-          <div class="picker-filter-chips">${dietChips}</div>
+          <button class="picker-filter-collapse-toggle ${catActive ? 'has-active' : ''}" id="picker-toggle-category" type="button">
+            <span>Catégorie${catActive ? ' (1)' : ''}</span>
+            <span class="picker-filter-more-icon">▼</span>
+          </button>
+          <div class="picker-filter-chips picker-category-row ${catActive ? '' : 'hidden'}" id="picker-category-row">
+            ${catChips}
+          </div>
         </div>
 
         <div class="picker-filter-section picker-filter-controls">
@@ -4482,6 +5469,32 @@ function openPlanningSlot(dateStr, slotId) {
     _planningPickerFilters.sort = e.target.value;
     renderPlanningPickerList(document.getElementById('planning-search').value);
   });
+
+  // Toggle "Voir autres régimes"
+  const toggleOtherBtn = document.getElementById('picker-toggle-other-diets');
+  if (toggleOtherBtn) {
+    toggleOtherBtn.addEventListener('click', () => {
+      const row = document.getElementById('picker-other-diets-row');
+      const isOpen = !row.classList.contains('hidden');
+      row.classList.toggle('hidden');
+      const labelEl = toggleOtherBtn.querySelector('.picker-filter-more-label');
+      const iconEl = toggleOtherBtn.querySelector('.picker-filter-more-icon');
+      if (labelEl) labelEl.textContent = isOpen ? 'Voir autres régimes' : 'Masquer';
+      if (iconEl) iconEl.textContent = isOpen ? '▼' : '▲';
+    });
+  }
+
+  // Toggle "Catégorie"
+  const toggleCatBtn = document.getElementById('picker-toggle-category');
+  if (toggleCatBtn) {
+    toggleCatBtn.addEventListener('click', () => {
+      const row = document.getElementById('picker-category-row');
+      const isOpen = !row.classList.contains('hidden');
+      row.classList.toggle('hidden');
+      const iconEl = toggleCatBtn.querySelector('.picker-filter-more-icon');
+      if (iconEl) iconEl.textContent = isOpen ? '▼' : '▲';
+    });
+  }
 
   renderPlanningPickerList('');
   document.getElementById('planning-search').addEventListener('input', e => {
@@ -4741,7 +5754,9 @@ function planningToShopping() {
 window.planningToShopping = planningToShopping;
 
 function changePlanningWeek(delta) {
-  _planningWeekOffset += delta;
+  // En vue 2 semaines, on saute 2 semaines à la fois ; en vue 1 semaine, 1 à la fois
+  const step = _planningView === '2weeks' ? 2 : 1;
+  _planningWeekOffset += delta * step;
   renderPlanning();
 }
 window.changePlanningWeek = changePlanningWeek;
@@ -5334,6 +6349,15 @@ async function bindEvents() {
     });
   });
 
+  // Pantry default days
+  const pantrySelect = document.getElementById('settings-pantry-days');
+  if (pantrySelect) {
+    pantrySelect.addEventListener('change', () => {
+      setPantryDefaultDays(Number(pantrySelect.value));
+      showToast(`Garde-manger : ${pantrySelect.value} jours par défaut`, 'success');
+    });
+  }
+
   // Web Search toggle
   const wsCheckbox = document.getElementById('settings-web-search');
   if (wsCheckbox) {
@@ -5480,6 +6504,7 @@ function init() {
   initHistory(); // initialise l'historique pour le bouton retour
   initKeyboardHandling(); // ajuste la barre chat avec le clavier virtuel
   bindEvents();
+  _loadTimerState(); // restaurer un éventuel minuteur actif
 
   // Splash
   setTimeout(() => {
