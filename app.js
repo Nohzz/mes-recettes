@@ -1138,7 +1138,7 @@ function renderLibrary() {
 
       // Photo perso > emoji
       const visual = r.photo
-        ? `<img src="${r.photo}" alt="" class="recipe-card-photo">`
+        ? `<img src="${r.photo}" alt="" class="recipe-card-photo" loading="lazy">`
         : `<span class="recipe-card-emoji">${r.emoji || '🍽️'}</span>`;
 
       // Étoile favori
@@ -1213,6 +1213,10 @@ window.openRecipe = openRecipe;
 function renderRecipeDetail(recipe) {
   const r = state.currentRecipe;
   if (!r) return;
+
+  // Préserver le scroll position pour ne pas remonter en haut après une édition
+  const mainContent = document.getElementById('main-content');
+  const scrollTop = mainContent ? mainContent.scrollTop : 0;
 
   const bgIdx = (Math.abs(hashCode(r.id)) % 6) + 1;
   const heroBg = ['linear-gradient(135deg, var(--color-primary-soft), var(--color-accent))',
@@ -1475,6 +1479,14 @@ function renderRecipeDetail(recipe) {
       updateServingsDisplay();
     }
   });
+
+  // Restaurer la position de scroll (sauf si on vient juste d'ouvrir la recette)
+  // requestAnimationFrame pour s'assurer que le layout est calculé
+  if (scrollTop > 0 && mainContent) {
+    requestAnimationFrame(() => {
+      mainContent.scrollTop = scrollTop;
+    });
+  }
 }
 
 function setServings(recipeId, value) {
@@ -2409,7 +2421,9 @@ async function attachRecipePhoto(id) {
     if (!file) return;
     try {
       showToast('Traitement de la photo...', '');
-      const dataUrl = await processImageToDataUrl(file, 1024, 0.8);
+      // Compression : 720px qualité 70% — ~2× plus léger que 1024×80% pour une qualité
+      // visuelle équivalente sur smartphone. Important : localStorage limité ~5-10 MB.
+      const dataUrl = await processImageToDataUrl(file, 720, 0.7);
       recipe.photo = dataUrl;
       updateRecipeAndSync(recipe, 'photo ajoutée');
       if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
@@ -2861,7 +2875,7 @@ async function enterCookingMode(id) {
     if ('wakeLock' in navigator) {
       _wakeLock = await navigator.wakeLock.request('screen');
     }
-  } catch (e) { console.log('Wake lock denied:', e); }
+  } catch (e) { console.warn('Wake lock denied:', e); }
   renderCookingMode();
 }
 window.enterCookingMode = enterCookingMode;
@@ -3877,7 +3891,7 @@ function renderShopping() {
     if (!r) return '';
     return `
       <div class="shopping-recipe-row">
-        <div class="shopping-recipe-emoji">${r.photo ? `<img src="${r.photo}" alt="">` : (r.emoji || '🍽️')}</div>
+        <div class="shopping-recipe-emoji">${r.photo ? `<img src="${r.photo}" alt="" loading="lazy">` : (r.emoji || '🍽️')}</div>
         <div class="shopping-recipe-info">
           <div class="shopping-recipe-name">${escapeHtml(r.title)}</div>
           <div class="shopping-recipe-servings">
@@ -5299,7 +5313,7 @@ function renderPlanning() {
               </div>`;
             }
             return `<div class="planning-slot-recipe">
-              <span class="planning-slot-emoji">${recipe.photo ? `<img src="${recipe.photo}" alt="">` : (recipe.emoji || '🍽️')}</span>
+              <span class="planning-slot-emoji">${recipe.photo ? `<img src="${recipe.photo}" alt="" loading="lazy">` : (recipe.emoji || '🍽️')}</span>
               <span class="planning-slot-title">${escapeHtml(recipe.title)}</span>
               <span class="planning-slot-servings">${rr.servings || recipe.baseServings} pers.</span>
               <button class="planning-slot-mini-remove" onclick="event.stopPropagation(); removeRecipeFromSlot('${dateStr}', '${slot.id}', '${rr.id}')" aria-label="Retirer">×</button>
@@ -5562,7 +5576,7 @@ function renderPlanningPickerList(query) {
       const cat = getCategoryById(r.category);
       const inSeason = !r.months || r.months.length === 0 || r.months.includes(currentMonth);
       return `<button class="planning-picker-item" onclick="pickRecipeForPlanning('${r.id}')">
-        <span class="planning-picker-item-emoji">${r.photo ? `<img src="${r.photo}" alt="">` : (r.emoji || '🍽️')}</span>
+        <span class="planning-picker-item-emoji">${r.photo ? `<img src="${r.photo}" alt="" loading="lazy">` : (r.emoji || '🍽️')}</span>
         <div class="planning-picker-item-text">
           <div class="planning-picker-item-title">${r.favorite ? '⭐ ' : ''}${escapeHtml(r.title)}</div>
           <div class="planning-picker-item-meta">${cat.emoji} ${escapeHtml(cat.label)}${r.prepTime || r.cookTime ? ' · ' + ((r.prepTime || 0) + (r.cookTime || 0)) + ' min' : ''}${inSeason ? '' : ' · <span class="picker-item-not-season">hors saison</span>'}</div>
@@ -6035,7 +6049,7 @@ function openPlanningMenuPreview(proposal) {
           <div class="planning-menu-preview-item" data-idx="${i}">
             <div class="planning-menu-preview-date">${formatPreviewDate(p.dateStr)} · ${p.slot === 'midi' ? '☀️ Midi' : '🌙 Soir'}</div>
             <button class="planning-menu-preview-recipe" onclick="changePreviewRecipe(${i})">
-              <span class="planning-menu-preview-emoji">${p.recipe.photo ? `<img src="${p.recipe.photo}" alt="">` : (p.recipe.emoji || '🍽️')}</span>
+              <span class="planning-menu-preview-emoji">${p.recipe.photo ? `<img src="${p.recipe.photo}" alt="" loading="lazy">` : (p.recipe.emoji || '🍽️')}</span>
               <div class="planning-menu-preview-text">
                 <div class="planning-menu-preview-title">${escapeHtml(p.recipe.title)}</div>
                 ${p.reason ? `<div class="planning-menu-preview-reason">${escapeHtml(p.reason)}</div>` : ''}
