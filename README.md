@@ -9,24 +9,37 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
 ### 📚 Bibliothèque
 - **Catégories** : Apéro, Entrée, Plat, Dessert, Goûter, Petit déjeuner, Boisson, Autre
 - **Recherche full-text** : titre, description, ingrédients, tags, notes personnelles **et texte des étapes**
-- **Filtres avancés** : saison/mois, ingrédients (« j'ai dans mon frigo... »), fréquence de cuisson, régimes alimentaires
+- **Filtres avancés** : saison/mois, ingrédients (« j'ai dans mon frigo... »), fréquence de cuisson, régimes alimentaires, **vérification humaine** (Toutes / ✅ Vérifiées / ☐ À vérifier)
 - **Favoris** et tri configurable (récentes, A-Z, dernière cuisson, jamais cuisinées)
 - **Saisonnalité Greenpeace** : calendrier officiel français (~250 ingrédients), badges automatiques par mois
 
 ### 🤖 Création de recettes
 - **Avec IA Claude** : envoyez à l'assistant un lien, des photos, ou une description, il extrait une recette structurée que vous validez
-- **Multi-recettes en une requête** : Claude peut extraire plusieurs recettes d'un même message
+- **Multi-recettes en une requête** : Claude peut extraire plusieurs recettes d'un même message. Pour les photos multiples, **1 photo distincte = 1 recette** (le prompt est explicite)
+- **Modal de validation enrichie** : tags, régimes, source, vérification humaine modifiables dès la création
+- **Source obligatoire** : Web / Livre / Instagram / ✍️ Perso (pour les recettes maison)
 - **Manuelle** : créez ou modifiez une recette de A à Z
 - **Édition inline** : touchez un ingrédient ou une étape pour la modifier directement, sans repasser par le chat
-- **Photo personnelle** du plat fini (choix caméra ou galerie)
+- **Photo personnelle** du plat fini :
+  - Choix **📸 Caméra** ou **🖼️ Galerie** au moment de l'ajout (Android + iOS)
+  - Compression auto en 720px qualité 70% pour économiser le localStorage
+  - Photo du chat automatiquement rattachée à la recette créée
 - **Notes personnelles** (astuces, variantes, retours d'expérience)
 - **Tags personnalisés**
-- **Source** : livre (titre/auteur/page), site web (URL), Instagram (@compte)
 - **Régimes alimentaires** : Vegan, Végétarien, Sans gluten, Sans lactose, Sans sucre, Keto, Halal, Casher
-- **Tags FODMAP automatiques** : Low/High FODMAP calculés depuis la liste d'ingrédients (~200 entrées)
+- **Tags FODMAP automatiques** : Low/High FODMAP calculés depuis la liste d'ingrédients (~200 entrées), recalculés à chaque sauvegarde et au démarrage pour les recettes existantes
+- **Tag « Vérifié humain »** : checkbox pour distinguer les recettes que vous avez relues/validées après extraction IA. Chip vert sur la fiche, filtrable depuis la bibliothèque
 
 ### 👨‍🍳 Cuisine en action
 - **Mode cuisine plein écran** étape par étape avec anti-veille (écran reste allumé)
+- **Ingrédients par étape précis** : système `ingredientUses` qui distingue
+  - **Utilisation active** (« Beurrer le moule » → affiche le beurre)
+  - **Référence pure** (« Une fois le brocoli cuit » → n'affiche rien, déjà utilisé)
+  - **Quantités partielles** : si un ingrédient est divisé (ex: 100g pour la pâte + 30g pour le moule), chaque étape affiche sa portion + note explicative
+- **Bouton 🪄 « Recalculer ingrédients-étapes »** :
+  - Individuel sur chaque fiche (~1 centime)
+  - Global dans Paramètres → Outils IA (toutes les recettes en une fois)
+  - Sauvegarde automatique de l'ancien état + bouton « ↶ Restaurer l'ancien »
 - **Minuteurs intégrés aux étapes** : détection automatique des durées dans le texte ("Cuire 30 min", "Reposer 1h30", "1/2 heure"...), tap sur ⏱️ pour lancer
   - Overlay flottant avec affichage `MM:SS`, pause/reprendre/arrêter
   - Alarme à zéro : bips sonores + notification système + vibration
@@ -41,7 +54,11 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
 - **Vue 1 ou 2 semaines** au choix (toggle segmenté avec navigation flèches adaptée)
 - **3 slots par jour** : ☀️ Midi, 🌙 Soir, 🥐 Autre (petit-déj/goûter/apéro...)
 - **Multi-recettes par slot** : plusieurs plats peuvent partager un repas
-- **Picker avec filtres** : tri alphabétique par défaut, recherche, filtre régime (FODMAP en priorité), filtre catégorie, "de saison uniquement"
+- **Picker avec filtres ciblés** :
+  - Tri alphabétique par défaut, recherche
+  - **Régime** : seulement Végétarien + Low FODMAP + High FODMAP (épuré pour le quotidien)
+  - Filtre catégorie (replié par défaut)
+  - « De saison uniquement »
 - **Génération de menu IA** : l'IA propose un menu équilibré (durée 3/7/14j, midi/soir/midi+soir, contraintes texte libre + régimes)
 - **Validation pas-à-pas** : aperçu des recettes proposées, possibilité de remplacer chaque repas avant validation
 
@@ -201,4 +218,4 @@ Code librement réutilisable.
 
 ---
 
-**v3.0** — Planning + Garde-manger + Timer + ChangeLog — Bon appétit ! 🍅
+**v3.2** — Source obligatoire + Vérification humaine + Ingrédients-étapes précis + FODMAP auto + Photo Caméra/Galerie + Recalcul IA — Bon appétit ! 🍅

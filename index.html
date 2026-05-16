@@ -365,6 +365,11 @@
           </select>
         </div>
         <div class="settings-section">
+          <label class="settings-label">Outils IA</label>
+          <button id="settings-recalc-all" class="btn-secondary btn-block">🪄 Recalculer toutes les recettes</button>
+          <p class="settings-hint">Demande à l'IA de réanalyser quel ingrédient est utilisé à chaque étape de toutes vos recettes. Coût ~1 centime par recette.</p>
+        </div>
+        <div class="settings-section">
           <label class="settings-label">Données</label>
           <button id="settings-export" class="btn-secondary btn-block">Exporter mes recettes (JSON)</button>
           <button id="settings-import" class="btn-secondary btn-block">Importer des recettes</button>
@@ -452,6 +457,16 @@
             <option value="recent">Récemment cuisinées</option>
             <option value="old">Pas faites depuis 90j</option>
           </select>
+        </div>
+
+        <!-- Vérification humaine -->
+        <div class="filters-drawer-section">
+          <label class="filters-drawer-label">Vérification</label>
+          <div class="filter-chips-grid">
+            <button class="filter-chip active" data-filter-type="verified" data-filter-value="all">Toutes</button>
+            <button class="filter-chip" data-filter-type="verified" data-filter-value="verified">✅ Vérifiées</button>
+            <button class="filter-chip" data-filter-type="verified" data-filter-value="unverified">☐ À vérifier</button>
+          </div>
         </div>
       </div>
       <div class="filters-drawer-footer">

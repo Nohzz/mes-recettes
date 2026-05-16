@@ -46,6 +46,7 @@ const state = {
   favoritesOnly: false,
   cookedFilter: '', // '' | 'never' | 'recent' | 'old'
   dietFilter: [], // tags régime à filtrer (intersection)
+  verifiedFilter: 'all', // 'all' | 'verified' | 'unverified'
   chatHistory: [],
   chatAttachments: [], // base64 images
   pendingRecipe: null,
@@ -205,6 +206,54 @@ function loadState() {
           return { ...r, steps: enrichStepIngredientIds(r.steps, r.ingredients) };
         });
         localStorage.setItem('mr_steps_enrich_version', STEPS_VERSION);
+        try { localStorage.setItem(STORAGE_KEYS.recipes, JSON.stringify(state.recipes)); } catch {}
+      }
+    }
+
+    // Migration ingredientIds → ingredientUses (nouveau format avec quantités partielles possibles)
+    // Conversion silencieuse, conserve aussi ingredientIds en double pour rétro-compat sync
+    const USES_VERSION = 'uses-v1';
+    const usesMigrated = localStorage.getItem('mr_uses_version');
+    if (usesMigrated !== USES_VERSION) {
+      state.recipes = state.recipes.map(r => {
+        if (!r.steps) return r;
+        const newSteps = r.steps.map(s => {
+          // Si déjà au nouveau format, ne pas écraser
+          if (Array.isArray(s.ingredientUses) && s.ingredientUses.length > 0) {
+            return s;
+          }
+          // Sinon convertir ingredientIds → ingredientUses
+          if (Array.isArray(s.ingredientIds) && s.ingredientIds.length > 0) {
+            return {
+              ...s,
+              ingredientUses: s.ingredientIds.map(id => ({ id: String(id) }))
+            };
+          }
+          return { ...s, ingredientUses: [] };
+        });
+        return { ...r, steps: newSteps };
+      });
+      localStorage.setItem('mr_uses_version', USES_VERSION);
+      try { localStorage.setItem(STORAGE_KEYS.recipes, JSON.stringify(state.recipes)); } catch {}
+    }
+
+    // Migration FODMAP : recalcul auto pour toutes les recettes existantes
+    // Ajoute low-fodmap / high-fodmap selon les ingrédients, en complétant les tags existants
+    if (typeof calculateFodmapTags === 'function') {
+      const FODMAP_VERSION = 'fodmap-auto-v1';
+      const fodmapMigrated = localStorage.getItem('mr_fodmap_version');
+      if (fodmapMigrated !== FODMAP_VERSION) {
+        state.recipes = state.recipes.map(r => {
+          if (!r.ingredients) return r;
+          const currentDiets = Array.isArray(r.dietTags) ? r.dietTags.slice() : [];
+          // Retirer les anciens fodmap pour permettre le recalcul
+          const cleanedDiets = currentDiets.filter(t => t !== 'low-fodmap' && t !== 'high-fodmap' && t !== 'fodmap');
+          // Ajouter les nouveaux fodmap calculés
+          const autoFodmap = calculateFodmapTags(r.ingredients);
+          const merged = [...cleanedDiets, ...autoFodmap];
+          return { ...r, dietTags: merged };
+        });
+        localStorage.setItem('mr_fodmap_version', FODMAP_VERSION);
         try { localStorage.setItem(STORAGE_KEYS.recipes, JSON.stringify(state.recipes)); } catch {}
       }
     }
@@ -1072,6 +1121,13 @@ function getFilteredRecipes() {
     });
   }
 
+  // Filtrage par vérification humaine
+  if (state.verifiedFilter === 'verified') {
+    recipes = recipes.filter(r => r.verifiedByHuman === true);
+  } else if (state.verifiedFilter === 'unverified') {
+    recipes = recipes.filter(r => !r.verifiedByHuman);
+  }
+
   return recipes;
 }
 
@@ -1314,6 +1370,18 @@ function renderRecipeDetail(recipe) {
     metaChips.push(`<button class="recipe-meta-chip is-empty" onclick="manageCookedHistory('${r.id}')">📅 Cuisson</button>`);
   }
 
+  // Vérifié par l'humain : chip distinctif (clic = toggle)
+  if (r.verifiedByHuman) {
+    metaChips.push(`<button class="recipe-meta-chip is-filled is-verified" onclick="toggleVerifiedByHuman('${r.id}')" title="Recette vérifiée et validée par l'humain. Cliquer pour retirer.">
+      <span class="recipe-meta-chip-icon">✅</span>
+      <span class="recipe-meta-chip-text">Vérifiée</span>
+    </button>`);
+  } else {
+    metaChips.push(`<button class="recipe-meta-chip is-empty" onclick="toggleVerifiedByHuman('${r.id}')" title="Marquer comme vérifiée par l'humain">
+      ☐ À vérifier
+    </button>`);
+  }
+
   // Historique modifications (changelog) : badge si nouvelles modifs
   const changeLog = r.changeLog || [];
   const lastViewedKey = `mr_log_viewed_${r.id}`;
@@ -1448,7 +1516,18 @@ function renderRecipeDetail(recipe) {
           <div class="steps-list" id="steps-list">
             ${renderStepsList(r.steps, r.ingredients, ratio, r.id)}
           </div>
-          <button class="recipe-inline-add" onclick="addStepInline('${r.id}')">+ Ajouter une étape</button>
+          <div class="recipe-steps-actions">
+            <button class="recipe-inline-add" onclick="addStepInline('${r.id}')">+ Ajouter une étape</button>
+            <button class="recipe-recalc-btn" onclick="recalcSingleRecipe('${r.id}')" title="Demander à l'IA d'analyser à nouveau quel ingrédient est utilisé à quelle étape">
+              <span class="recipe-recalc-icon">🪄</span>
+              <span class="recipe-recalc-label">Recalculer ingrédients-étapes</span>
+            </button>
+            ${r._stepsBackup?.lastRecalc ? `
+              <button class="recipe-recalc-restore" onclick="restoreRecipeSteps('${r.id}')" title="Restaurer l'état précédent">
+                ↶ Restaurer l'ancien
+              </button>
+            ` : ''}
+          </div>
         </div>
 
         <div class="recipe-add-shopping">
@@ -1598,6 +1677,10 @@ function updateFiltersUI() {
     const tag = DIET_TAGS.find(t => t.id === d);
     if (tag) chips.push(`<button class="active-filter-chip" onclick="clearOneDietFilter('${d}')">${tag.emoji} ${escapeHtml(tag.label)} ✕</button>`);
   }
+  if (state.verifiedFilter && state.verifiedFilter !== 'all') {
+    const verifLabel = state.verifiedFilter === 'verified' ? '✅ Vérifiées' : '☐ À vérifier';
+    chips.push(`<button class="active-filter-chip" onclick="clearOneFilter('verified')">${verifLabel} ✕</button>`);
+  }
   if (chips.length > 0) {
     summary.innerHTML = chips.join('') + `<button class="active-filter-clear-all" onclick="clearAllFilters()">Tout effacer</button>`;
     summary.classList.remove('hidden');
@@ -1615,7 +1698,8 @@ function clearOneFilter(type) {
     const sel = document.getElementById('filter-cooked');
     if (sel) sel.value = '';
   }
-  if (type === 'category' || type === 'month') {
+  else if (type === 'verified') state.verifiedFilter = 'all';
+  if (type === 'category' || type === 'month' || type === 'verified') {
     document.querySelectorAll(`.filter-chip[data-filter-type="${type}"]`).forEach(c => {
       c.classList.toggle('active', c.dataset.filterValue === 'all');
     });
@@ -1639,6 +1723,7 @@ function clearAllFilters() {
   state.ingredientsFilter = [];
   state.cookedFilter = '';
   state.dietFilter = [];
+  state.verifiedFilter = 'all';
   document.querySelectorAll('.filter-chip[data-filter-type]').forEach(c => {
     c.classList.toggle('active', c.dataset.filterValue === 'all');
   });
@@ -1683,12 +1768,14 @@ function renderIngredientsList(ingredients, ratio, recipeId) {
 
 function renderStepsList(steps, ingredients, ratio, recipeId) {
   return steps.map((step, i) => {
-    const stepIngredients = (step.ingredientIds || []).map(id => {
-      const ing = ingredients.find(x => x.id === id);
-      if (!ing) return null;
-      const amount = ing.amount != null && ing.amount !== '' ? Number(ing.amount) * ratio : '';
-      return `<span class="step-ingredient-chip">${escapeHtml(ing.name)}${amount === '' ? '' : ' · ' + formatAmount(amount, ing.unit)}</span>`;
-    }).filter(Boolean).join('');
+    // Helper unifié : gère ancien (ingredientIds) et nouveau (ingredientUses) format
+    const uses = getStepIngredientUses(step, ingredients);
+    const stepIngredients = uses.map(use => {
+      const amount = use.amount != null && use.amount !== '' ? Number(use.amount) * ratio : '';
+      const isPartialClass = use.isPartial ? ' is-partial' : '';
+      const noteHtml = use.note ? ` <span class="step-ingredient-note">${escapeHtml(use.note)}</span>` : '';
+      return `<span class="step-ingredient-chip${isPartialClass}">${escapeHtml(use.name)}${amount === '' ? '' : ' · ' + formatAmount(amount, use.unit)}${noteHtml}</span>`;
+    }).join('');
 
     // NOUVEAU : détecter les durées dans le texte de l'étape
     const durations = extractDurations(step.text || '');
@@ -2087,7 +2174,7 @@ function createManualRecipe() {
       { id: 'ing1', name: '', amount: null, unit: '' }
     ],
     steps: [
-      { text: '', ingredientIds: [] }
+      { text: '', ingredientUses: [] }
     ],
     months: []
   };
@@ -2286,6 +2373,250 @@ function closeChangeLog(skipHistory) {
   }
 }
 window.closeChangeLog = closeChangeLog;
+
+// ============================================
+// RECALCUL DES INGRÉDIENTS-ÉTAPES (via IA)
+// ============================================
+
+// Prompt système spécifique : on demande à Claude de REMAPPER les étapes
+// d'une recette EXISTANTE selon les règles précises de ingredientUses.
+const RECALC_PROMPT = `Tu reçois une recette EXISTANTE avec ses ingrédients et étapes.
+
+Ta seule mission : pour chaque étape, déterminer le tableau "ingredientUses" — les ingrédients PHYSIQUEMENT MANIPULÉS à cette étape (pas ceux mentionnés en référence à un état antérieur).
+
+RÈGLES IMPÉRATIVES :
+
+✅ INCLUS un ingrédient si l'étape contient un verbe d'action TRANSITIF sur l'ingrédient brut/réel :
+  - "ajouter X", "verser X", "mélanger X", "incorporer X", "couper X"
+  - "éplucher X", "battre X", "fouetter X", "saler", "poivrer", "sucrer", "beurrer (le moule)"
+  - "cuire X", "faire fondre X", "faire revenir X", "monter X (en neige)"
+
+❌ N'INCLUS PAS un ingrédient si l'étape contient SEULEMENT :
+  - Une référence à un ÉTAT précédent : "une fois le X cuit/fondu/refroidi/prêt", "quand le X est..."
+  - Une référence à une PRÉPARATION INTERMÉDIAIRE : "le mélange de X", "la préparation", "la sauce", "l'appareil", "la pâte", "la masse"
+  - Une mention anticipée : "qu'on ajoutera plus tard"
+  - Une mention dans la description du résultat : "obtenir la consistance du X"
+
+QUANTITÉS PARTIELLES :
+- Si un ingrédient est utilisé en UNE SEULE FOIS dans toute la recette : omets "amount" et "unit"
+- Si un ingrédient est divisé en plusieurs portions (ex: "150g pour la pâte" puis "50g pour saupoudrer") :
+  - Indique "amount" et "unit" pour CHAQUE étape concernée
+  - Ajoute "note" (très courte, max 5 mots) pour expliquer le rôle de la portion
+  - La somme des "amount" doit correspondre à la quantité totale de l'ingrédient
+
+FORMAT DE SORTIE (JSON STRICT entre balises) :
+<steps>
+[
+  {
+    "ingredientUses": [
+      { "id": "ing1" },
+      { "id": "ing2", "amount": 100, "unit": "g", "note": "pour la pâte" }
+    ]
+  }
+]
+</steps>
+
+L'array DOIT contenir exactement le même nombre d'éléments que la recette d'origine. L'ordre doit correspondre à l'ordre des étapes.
+
+Ne renvoie RIEN d'autre que le bloc <steps>...</steps>.`;
+
+async function recalculateRecipeSteps(recipeId, options = {}) {
+  const recipe = state.recipes.find(r => r.id === recipeId);
+  if (!recipe) return { ok: false, error: 'Recette introuvable' };
+  if (!state.apiKey) return { ok: false, error: 'Clé API Claude requise' };
+  if (!recipe.steps || recipe.steps.length === 0) return { ok: false, error: 'Pas d\'étapes' };
+
+  // Sauvegarder l'état actuel des steps pour permettre un éventuel rollback
+  const originalSteps = JSON.parse(JSON.stringify(recipe.steps));
+
+  // Construire le prompt utilisateur
+  const userPrompt = `Voici la recette à recalculer :
+
+TITRE : ${recipe.title}
+
+INGRÉDIENTS :
+${recipe.ingredients.map(i => `- { "id": "${i.id}", "name": "${i.name}", "amount": ${i.amount}, "unit": "${i.unit || ''}" }`).join('\n')}
+
+ÉTAPES (numérotées, dans l'ordre) :
+${recipe.steps.map((s, i) => `${i + 1}. ${s.text}`).join('\n')}
+
+Renvoie le bloc <steps>...</steps> avec les ingredientUses pour chaque étape.`;
+
+  try {
+    const response = await callClaudeAPI([{ role: 'user', content: userPrompt }], {
+      system: RECALC_PROMPT,
+      maxTokens: 3000
+    });
+
+    // Parser la réponse
+    const match = response.match(/<steps>([\s\S]*?)<\/steps>/);
+    if (!match) {
+      return { ok: false, error: 'Réponse IA invalide' };
+    }
+    const cleanJson = match[1].trim().replace(/^```json\s*/i, '').replace(/```$/, '').trim();
+    const stepsArr = JSON.parse(cleanJson);
+    if (!Array.isArray(stepsArr) || stepsArr.length !== recipe.steps.length) {
+      return { ok: false, error: `L'IA a renvoyé ${stepsArr?.length} étapes au lieu de ${recipe.steps.length}` };
+    }
+
+    // Appliquer : on garde le texte, on remplace ingredientUses
+    const ingredientIdSet = new Set(recipe.ingredients.map(i => i.id));
+    recipe.steps = recipe.steps.map((step, i) => {
+      const newUses = (stepsArr[i].ingredientUses || []).filter(u => u && u.id && ingredientIdSet.has(u.id));
+      return {
+        text: step.text,
+        ingredientUses: newUses.map(u => {
+          const cleaned = { id: u.id };
+          if (u.amount != null && !isNaN(Number(u.amount))) cleaned.amount = Number(u.amount);
+          if (u.unit) cleaned.unit = String(u.unit);
+          if (u.note) cleaned.note = String(u.note);
+          return cleaned;
+        })
+      };
+    });
+
+    // Fallback : algo client par-dessus pour combler les oublis de l'IA
+    if (typeof enrichStepIngredientIds === 'function') {
+      recipe.steps = enrichStepIngredientIds(recipe.steps, recipe.ingredients);
+    }
+
+    // Sauver l'ancien état dans le changeLog pour permettre la restauration
+    if (!recipe._stepsBackup) recipe._stepsBackup = {};
+    recipe._stepsBackup.lastRecalc = {
+      at: Date.now(),
+      steps: originalSteps
+    };
+
+    updateRecipeAndSync(recipe, 'ingrédients-étapes recalculés par IA');
+    return { ok: true };
+  } catch (e) {
+    // Restaurer si erreur
+    recipe.steps = originalSteps;
+    return { ok: false, error: e.message };
+  }
+}
+window.recalculateRecipeSteps = recalculateRecipeSteps;
+
+// Restaure les ingredientUses précédant le dernier recalcul
+function restoreRecipeSteps(recipeId) {
+  const recipe = state.recipes.find(r => r.id === recipeId);
+  if (!recipe || !recipe._stepsBackup?.lastRecalc) {
+    showToast('Aucune sauvegarde à restaurer', 'error');
+    return false;
+  }
+  recipe.steps = JSON.parse(JSON.stringify(recipe._stepsBackup.lastRecalc.steps));
+  delete recipe._stepsBackup;
+  updateRecipeAndSync(recipe, 'ingrédients-étapes restaurés');
+  if (state.currentView === 'recipe' && state.currentRecipe?.id === recipeId) {
+    state.currentRecipe = { ...recipe, currentServings: state.currentRecipe?.currentServings || recipe.baseServings };
+    renderRecipeDetail(recipe);
+  }
+  showToast('Restauré ✓', 'success');
+  return true;
+}
+window.restoreRecipeSteps = restoreRecipeSteps;
+
+// Toggle "Vérifié par l'humain" : checkbox pour marquer une recette comme validée
+function toggleVerifiedByHuman(recipeId) {
+  const recipe = state.recipes.find(r => r.id === recipeId);
+  if (!recipe) return;
+  recipe.verifiedByHuman = !recipe.verifiedByHuman;
+  updateRecipeAndSync(recipe, recipe.verifiedByHuman ? 'marquée vérifiée par humain' : 'vérification humain retirée');
+  if (state.currentView === 'recipe' && state.currentRecipe?.id === recipeId) {
+    state.currentRecipe = { ...recipe, currentServings: state.currentRecipe?.currentServings || recipe.baseServings };
+    renderRecipeDetail(recipe);
+  }
+  showToast(recipe.verifiedByHuman ? '✅ Marquée vérifiée' : '☐ Vérification retirée', '');
+}
+window.toggleVerifiedByHuman = toggleVerifiedByHuman;
+
+// Bouton individuel sur la fiche recette : "Recalculer les associations ingrédients-étapes"
+async function recalcSingleRecipe(recipeId) {
+  const recipe = state.recipes.find(r => r.id === recipeId);
+  if (!recipe) return;
+
+  const hasBackup = recipe._stepsBackup?.lastRecalc;
+  const confirmMsg = hasBackup
+    ? `Recalculer les ingrédients utilisés à chaque étape ?\n\n• Coût estimé : ~1 centime\n• Sauvegarde de l'ancien remplacée\n• Bouton "Restaurer" disponible après`
+    : `Recalculer les ingrédients utilisés à chaque étape ?\n\n• L'IA va analyser le texte de chaque étape\n• Coût estimé : ~1 centime\n• Sauvegarde automatique de l'ancien, restauration possible`;
+
+  if (!(await uiConfirm(confirmMsg, { confirmLabel: 'Recalculer' }))) return;
+
+  showToast('Recalcul en cours...', '');
+  const result = await recalculateRecipeSteps(recipeId);
+  if (result.ok) {
+    if (state.currentView === 'recipe' && state.currentRecipe?.id === recipeId) {
+      state.currentRecipe = { ...recipe, currentServings: state.currentRecipe?.currentServings || recipe.baseServings };
+      renderRecipeDetail(recipe);
+    }
+    showToast('Recalcul terminé ✓', 'success');
+  } else {
+    showToast('Erreur : ' + result.error, 'error');
+  }
+}
+window.recalcSingleRecipe = recalcSingleRecipe;
+
+// Bouton global dans paramètres : recalculer TOUTES les recettes
+async function recalcAllRecipes() {
+  const count = state.recipes.length;
+  if (count === 0) {
+    await uiAlert('Aucune recette à recalculer.');
+    return;
+  }
+  const costEstimate = Math.ceil(count * 1) / 100; // ~1 centime par recette
+  if (!(await uiConfirm(
+    `Recalculer les ingrédients-étapes de TOUTES vos ${count} recettes ?\n\n• Coût estimé : environ ${costEstimate.toFixed(2)} €\n• Durée : ~${Math.ceil(count * 3 / 60)} min\n• Sauvegarde de chaque ancien état, restauration possible recette par recette`,
+    { confirmLabel: 'Lancer le recalcul' }
+  ))) return;
+
+  // Modal de progression
+  const modal = _ensureDialogModal();
+  modal.querySelector('.ui-dialog-content').innerHTML = `
+    <div class="ui-dialog-body">
+      <h2 class="ui-dialog-title">Recalcul en cours</h2>
+      <p class="ui-dialog-message" id="recalc-progress-text">Préparation...</p>
+      <div class="recalc-progress-bar"><div class="recalc-progress-fill" id="recalc-progress-fill" style="width: 0%"></div></div>
+      <p class="ui-dialog-message" id="recalc-progress-detail" style="font-size:11px;color:var(--color-gray-500);margin-top:8px"></p>
+    </div>
+    <div class="ui-dialog-actions">
+      <button class="btn-secondary" id="recalc-cancel-btn">Arrêter</button>
+    </div>
+  `;
+  modal.classList.remove('hidden');
+
+  let cancelled = false;
+  document.getElementById('recalc-cancel-btn').addEventListener('click', () => {
+    cancelled = true;
+  });
+
+  let ok = 0, ko = 0;
+  for (let i = 0; i < state.recipes.length; i++) {
+    if (cancelled) break;
+    const recipe = state.recipes[i];
+    document.getElementById('recalc-progress-text').textContent = `${i + 1} / ${count} — ${recipe.title}`;
+    document.getElementById('recalc-progress-fill').style.width = `${((i) / count) * 100}%`;
+    document.getElementById('recalc-progress-detail').textContent = `Réussies : ${ok} · Échecs : ${ko}`;
+
+    try {
+      const result = await recalculateRecipeSteps(recipe.id);
+      if (result.ok) ok++; else ko++;
+    } catch (e) {
+      ko++;
+    }
+  }
+
+  modal.querySelector('.ui-dialog-content').innerHTML = `
+    <div class="ui-dialog-body">
+      <h2 class="ui-dialog-title">${cancelled ? 'Recalcul arrêté' : 'Recalcul terminé'}</h2>
+      <p class="ui-dialog-message">${ok} recette${ok > 1 ? 's' : ''} recalculée${ok > 1 ? 's' : ''} avec succès${ko > 0 ? `, ${ko} échec${ko > 1 ? 's' : ''}` : ''}.</p>
+    </div>
+    <div class="ui-dialog-actions">
+      <button class="btn-primary" id="recalc-done-btn" style="flex:1">OK</button>
+    </div>
+  `;
+  document.getElementById('recalc-done-btn').addEventListener('click', () => modal.classList.add('hidden'));
+}
+window.recalcAllRecipes = recalcAllRecipes;
 
 // Mappe une action vers un emoji
 function changeLogIcon(action) {
@@ -2499,6 +2830,50 @@ function _showPhotoSourceDialog(hasExistingPhoto) {
     modal.querySelector('.ui-dialog-backdrop').addEventListener('click', () => {
       cleanup();
       resolve(null);
+    }, { once: true });
+  });
+}
+
+// Dialog identique à _showPhotoSourceDialog mais sans "Supprimer" (utilisé pour le chat)
+// Retourne 'camera', 'gallery' ou null (annulé)
+function _showChatPhotoSourceDialog() {
+  return new Promise(resolve => {
+    const modal = _ensureDialogModal();
+    const content = modal.querySelector('.ui-dialog-content');
+    content.innerHTML = `
+      <div class="ui-dialog-body">
+        <h2 class="ui-dialog-title">Ajouter une photo</h2>
+        <p class="ui-dialog-message">Comment souhaitez-vous ajouter la photo ?</p>
+        <div class="photo-source-options">
+          <button class="photo-source-btn" id="chat-photo-src-camera">
+            <span class="photo-source-icon">📸</span>
+            <span class="photo-source-label">Prendre une photo</span>
+            <span class="photo-source-desc">Utiliser l'appareil photo</span>
+          </button>
+          <button class="photo-source-btn" id="chat-photo-src-gallery">
+            <span class="photo-source-icon">🖼️</span>
+            <span class="photo-source-label">Choisir dans la galerie</span>
+            <span class="photo-source-desc">Sélectionner une image existante</span>
+          </button>
+        </div>
+      </div>
+      <div class="ui-dialog-actions">
+        <button class="btn-secondary" id="chat-photo-src-cancel" style="flex:1">Annuler</button>
+      </div>
+    `;
+    modal.classList.remove('hidden');
+    const cleanup = () => modal.classList.add('hidden');
+    document.getElementById('chat-photo-src-camera').addEventListener('click', () => {
+      cleanup(); resolve('camera');
+    });
+    document.getElementById('chat-photo-src-gallery').addEventListener('click', () => {
+      cleanup(); resolve('gallery');
+    });
+    document.getElementById('chat-photo-src-cancel').addEventListener('click', () => {
+      cleanup(); resolve(null);
+    });
+    modal.querySelector('.ui-dialog-backdrop').addEventListener('click', () => {
+      cleanup(); resolve(null);
     }, { once: true });
   });
 }
@@ -2927,9 +3302,8 @@ function renderCookingMode() {
   const r = state.currentRecipe || recipe;
   const ratio = (r.currentServings || recipe.baseServings) / recipe.baseServings;
   const step = recipe.steps[cm.currentStep];
-  const stepIngs = (step.ingredientIds || [])
-    .map(id => recipe.ingredients.find(x => x.id === id))
-    .filter(Boolean);
+  // Helper unifié : gère ancien (ingredientIds) et nouveau (ingredientUses) format
+  const stepIngs = getStepIngredientUses(step, recipe.ingredients);
 
   const container = document.getElementById('cooking-mode');
   container.classList.remove('hidden');
@@ -2951,10 +3325,11 @@ function renderCookingMode() {
       ${stepIngs.length ? `
         <div class="cooking-ingredients">
           <div class="cooking-ingredients-label">Pour cette étape :</div>
-          ${stepIngs.map(ing => {
-            const amt = ing.amount != null ? formatAmount(Number(ing.amount) * ratio, ing.unit) : '';
-            return `<div class="cooking-ingredient">
-              <span>${escapeHtml(ing.name)}</span>
+          ${stepIngs.map(use => {
+            const amt = use.amount != null ? formatAmount(Number(use.amount) * ratio, use.unit) : '';
+            const noteHtml = use.note ? `<span class="cooking-ingredient-note">${escapeHtml(use.note)}</span>` : '';
+            return `<div class="cooking-ingredient${use.isPartial ? ' is-partial' : ''}">
+              <span>${escapeHtml(use.name)}${noteHtml}</span>
               ${amt ? `<span class="cooking-ingredient-amount">${amt}</span>` : ''}
             </div>`;
           }).join('')}
@@ -3481,12 +3856,13 @@ async function editIngredientInline(recipeId, idx) {
 
   if (result.action === 'delete') {
     if (!(await uiConfirm(`Supprimer "${ing.name}" ?`, { confirmLabel: 'Supprimer', danger: true }))) return;
-    // Supprimer aussi des ingredientIds des étapes
+    // Supprimer aussi des références dans les étapes (ancien et nouveau format)
     const removedId = ing.id;
     recipe.ingredients.splice(idx, 1);
     recipe.steps = (recipe.steps || []).map(s => ({
       ...s,
-      ingredientIds: (s.ingredientIds || []).filter(id => id !== removedId)
+      ingredientIds: (s.ingredientIds || []).filter(id => id !== removedId),
+      ingredientUses: (s.ingredientUses || []).filter(u => u.id !== removedId)
     }));
     updateRecipeAndSync(recipe, `ingrédient "${ing.name}" supprimé`);
   } else {
@@ -3670,7 +4046,7 @@ async function addStepInline(recipeId) {
     showToast('Le texte est requis', 'error');
     return;
   }
-  recipe.steps.push({ text: result.text.trim(), ingredientIds: [] });
+  recipe.steps.push({ text: result.text.trim(), ingredientUses: [] });
   if (typeof enrichStepIngredientIds === 'function') {
     recipe.steps = enrichStepIngredientIds(recipe.steps, recipe.ingredients);
   }
@@ -4146,18 +4522,25 @@ async function fileToBase64(file) {
 
 function renderAttachments() {
   const wrap = document.getElementById('chat-attachments');
+  const messages = document.getElementById('chat-messages');
   if (state.chatAttachments.length === 0) {
     wrap.classList.add('hidden');
     wrap.innerHTML = '';
+    if (messages) messages.classList.remove('has-attachments');
     return;
   }
   wrap.classList.remove('hidden');
+  if (messages) messages.classList.add('has-attachments');
   wrap.innerHTML = state.chatAttachments.map((att, i) => `
     <div class="chat-attachment-thumb">
       <img src="data:${att.media_type};base64,${att.data}">
       <button class="chat-attachment-remove" onclick="removeAttachment(${i})">×</button>
     </div>
   `).join('');
+  // Scroller le chat en bas pour que les attachments soient visibles
+  if (messages) {
+    setTimeout(() => { messages.scrollTop = messages.scrollHeight; }, 50);
+  }
 }
 
 function removeAttachment(i) {
@@ -4183,9 +4566,10 @@ IMPORTANT:
 
 MULTI-RECETTES (économie de tokens) :
 - Si l'utilisateur demande explicitement PLUSIEURS recettes en un seul message (ex: "Crée-moi 3 recettes : pizza, lasagnes, tiramisu" OU "Voici 5 recettes à enregistrer..."), tu peux les renvoyer toutes dans le même appel.
+- **CAS DES PHOTOS MULTIPLES** : si l'utilisateur envoie N photos qui montrent N recettes différentes (ex: 3 photos de plats différents, ou 3 captures d'écran de pages de livre), tu DOIS extraire UNE recette PAR PHOTO. Si tu n'es pas sûr qu'une photo représente une recette différente (ex: 2 photos du même plat sous 2 angles), demande à l'utilisateur. Par défaut, 1 photo distincte = 1 recette.
 - Format : un bloc <recipe>...</recipe> par recette, séparés par un saut de ligne. L'app extraira chacun individuellement.
 - Chaque recette doit être complète et autonome (avec son propre schéma JSON complet).
-- Si l'utilisateur n'a pas explicitement demandé plusieurs recettes, n'en renvoie qu'UNE seule.
+- Si l'utilisateur n'a pas explicitement demandé plusieurs recettes ET n'a envoyé qu'une seule photo OU plusieurs photos du même plat, n'en renvoie qu'UNE seule.
 
 Format de sortie: ENTOURE TON JSON DE BALISES <recipe>...</recipe>
 
@@ -4205,7 +4589,12 @@ Schéma JSON:
     { "id": "ing1", "name": "Nom de l'ingrédient", "amount": 200, "unit": "g" }
   ],
   "steps": [
-    { "text": "Description de l'étape", "ingredientIds": ["ing1"] }
+    {
+      "text": "Description de l'étape",
+      "ingredientUses": [
+        { "id": "ing1", "amount": 200, "unit": "g", "note": "pour la pâte" }
+      ]
+    }
   ]
 }
 
@@ -4219,17 +4608,66 @@ Règles GÉNÉRALES:
 - "dietTags" : tags RÉGIME parmi cette liste EXACTE uniquement : "vegan", "vegetarien", "sans-gluten", "sans-lactose", "low-fodmap", "high-fodmap", "halal", "casher", "sans-sucre", "keto". Ne mets QUE ceux qui s'appliquent objectivement.
   Concernant les FODMAP : ne renseigne PAS "low-fodmap" / "high-fodmap" toi-même, l'app les calcule automatiquement à partir des ingrédients. Tu peux les omettre.
 - "source" : si tu trouves une source clairement identifiable (URL fournie par l'utilisateur, nom de livre + page, compte Instagram), remplis cet objet. Types possibles : "web" (siteName + url), "book" (title + page), "instagram" (account + url). null si non identifiable.
-- "ingredientIds" lie chaque étape à ses ingrédients (avec leurs IDs).
 
-Règles CRITIQUES pour LIER les étapes aux ingrédients (ingredientIds):
-- Quand une étape mentionne un ingrédient, MÊME EN VERSION COURTE OU PARTIELLE, tu DOIS le lier à son ingredientId.
-- Exemple : ingrédient "Farine T45 (500g)" → étape "Mélanger la farine avec l'eau" → DOIT inclure l'id de la farine.
-- Exemple : ingrédient "Beurre demi-sel" → étape "Ajouter le beurre" → DOIT lier.
-- Exemple : ingrédient "Tomates cerises" → étape "Disposer les tomates" → DOIT lier.
-- Si une étape mentionne plusieurs ingrédients ("mélanger farine, sucre et œufs"), TOUS doivent être liés.
-- Si un mot dans une étape correspond partiellement à un ingrédient (le nom complet contient ce mot), c'est UN MATCH.
-- Cas particulier : "ail" dans une étape lie à "gousses d'ail" ou "ail rose". "Lait" lie à "lait demi-écrémé". "Huile" lie à "huile d'olive" sauf si plusieurs huiles sont listées.
-- N'omets PAS un ingredientId même si tu juges l'étape "évidente". Tous les ingrédients utilisés dans une étape doivent y figurer.
+============================================================
+RÈGLES CRITIQUES pour "ingredientUses" : QUAND inclure un ingrédient dans une étape
+============================================================
+
+Le champ "ingredientUses" de chaque étape doit contenir UNIQUEMENT les ingrédients qui sont PHYSIQUEMENT MANIPULÉS à cette étape, pas ceux qui sont juste mentionnés en référence à un état précédent.
+
+✅ INCLUS UN INGRÉDIENT si l'étape contient :
+- Un verbe d'action TRANSITIF qui s'applique à l'ingrédient brut/réel :
+  "ajouter X", "verser X", "mélanger X", "incorporer X", "couper X",
+  "éplucher X", "saler", "poivrer", "sucrer", "beurrer (le moule avec X)",
+  "battre X", "cuire X", "faire fondre X", "faire revenir X"
+- L'ingrédient est physiquement introduit dans la préparation à cette étape
+- L'ingrédient est physiquement utilisé pour une action (graisser, étaler dessus, etc.)
+
+❌ N'INCLUS PAS UN INGRÉDIENT si l'étape contient SEULEMENT :
+- Une référence à un ÉTAT précédent : "une fois le X cuit/fondu/refroidi", "quand le X est prêt"
+- Une référence à une PRÉPARATION INTERMÉDIAIRE : "la pâte", "le mélange", "la préparation", "la sauce", "l'appareil", "la masse"
+- Une mention par anticipation : "qu'on ajoutera plus tard", "qui servira pour..."
+- Une mention dans une description du résultat attendu : "obtenir une consistance comme le beurre"
+
+============================================================
+RÈGLES CRITIQUES pour les QUANTITÉS PARTIELLES (champs amount/unit/note de ingredientUses)
+============================================================
+
+Si un ingrédient est utilisé EN UNE SEULE FOIS dans la recette :
+→ Tu peux omettre "amount" et "unit" dans ingredientUses (l'app prendra la quantité totale)
+→ Exemple : "Beurre 130g" → toutes les utilisations sont dans une seule étape → { "id": "ing_beurre" }
+
+Si un ingrédient est utilisé EN PLUSIEURS FOIS :
+→ TU DOIS spécifier "amount" et "unit" dans CHAQUE ingredientUses pour indiquer la portion utilisée à cette étape
+→ Optionnellement, ajoute "note" pour expliquer (ex: "pour le moule", "pour la pâte", "pour saupoudrer")
+→ La SOMME des amount partiels doit correspondre à la quantité totale de l'ingrédient
+
+Exemple concret : recette financiers
+- Ingrédient: { "id": "ing_beurre", "name": "Beurre", "amount": 130, "unit": "g" }
+- Étape "Faire fondre le beurre" : { "id": "ing_beurre", "amount": 100, "unit": "g", "note": "pour la pâte" }
+- Étape "Beurrer le moule" : { "id": "ing_beurre", "amount": 30, "unit": "g", "note": "pour le moule" }
+- Étape "Ajouter le mélange de beurre fondu" : RIEN (le beurre fondu est déjà préparé, c'est une référence)
+
+============================================================
+EXEMPLES COMPLETS
+============================================================
+
+Recette "Soupe au brocoli" avec ingrédient { "id": "i1", "name": "Brocoli", "amount": 300, "unit": "g" } :
+- Étape "Couper le brocoli en bouquets" → ingredientUses: [{ "id": "i1" }] (action sur l'ingrédient)
+- Étape "Cuire 15 minutes" → ingredientUses: [] (référence implicite, pas d'action sur l'ingrédient brut)
+- Étape "Une fois le brocoli cuit, mixer la soupe" → ingredientUses: [] (référence à l'état cuit)
+
+Recette "Tarte aux pommes" avec ingrédient { "id": "i2", "name": "Pommes", "amount": 800, "unit": "g" } :
+- Étape "Éplucher et couper les pommes" → ingredientUses: [{ "id": "i2" }]
+- Étape "Disposer les pommes sur la pâte" → ingredientUses: [{ "id": "i2" }] (utilisation active)
+- Étape "Servir tiède" → ingredientUses: [] (pas d'action)
+
+Recette avec ingrédient { "id": "i3", "name": "Sucre", "amount": 200, "unit": "g" } divisé :
+- Étape "Mélanger 150g de sucre avec les jaunes" → ingredientUses: [{ "id": "i3", "amount": 150, "unit": "g", "note": "pour la crème" }]
+- Étape "Saupoudrer le reste du sucre par-dessus" → ingredientUses: [{ "id": "i3", "amount": 50, "unit": "g", "note": "pour saupoudrer" }]
+
+============================================================
+
 - "emoji" un seul emoji représentatif.
 - Avant le JSON, écris UNE phrase courte (max 20 mots) pour confirmer ce que tu as trouvé.
 - Ne mets RIEN après le JSON.
@@ -4386,10 +4824,30 @@ function parseRecipeJson(rawJson) {
       unit: ing.unit || ''
     }));
     recipe.baseServings = Number(recipe.baseServings) || 4;
-    recipe.steps = recipe.steps.map(s => ({
-      text: s.text || '',
-      ingredientIds: Array.isArray(s.ingredientIds) ? s.ingredientIds : []
-    }));
+    recipe.steps = recipe.steps.map(s => {
+      const out = { text: s.text || '' };
+      // NOUVEAU format : ingredientUses (avec amount/unit/note partiels possibles)
+      if (Array.isArray(s.ingredientUses)) {
+        out.ingredientUses = s.ingredientUses.map(use => {
+          if (!use || !use.id) return null;
+          const cleaned = { id: String(use.id) };
+          if (use.amount != null && use.amount !== '' && !isNaN(Number(use.amount))) {
+            cleaned.amount = Number(use.amount);
+          }
+          if (use.unit) cleaned.unit = String(use.unit);
+          if (use.note) cleaned.note = String(use.note);
+          return cleaned;
+        }).filter(Boolean);
+      }
+      // ANCIEN format : ingredientIds → on convertit en ingredientUses simple
+      else if (Array.isArray(s.ingredientIds)) {
+        out.ingredientUses = s.ingredientIds.map(id => ({ id: String(id) }));
+      }
+      else {
+        out.ingredientUses = [];
+      }
+      return out;
+    });
     const validCats = RECIPE_CATEGORIES.map(c => c.id);
     recipe.category = validCats.includes(recipe.category) ? recipe.category : 'plat';
     recipe.prepTime = recipe.prepTime != null && !isNaN(Number(recipe.prepTime)) ? Number(recipe.prepTime) : null;
@@ -4430,12 +4888,63 @@ function parseRecipeJson(rawJson) {
   }
 }
 
-// Améliore le matching ingrédient ↔ étape par recherche textuelle
-// Capte les cas où Claude omettrait un id (ex: étape "Mélanger la farine" + ingrédient "Farine T45" → match)
+// ============================================
+// HELPER : lecture unifiée des ingrédients d'une étape
+// ============================================
+// Gère 3 formats :
+// - NOUVEAU : step.ingredientUses = [{ id, amount?, unit?, note? }, ...]
+//   amount/unit/note optionnels. Si absent → utilise la quantité totale de l'ingrédient
+// - ANCIEN : step.ingredientIds = ["id1", "id2", ...] → afficher la quantité totale
+// - VIDE : retourne []
+//
+// Retourne toujours un tableau normalisé : [{ id, amount, unit, note }, ...]
+// où amount/unit sont soit les valeurs partielles (si usedAmount), soit ceux de l'ingrédient
+function getStepIngredientUses(step, ingredients) {
+  if (!step || !ingredients) return [];
+
+  // Format nouveau
+  if (Array.isArray(step.ingredientUses) && step.ingredientUses.length > 0) {
+    return step.ingredientUses.map(use => {
+      const ing = ingredients.find(i => i.id === use.id);
+      if (!ing) return null;
+      return {
+        id: use.id,
+        name: ing.name,
+        amount: use.amount != null && use.amount !== '' ? use.amount : ing.amount,
+        unit: use.unit || ing.unit,
+        note: use.note || null,
+        isPartial: use.amount != null && use.amount !== '' && Number(use.amount) !== Number(ing.amount)
+      };
+    }).filter(Boolean);
+  }
+
+  // Format ancien (rétro-compat)
+  if (Array.isArray(step.ingredientIds) && step.ingredientIds.length > 0) {
+    return step.ingredientIds.map(id => {
+      const ing = ingredients.find(i => i.id === id);
+      if (!ing) return null;
+      return {
+        id,
+        name: ing.name,
+        amount: ing.amount,
+        unit: ing.unit,
+        note: null,
+        isPartial: false
+      };
+    }).filter(Boolean);
+  }
+
+  return [];
+}
+
+// Améliore le matching ingrédient ↔ étape avec heuristiques sémantiques.
+// Objectif : ajouter les ingrédients que l'IA aurait oubliés, MAIS uniquement quand
+// l'étape contient une vraie action (et pas une simple référence à un état passé).
+// Travaille avec le nouveau format step.ingredientUses = [{id, amount?, unit?, note?}, ...]
 function enrichStepIngredientIds(steps, ingredients) {
   if (!steps || !ingredients) return steps;
 
-  // Stop words : articles + unités + petits mots
+  // Stop words
   const STOP_WORDS = new Set([
     'de', 'la', 'le', 'les', 'du', 'des', 'un', 'une', 'à', 'au', 'aux',
     'et', 'ou', 'avec', 'sans', 'pour', 'dans', 'sur', 'en',
@@ -4443,18 +4952,51 @@ function enrichStepIngredientIds(steps, ingredients) {
     'cuil', 'cuillere', 'cuilleres', 'cs', 'cc', 'tsp', 'tbsp',
     'pcs', 'piece', 'pieces', 'tranche', 'tranches', 'gousse', 'gousses',
     'bouquet', 'bouquets', 'pincee', 'pincees',
-    // Forme normalisée sans accent
-    'ufs', 'uf', // (œufs après suppression accent → uf/ufs ; ignoré seul)
-    'the', 'lit' // (mots trop courts ambigus)
+    'ufs', 'uf',
+    'the', 'lit'
   ]);
 
-  // Mots qui SEULS sont trop génériques pour matcher (besoin d'un autre mot)
   const WEAK_WORDS = new Set([
     'sucre', 'sel', 'eau', 'huile', 'fruit', 'fruits', 'legume', 'legumes',
     'fromage', 'viande', 'sauce', 'creme'
   ]);
 
-  // Singulariser/pluraliser un mot pour matcher les deux formes
+  // Marqueurs de RÉFÉRENCE PURE : si l'étape ne contient QUE ces structures, l'ingrédient
+  // n'est pas physiquement manipulé.
+  // On regarde si le nom de l'ingrédient est précédé/suivi de ces patterns.
+  const REFERENCE_PATTERNS = [
+    // "une fois X cuit/préparé/refroidi/fondu/prêt..."
+    /\b(une|le|la|les)?\s*fois\s+(que\s+)?(le|la|les|l')?\s*$/i,
+    // "quand le X est..."
+    /\bquand\s+(le|la|les|l')\s*$/i,
+    // "lorsque le X est..."
+    /\blorsque\s+(le|la|les|l')\s*$/i,
+    // "ajouter au X" (X est le récepteur, déjà préparé)
+    /\bajout(?:er|ez|é)\s+au[x]?\s+$/i,
+    /\bversez?\s+(?:la|le|les)?\s*(?:préparation|mélange)?\s*sur\s+(?:le|la|les)?\s*$/i,
+  ];
+
+  // Phrases qui ne contiennent PAS de vraie utilisation (à eux seuls) :
+  // - "Servir avec le X" (utilisation finale, mais OK on peut inclure)
+  // - "Décorer avec X" (utilisation OK)
+  // → Ces verbes restent valides comme actions
+
+  // États passés explicites qui marquent une référence si suivis du nom
+  // Ex: "le brocoli cuit", "la pâte fondue"
+  const STATE_QUALIFIERS = [
+    'cuit', 'cuite', 'cuits', 'cuites',
+    'fondu', 'fondue', 'fondus', 'fondues',
+    'refroidi', 'refroidie', 'refroidis', 'refroidies',
+    'prepare', 'preparee', 'prepares', 'preparees',
+    'pret', 'prete', 'prets', 'pretes',
+    'mixé', 'mixee', 'mixes', 'mixees',
+    'reservé', 'reservee', 'reserves', 'reservees',
+    'tiede', 'tiedi', 'chaud', 'chaude',
+    'monte', 'montee', 'montes', 'montees', // (blancs montés en neige)
+    'battu', 'battue', 'battus', 'battues',
+    'égoutté', 'egoutte', 'egouttee'
+  ];
+
   function variants(word) {
     const v = new Set([word]);
     if (word.endsWith('x')) v.add(word.slice(0, -1));
@@ -4463,50 +5005,125 @@ function enrichStepIngredientIds(steps, ingredients) {
     return [...v];
   }
 
+  function normalize(s) {
+    return (s || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s'-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   // Pré-calcul : mots-clés par ingrédient
   const ingredientKeywords = ingredients.map(ing => {
-    const normalized = (ing.name || '').toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/\([^)]*\)/g, ' ')
-      .replace(/[^a-z0-9\s'-]/g, ' ');
+    const normalized = normalize((ing.name || '').replace(/\([^)]*\)/g, ' '));
     const allWords = normalized.split(/\s+/).filter(w => w.length >= 3 && !STOP_WORDS.has(w));
-    // Mot "fort" : pas dans WEAK_WORDS et de longueur ≥ 4
     const strongWords = allWords.filter(w => !WEAK_WORDS.has(w) && w.length >= 4);
-    // Mots faibles (génériques) qu'on n'utilisera que si combinés
     const weakWords = allWords.filter(w => WEAK_WORDS.has(w) || w.length === 3);
-    return { id: ing.id, strongWords, weakWords, allWords, fullName: normalized.trim() };
+    return { id: ing.id, strongWords, weakWords, allWords };
   });
 
-  return steps.map(step => {
-    const stepText = (step.text || '').toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9\s'-]/g, ' ');
-    const existingIds = new Set(step.ingredientIds || []);
+  // Premier passage : tracker la 1ère étape qui mentionne CONCRÈTEMENT chaque ingrédient
+  // (pour détecter les références à un état passé)
+  const firstAppearance = new Map(); // id → stepIdx
 
+  // Verbes dérivés du nom de l'ingrédient (saler, beurrer, sucrer, poivrer, huiler...)
+  // Map : { regexs de noms d'ingrédients qui matchent → regex du verbe dans l'étape }
+  // Ex: ingrédient "Sel" → verbe "saler/salez/salé"
+  const DERIVED_VERB_RULES = [
+    { ingName: /\bsel\b/i,       verb: /\bsal(?:er|ez|é|ée|és|ées)\b/i },
+    { ingName: /\bbeurr/i,        verb: /\bbeurre[rz]\b|\bbeurr(?:é|ée|és|ées)\b/i },
+    { ingName: /\bsucre?\b/i,    verb: /\bsucr(?:er|ez|é|ée|és|ées)\b/i },
+    { ingName: /\bpoivre?\b/i,   verb: /\bpoivr(?:er|ez|é|ée|és|ées)\b/i },
+    { ingName: /\bhuile\b/i,     verb: /\bhuil(?:er|ez|é|ée|és|ées)\b/i },
+    { ingName: /\bfarine\b/i,    verb: /\bfarin(?:er|ez|é|ée|és|ées)\b\s+(?:le|la|les|un|une)\s+(?:moule|plat|fond)/i }, // "fariner le moule" mais pas "farine" seul
+    { ingName: /\bgratin/i,      verb: /\bgratin(?:er|ez|é|ée)\b/i },
+    { ingName: /\bglace\b/i,     verb: /\bglac(?:er|ez|é|ée)\b/i }
+  ];
+
+  return steps.map((step, stepIdx) => {
+    const stepText = normalize(step.text || '');
+
+    const existing = (step.ingredientUses || []).slice();
+    const existingIds = new Set(existing.map(u => u.id));
+
+    // PASSE 1 : verbes dérivés du nom (saler, beurrer, etc.)
+    for (const ing of ingredientKeywords) {
+      if (existingIds.has(ing.id)) continue;
+      const ingFullName = (ingredients.find(i => i.id === ing.id)?.name || '');
+      const ingNameNorm = normalize(ingFullName);
+      for (const rule of DERIVED_VERB_RULES) {
+        if (rule.ingName.test(ingNameNorm) && rule.verb.test(stepText)) {
+          existing.push({ id: ing.id });
+          existingIds.add(ing.id);
+          break;
+        }
+      }
+    }
+
+    // PASSE 2 : matching textuel classique avec détection de référence
     for (const ing of ingredientKeywords) {
       if (existingIds.has(ing.id)) continue;
       if (ing.allWords.length === 0) continue;
 
-      // Test fonction pour matcher un mot avec ses variantes
       const wordMatches = (w) => {
         const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const re = new RegExp(`\\b(${variants(escaped).join('|')})\\b`, 'i');
         return re.test(stepText);
       };
 
-      // Stratégie 1 : au moins un mot FORT dans l'étape
       let matched = ing.strongWords.some(wordMatches);
-
-      // Stratégie 2 : si pas de mot fort, accepter un mot FAIBLE seulement si
-      // c'est le SEUL mot significatif de l'ingrédient (ex: "Sel", "Sucre" tout seul)
       if (!matched && ing.strongWords.length === 0 && ing.weakWords.length > 0) {
         matched = ing.weakWords.some(wordMatches);
       }
+      if (!matched) continue;
 
-      if (matched) existingIds.add(ing.id);
+      // Détecter si c'est une RÉFÉRENCE PURE (pas une vraie utilisation)
+      let isReference = false;
+      const matchedWord = [...ing.strongWords, ...ing.weakWords].find(wordMatches);
+      if (matchedWord) {
+        const escaped = matchedWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(`\\b(${variants(escaped).join('|')})\\b`, 'i');
+        const m = re.exec(stepText);
+        if (m) {
+          const before = stepText.substring(0, m.index);
+          const afterStart = m.index + m[0].length;
+          const after = stepText.substring(afterStart, afterStart + 30);
+
+          if (/\b(une\s+)?fois\s+(que\s+)?(le|la|les|l['e])?\s*$/i.test(before)) {
+            isReference = true;
+          }
+          else if (/\b(quand|lorsque)\s+(le|la|les|l['e])\s*$/i.test(before)) {
+            isReference = true;
+          }
+          // Pattern : "mélange de X" / "préparation au X" / "X cuit/fondu" → référence
+          else if (/\bmelange\s+de\b/i.test(before)) {
+            isReference = true;
+          }
+          else if (STATE_QUALIFIERS.some(q => new RegExp(`^\\s*${q}\\b`).test(after))) {
+            const ACTION_VERBS_BEFORE = /\b(cuire|faire\s+cuire|faire\s+fondre|fondre|preparer|reserver|monter|battre|laisser|chauffer|tiedir|reservez)\b/i;
+            if (!ACTION_VERBS_BEFORE.test(before)) {
+              isReference = true;
+            }
+          }
+          else if (/\b(?:la\s+)?preparation\b|\bappareil\b/i.test(before) &&
+                   firstAppearance.has(ing.id)) {
+            isReference = true;
+          }
+        }
+      }
+
+      if (isReference) continue;
+      existing.push({ id: ing.id });
+      existingIds.add(ing.id);
     }
 
-    return { ...step, ingredientIds: Array.from(existingIds) };
+    for (const use of existing) {
+      if (!firstAppearance.has(use.id)) {
+        firstAppearance.set(use.id, stepIdx);
+      }
+    }
+
+    return { ...step, ingredientUses: existing };
   });
 }
 
@@ -4543,10 +5160,25 @@ async function sendChat() {
   // Display user message
   addChatMessage('user', text, state.chatAttachments);
 
+  // Mémoriser les photos uploadées pour pouvoir les rattacher aux recettes créées
+  const uploadedPhotos = state.chatAttachments.slice();
+
+  // Si plusieurs photos sans texte explicite, ajouter un hint automatique
+  // pour que l'IA traite chaque photo comme une recette distincte
+  let effectiveText = text;
+  if (uploadedPhotos.length >= 2 && !text) {
+    effectiveText = `J'ai envoyé ${uploadedPhotos.length} photos qui montrent chacune une recette différente. Extrais-en ${uploadedPhotos.length} recettes (une par photo).`;
+    // Mettre à jour le dernier message user dans userContent
+    const lastIdx = userContent.findIndex(c => c.type === 'text');
+    if (lastIdx === -1) {
+      userContent.push({ type: 'text', text: effectiveText });
+    }
+  }
+
   // Add to history
   state.chatHistory.push({
     role: 'user',
-    content: userContent.length === 1 && userContent[0].type === 'text' ? text : userContent
+    content: userContent.length === 1 && userContent[0].type === 'text' ? effectiveText : userContent
   });
 
   // Reset input
@@ -4578,10 +5210,15 @@ async function sendChat() {
 
     if (recipes.length > 1) {
       // Mode multi-recettes : on en stocke plusieurs en file et on les valide une par une
-      state.pendingRecipesQueue = recipes.map(r => {
+      state.pendingRecipesQueue = recipes.map((r, idx) => {
         r.months = calculateSeasonality(r.ingredients);
         r.id = uid();
         r.createdAt = Date.now();
+        // Rattacher la photo correspondante si même nombre de photos et de recettes
+        if (uploadedPhotos.length === recipes.length && uploadedPhotos[idx]) {
+          const att = uploadedPhotos[idx];
+          r.photo = `data:${att.media_type};base64,${att.data}`;
+        }
         return r;
       });
       addChatMessage('assistant', `📋 J'ai extrait ${recipes.length} recettes. Je vais te les présenter une par une pour validation.`);
@@ -4595,6 +5232,11 @@ async function sendChat() {
       recipe.months = calculateSeasonality(recipe.ingredients);
       recipe.id = uid();
       recipe.createdAt = Date.now();
+      // Rattacher la première photo uploadée si dispo
+      if (uploadedPhotos.length >= 1) {
+        const att = uploadedPhotos[0];
+        recipe.photo = `data:${att.media_type};base64,${att.data}`;
+      }
       state.pendingRecipe = recipe;
       setTimeout(() => openValidationModal(recipe), 600);
     }
@@ -4620,12 +5262,65 @@ function openValidationModal(recipe) {
   const modal = document.getElementById('validation-modal');
   const body = document.getElementById('validation-body');
   const title = document.getElementById('validation-modal-title');
-  if (title) {
-    title.textContent = state.editingRecipeId ? 'Modifier la recette' : 'Valider la recette';
+
+  // Adapter le titre selon le contexte
+  const queueLen = state.pendingRecipesQueue ? state.pendingRecipesQueue.length : 0;
+  // On stocke en state.pendingRecipesTotal le total initial pour afficher "X sur N"
+  if (queueLen > 0 && !state.pendingRecipesTotal) {
+    state.pendingRecipesTotal = queueLen + 1; // +1 car la 1ère est déjà sortie de la queue
+  } else if (queueLen === 0 && !state.editingRecipeId) {
+    state.pendingRecipesTotal = null; // reset quand on finit
   }
+  const total = state.pendingRecipesTotal;
+  const current = total ? total - queueLen : null;
+
+  if (title) {
+    if (state.editingRecipeId) {
+      title.textContent = 'Modifier la recette';
+    } else if (total && total > 1) {
+      title.textContent = `Recette ${current} sur ${total}`;
+    } else {
+      title.textContent = 'Valider la recette';
+    }
+  }
+
+  // Adapter le bouton principal selon le contexte
+  const saveBtn = document.getElementById('validation-save');
+  if (saveBtn) {
+    if (queueLen > 0) {
+      saveBtn.textContent = 'Valider et suivante →';
+    } else if (total && total > 1) {
+      saveBtn.textContent = '✓ Valider et terminer';
+    } else {
+      saveBtn.textContent = state.editingRecipeId ? 'Enregistrer' : 'Sauvegarder';
+    }
+  }
+
   pushOverlay('validation');
 
+  // Pré-remplir les tags / dietTags / source
+  const existingTags = (recipe.tags || []).join(', ');
+  const recipeDietTags = recipe.dietTags || [];
+  const recipeSource = recipe.source || null;
+  const sourceType = recipeSource?.type || '';
+  const sourceUrl = recipeSource?.url || '';
+  const sourceSiteName = recipeSource?.siteName || '';
+  const sourceTitle = recipeSource?.title || '';
+  const sourcePage = recipeSource?.page || '';
+  const sourceAccount = recipeSource?.account || '';
+  const verified = recipe.verifiedByHuman === true;
+
+  // Régimes affichables dans la modal (tous sauf low/high-fodmap qui sont auto)
+  const SELECTABLE_DIETS = DIET_TAGS.filter(t => t.id !== 'low-fodmap' && t.id !== 'high-fodmap');
+
   body.innerHTML = `
+    ${total && total > 1 ? `
+      <div class="validation-multi-banner">
+        <span class="validation-multi-icon">📋</span>
+        <span class="validation-multi-text"><strong>Recette ${current} sur ${total}</strong> · ${queueLen > 0 ? `il en reste ${queueLen} après celle-ci` : 'dernière'}</span>
+      </div>
+    ` : ''}
+
     <div class="validation-section">
       <div class="validation-field">
         <label class="validation-label">Titre de la recette</label>
@@ -4661,6 +5356,61 @@ function openValidationModal(recipe) {
           <span class="servings-value" id="val-servings-value">${recipe.baseServings}</span>
           <button class="servings-btn" id="val-servings-plus">+</button>
         </div>
+      </div>
+    </div>
+
+    <div class="validation-section">
+      <h3 class="validation-section-title">🏷️ Tags & Régimes</h3>
+      <div class="validation-field">
+        <label class="validation-label">Tags (séparés par virgule)</label>
+        <input type="text" class="validation-input" id="val-tags" value="${escapeHtml(existingTags)}" placeholder="rapide, italien, kids-friendly...">
+      </div>
+      <div class="validation-field">
+        <label class="validation-label">Régimes alimentaires</label>
+        <p class="validation-hint">Les tags FODMAP sont calculés automatiquement à partir des ingrédients.</p>
+        <div class="validation-diet-tags" id="val-diet-tags">
+          ${SELECTABLE_DIETS.map(t => `
+            <label class="validation-diet-chip ${recipeDietTags.includes(t.id) ? 'selected' : ''}" data-diet="${t.id}" style="--diet-color:${t.color}">
+              <input type="checkbox" data-diet-input="${t.id}" ${recipeDietTags.includes(t.id) ? 'checked' : ''}>
+              <span>${t.emoji} ${escapeHtml(t.label)}</span>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+      <div class="validation-field">
+        <label class="validation-check-row">
+          <input type="checkbox" id="val-verified" ${verified ? 'checked' : ''}>
+          <span class="validation-check-label">✅ Vérifiée par l'humain</span>
+        </label>
+        <p class="validation-hint">À cocher après avoir relu et validé la recette (utile pour distinguer ce qui vient de l'IA).</p>
+      </div>
+    </div>
+
+    <div class="validation-section">
+      <h3 class="validation-section-title">🔗 Source <span class="validation-required">*</span></h3>
+      <p class="validation-hint">D'où provient cette recette ? (obligatoire)</p>
+      <div class="validation-field">
+        <label class="validation-label">Type de source</label>
+        <div class="validation-source-picker" id="val-source-picker">
+          <button type="button" class="validation-source-option ${sourceType === 'web' ? 'selected' : ''}" data-source-type="web">🌐 Web</button>
+          <button type="button" class="validation-source-option ${sourceType === 'book' ? 'selected' : ''}" data-source-type="book">📖 Livre</button>
+          <button type="button" class="validation-source-option ${sourceType === 'instagram' ? 'selected' : ''}" data-source-type="instagram">📷 Instagram</button>
+          <button type="button" class="validation-source-option ${sourceType === 'perso' ? 'selected' : ''}" data-source-type="perso">✍️ Perso</button>
+        </div>
+      </div>
+      <div class="validation-source-fields" id="val-source-fields-web" style="display: ${sourceType === 'web' ? 'block' : 'none'}">
+        <input type="text" class="validation-input" id="val-source-url" value="${escapeHtml(sourceUrl)}" placeholder="https://...">
+        <input type="text" class="validation-input" id="val-source-sitename" value="${escapeHtml(sourceSiteName)}" placeholder="Nom du site (optionnel)" style="margin-top: 6px">
+      </div>
+      <div class="validation-source-fields" id="val-source-fields-book" style="display: ${sourceType === 'book' ? 'block' : 'none'}">
+        <input type="text" class="validation-input" id="val-source-title" value="${escapeHtml(sourceTitle)}" placeholder="Titre du livre">
+        <input type="text" class="validation-input" id="val-source-page" value="${escapeHtml(sourcePage)}" placeholder="Page (optionnel)" style="margin-top: 6px">
+      </div>
+      <div class="validation-source-fields" id="val-source-fields-instagram" style="display: ${sourceType === 'instagram' ? 'block' : 'none'}">
+        <input type="text" class="validation-input" id="val-source-account" value="${escapeHtml(sourceAccount)}" placeholder="@compte">
+      </div>
+      <div class="validation-source-fields" id="val-source-fields-perso" style="display: ${sourceType === 'perso' ? 'block' : 'none'}">
+        <p class="validation-hint" style="margin: 4px 0">Recette personnelle, pas de lien externe.</p>
       </div>
     </div>
 
@@ -4710,6 +5460,14 @@ function openValidationModal(recipe) {
       </div>
       <p style="color: var(--color-gray-600); font-size: 11px; margin-top: 8px;">Aucun mois sélectionné = recette toute saison</p>
     </div>
+
+    ${queueLen > 0 ? `
+      <div class="validation-section validation-queue-actions">
+        <button class="btn-danger-link" onclick="abortPendingRecipesQueue()">
+          ✕ Annuler les ${queueLen} recette${queueLen > 1 ? 's' : ''} restante${queueLen > 1 ? 's' : ''}
+        </button>
+      </div>
+    ` : ''}
   `;
 
   // Wire emoji picker
@@ -4747,8 +5505,51 @@ function openValidationModal(recipe) {
     });
   });
 
+  // Diet chips
+  body.querySelectorAll('#val-diet-tags .validation-diet-chip').forEach(label => {
+    label.addEventListener('click', (e) => {
+      // Si on clique sur la checkbox elle-même, la chip change automatiquement (label)
+      // On synchronise visuellement après
+      setTimeout(() => {
+        const cb = label.querySelector('input[type=checkbox]');
+        label.classList.toggle('selected', cb.checked);
+      }, 0);
+    });
+  });
+
+  // Source picker (Web / Livre / Instagram / Perso)
+  body.querySelectorAll('#val-source-picker .validation-source-option').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const type = btn.dataset.sourceType;
+      // Toggle off si déjà sélectionné
+      const wasSelected = btn.classList.contains('selected');
+      body.querySelectorAll('#val-source-picker .validation-source-option').forEach(b => b.classList.remove('selected'));
+      body.querySelectorAll('.validation-source-fields').forEach(f => f.style.display = 'none');
+      if (!wasSelected) {
+        btn.classList.add('selected');
+        const fields = document.getElementById('val-source-fields-' + type);
+        if (fields) fields.style.display = 'block';
+      }
+    });
+  });
+
   modal.classList.remove('hidden');
 }
+
+// Abandon de toute la file de recettes en attente
+async function abortPendingRecipesQueue() {
+  const queueLen = state.pendingRecipesQueue ? state.pendingRecipesQueue.length : 0;
+  if (queueLen === 0) return;
+  if (!(await uiConfirm(
+    `Annuler les ${queueLen} recette${queueLen > 1 ? 's' : ''} en attente ?\n\nLa recette actuelle restera ouverte, tu pourras encore la valider ou l'annuler.`,
+    { confirmLabel: 'Annuler les suivantes', danger: true }
+  ))) return;
+  state.pendingRecipesQueue = [];
+  showToast(`${queueLen} recette${queueLen > 1 ? 's annulées' : ' annulée'}`, '');
+  // Re-rendu de la modal pour cacher la bannière
+  if (state.pendingRecipe) openValidationModal(state.pendingRecipe);
+}
+window.abortPendingRecipesQueue = abortPendingRecipesQueue;
 
 function renderValidationIngredient(ing, i) {
   return `
@@ -4942,6 +5743,62 @@ function saveValidatedRecipe() {
   const selectedEmoji = document.querySelector('#val-emoji-picker .validation-emoji-option.selected');
   const emoji = selectedEmoji ? selectedEmoji.dataset.emoji : '🍽️';
 
+  // Tags (séparés par virgule)
+  const tagsInput = document.getElementById('val-tags').value.trim();
+  const tags = tagsInput
+    ? tagsInput.split(/[,;]/).map(t => t.trim().toLowerCase()).filter(Boolean).slice(0, 6)
+    : [];
+
+  // Diet tags (depuis les checkboxes)
+  const dietTagsManual = [];
+  document.querySelectorAll('#val-diet-tags input[data-diet-input]').forEach(cb => {
+    if (cb.checked) dietTagsManual.push(cb.dataset.dietInput);
+  });
+
+  // Vérifié par humain
+  const verifiedByHuman = document.getElementById('val-verified')?.checked === true;
+
+  // Source (obligatoire)
+  const selectedSource = document.querySelector('#val-source-picker .validation-source-option.selected');
+  if (!selectedSource) {
+    showToast('La source de la recette est obligatoire', 'error');
+    // Scroller jusqu'au picker source
+    document.getElementById('val-source-picker')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  const sourceType = selectedSource.dataset.sourceType;
+  let source = { type: sourceType };
+  if (sourceType === 'web') {
+    const url = document.getElementById('val-source-url')?.value.trim();
+    const siteName = document.getElementById('val-source-sitename')?.value.trim();
+    if (!url) {
+      showToast('L\'URL de la source est requise', 'error');
+      document.getElementById('val-source-url')?.focus();
+      return;
+    }
+    source.url = url;
+    if (siteName) source.siteName = siteName;
+  } else if (sourceType === 'book') {
+    const bookTitle = document.getElementById('val-source-title')?.value.trim();
+    const page = document.getElementById('val-source-page')?.value.trim();
+    if (!bookTitle) {
+      showToast('Le titre du livre est requis', 'error');
+      document.getElementById('val-source-title')?.focus();
+      return;
+    }
+    source.title = bookTitle;
+    if (page) source.page = page;
+  } else if (sourceType === 'instagram') {
+    const account = document.getElementById('val-source-account')?.value.trim();
+    if (!account) {
+      showToast('Le compte Instagram est requis', 'error');
+      document.getElementById('val-source-account')?.focus();
+      return;
+    }
+    source.account = account.replace(/^@/, '');
+  }
+  // type='perso' : pas de champs supplémentaires
+
   // Collect ingredients
   const ingredients = [];
   document.querySelectorAll('#val-ingredients .validation-ingredient').forEach((el, i) => {
@@ -4967,15 +5824,14 @@ function saveValidatedRecipe() {
   document.querySelectorAll('#val-steps .validation-step').forEach(el => {
     const text = el.querySelector('[data-field="text"]').value.trim();
     if (!text) return;
-    // Auto-detect ingredient mentions (basic)
-    const ingredientIds = [];
+    const ingredientUses = [];
     for (const ing of ingredients) {
       const lower = ing.name.toLowerCase();
       if (lower.length > 2 && text.toLowerCase().includes(lower)) {
-        ingredientIds.push(ing.id);
+        ingredientUses.push({ id: ing.id });
       }
     }
-    steps.push({ text, ingredientIds });
+    steps.push({ text, ingredientUses });
   });
 
   if (steps.length === 0) {
@@ -4990,9 +5846,19 @@ function saveValidatedRecipe() {
   });
   months.sort((a, b) => a - b);
 
-  // Récupérer la catégorie sélectionnée
+  // Catégorie
   const selectedCat = document.querySelector('#val-category-picker .validation-category-option.selected');
   const category = selectedCat ? selectedCat.dataset.category : 'plat';
+
+  // Recalcul FODMAP automatique (depuis data.js)
+  let dietTags = [...dietTagsManual];
+  if (typeof calculateFodmapTags === 'function') {
+    const autoFodmap = calculateFodmapTags(ingredients);
+    // Ajouter low-fodmap / high-fodmap calculés (sans doublon)
+    for (const tag of autoFodmap) {
+      if (!dietTags.includes(tag)) dietTags.push(tag);
+    }
+  }
 
   const editingId = state.editingRecipeId;
   const existing = editingId ? state.recipes.find(r => r.id === editingId) : null;
@@ -5007,29 +5873,40 @@ function saveValidatedRecipe() {
     ingredients,
     steps,
     months,
+    tags,
+    dietTags,
+    source,
+    verifiedByHuman,
     createdAt: existing?.createdAt || state.pendingRecipe?.createdAt || Date.now(),
     updatedAt: Date.now()
   };
 
+  // Préserver les champs qui n'apparaissent pas dans la modal (photo, cookedHistory, etc.)
+  if (existing) {
+    if (existing.photo) recipe.photo = existing.photo;
+    if (existing.cookedHistory) recipe.cookedHistory = existing.cookedHistory;
+    if (existing.personalNotes) recipe.personalNotes = existing.personalNotes;
+    if (existing.favorite) recipe.favorite = existing.favorite;
+  } else if (state.pendingRecipe) {
+    // Pour une nouvelle recette : préserver la photo si elle a été ajoutée pendant le chat
+    if (state.pendingRecipe.photo) recipe.photo = state.pendingRecipe.photo;
+  }
+
   // Toujours ré-enrichir les ingredientIds des étapes par matching textuel
-  // (rattrape les oublis de l'IA et les ingrédients modifiés à la main)
   if (typeof enrichStepIngredientIds === 'function') {
     recipe.steps = enrichStepIngredientIds(recipe.steps, recipe.ingredients);
   }
 
   if (existing) {
-    // Mode édition : remplacer + logger
     recipe.changeLog = existing.changeLog || [];
     recipe.changeLog.push({ at: Date.now(), action: 'recette modifiée' });
     if (recipe.changeLog.length > 20) recipe.changeLog = recipe.changeLog.slice(-20);
     state.recipes = state.recipes.map(r => r.id === editingId ? recipe : r);
   } else {
-    // Nouvelle recette : logger la création
     recipe.changeLog = [{ at: Date.now(), action: 'recette créée' }];
     state.recipes.push(recipe);
   }
   saveRecipes();
-  closeValidationModal();
   showToast(existing ? 'Recette modifiée ✓' : 'Recette sauvegardée ✓', 'success');
 
   // Sync push
@@ -5038,23 +5915,26 @@ function saveValidatedRecipe() {
   }
 
   if (existing) {
-    // Mode édition : retour direct sur la fiche recette mise à jour
     state.editingRecipeId = null;
+    state.pendingRecipe = null;
+    closeValidationModal();
     state.currentRecipe = { ...recipe, currentServings: recipe.baseServings };
     navigateTo('recipe', recipe);
   } else if (state.pendingRecipesQueue && state.pendingRecipesQueue.length > 0) {
-    // File de recettes en attente (multi-recettes en un seul appel IA) : passer à la suivante
-    closeValidationModal(true);
+    // Passer à la recette suivante sans fermer la modal
     const next = state.pendingRecipesQueue.shift();
     state.pendingRecipe = next;
-    showToast(`Suivante : ${next.title}`, 'success');
-    setTimeout(() => openValidationModal(next), 400);
+    setTimeout(() => openValidationModal(next), 200);
   } else {
-    // Nouvelle recette : reset complet du chat pour pouvoir en créer une autre
+    // Dernière recette : reset complet
+    state.pendingRecipesTotal = null;
+    state.pendingRecipe = null;
+    closeValidationModal();
     resetChatView();
     navigateTo('library');
   }
 }
+window.saveValidatedRecipe = saveValidatedRecipe;
 
 async function closeValidationModal(skipHistory) {
   const modal = document.getElementById('validation-modal');
@@ -5071,6 +5951,7 @@ async function closeValidationModal(skipHistory) {
   modal.classList.add('hidden');
   state.pendingRecipe = null;
   state.editingRecipeId = null;
+  state.pendingRecipesTotal = null;
 }
 
 // ============================================
@@ -5368,16 +6249,10 @@ function openPlanningSlot(dateStr, slotId) {
     ).join('')}
   `;
 
-  // Régimes : FODMAP visibles par défaut, le reste dans un collapse
-  const FODMAP_IDS = ['low-fodmap', 'high-fodmap'];
-  const fodmapChips = DIET_TAGS
-    .filter(t => FODMAP_IDS.includes(t.id))
-    .map(t => {
-      const active = _planningPickerFilters.dietTags.includes(t.id);
-      return `<button class="picker-filter-chip diet ${active ? 'active' : ''}" data-filter-diet="${t.id}" style="--diet-color:${t.color}">${t.emoji} ${escapeHtml(t.label)}</button>`;
-    }).join('');
-  const otherDietChips = DIET_TAGS
-    .filter(t => !FODMAP_IDS.includes(t.id))
+  // Régimes : uniquement Végétarien + Low FODMAP + High FODMAP (les seuls utiles au quotidien)
+  const VISIBLE_DIETS = ['vegetarien', 'low-fodmap', 'high-fodmap'];
+  const dietChips = DIET_TAGS
+    .filter(t => VISIBLE_DIETS.includes(t.id))
     .map(t => {
       const active = _planningPickerFilters.dietTags.includes(t.id);
       return `<button class="picker-filter-chip diet ${active ? 'active' : ''}" data-filter-diet="${t.id}" style="--diet-color:${t.color}">${t.emoji} ${escapeHtml(t.label)}</button>`;
@@ -5385,8 +6260,6 @@ function openPlanningSlot(dateStr, slotId) {
 
   // Catégorie active ? Si oui, on ouvre par défaut
   const catActive = _planningPickerFilters.category && _planningPickerFilters.category !== 'all';
-  // Régimes "autres" actifs ? Si oui, on ouvre le collapse
-  const otherDietActive = _planningPickerFilters.dietTags.some(d => !FODMAP_IDS.includes(d));
 
   const html = `
     <div class="modal-header">
@@ -5400,16 +6273,9 @@ function openPlanningSlot(dateStr, slotId) {
 
       <div class="picker-filters-row">
         <div class="picker-filter-section">
-          <div class="picker-filter-label">FODMAP</div>
+          <div class="picker-filter-label">Régime</div>
           <div class="picker-filter-chips">
-            ${fodmapChips}
-            <button class="picker-filter-chip picker-filter-more ${otherDietActive ? 'has-active' : ''}" id="picker-toggle-other-diets" type="button">
-              <span class="picker-filter-more-label">Voir autres régimes</span>
-              <span class="picker-filter-more-icon">▼</span>
-            </button>
-          </div>
-          <div class="picker-filter-chips picker-other-diets ${otherDietActive ? '' : 'hidden'}" id="picker-other-diets-row">
-            ${otherDietChips}
+            ${dietChips}
           </div>
         </div>
 
@@ -6160,7 +7026,7 @@ async function bindEvents() {
     renderLibrary();
   });
 
-  // Filter chips (category + month, dans le drawer ou en haut)
+  // Filter chips (category + month + verified, dans le drawer ou en haut)
   document.querySelectorAll('.filter-chip').forEach(chip => {
     chip.addEventListener('click', () => {
       const type = chip.dataset.filterType;
@@ -6168,6 +7034,7 @@ async function bindEvents() {
       chip.classList.add('active');
       if (type === 'month') state.monthFilter = chip.dataset.filterValue;
       else if (type === 'category') state.categoryFilter = chip.dataset.filterValue;
+      else if (type === 'verified') state.verifiedFilter = chip.dataset.filterValue;
       updateFiltersUI();
       renderLibrary();
     });
@@ -6300,8 +7167,18 @@ async function bindEvents() {
   }
 
   // Chat attach
-  document.getElementById('chat-attach-btn').addEventListener('click', () => {
-    document.getElementById('chat-file-input').click();
+  document.getElementById('chat-attach-btn').addEventListener('click', async () => {
+    // Dialog Camera / Galerie pour Android iOS
+    const choice = await _showChatPhotoSourceDialog();
+    if (!choice) return;
+    const input = document.getElementById('chat-file-input');
+    // Reset puis appliquer le bon mode
+    if (choice === 'camera') {
+      input.setAttribute('capture', 'environment');
+    } else {
+      input.removeAttribute('capture');
+    }
+    input.click();
   });
   document.getElementById('chat-file-input').addEventListener('change', async e => {
     const files = Array.from(e.target.files || []);
@@ -6311,7 +7188,6 @@ async function bindEvents() {
         showToast('Maximum 5 images par message', 'error');
         break;
       }
-      // Resize image if huge to keep payload reasonable
       try {
         const att = await processImage(file);
         state.chatAttachments.push(att);
@@ -6321,6 +7197,8 @@ async function bindEvents() {
       }
     }
     e.target.value = '';
+    // Nettoyer capture pour le prochain usage
+    e.target.removeAttribute('capture');
     renderAttachments();
     chatSend.disabled = !chatInput.value.trim() && state.chatAttachments.length === 0;
   });
@@ -6444,6 +7322,11 @@ async function bindEvents() {
   const forceUpdateBtn = document.getElementById('settings-force-update');
   if (forceUpdateBtn) {
     forceUpdateBtn.addEventListener('click', forceUpdate);
+  }
+
+  const recalcAllBtn = document.getElementById('settings-recalc-all');
+  if (recalcAllBtn) {
+    recalcAllBtn.addEventListener('click', recalcAllRecipes);
   }
 
   // Validation modal

@@ -84,6 +84,8 @@ CREATE POLICY "Public access" ON planning
 
 > **Déjà configuré sans la table `planning` ?** Pas besoin de tout refaire — exécutez juste les commandes à partir de `CREATE TABLE planning` dans une nouvelle query. La sync des recettes continuera comme avant.
 
+> ⚠️ **Limitation actuelle de la sync planning** : si vous mettez **plusieurs recettes dans un même créneau** (ex: entrée + plat le midi), seule **la première** est synchronisée. L'app fonctionne quand même normalement sur chaque appareil, mais les recettes supplémentaires ne sont pas partagées avec l'autre téléphone. Pour 99 % des usages, ce n'est pas un problème car on planifie rarement plusieurs plats par créneau. Une évolution future permettra de tout synchroniser.
+
 ## Étape 4 — Récupérer les identifiants
 
 Supabase a 2 endroits où récupérer les informations dont vous avez besoin :
@@ -153,13 +155,32 @@ C'est ici que la magie opère :
 
 ## ✅ Comment ça fonctionne au quotidien
 
+### Ce qui est synchronisé
+
+- **Recettes** : intégralité de chaque recette (titre, ingrédients, étapes, photo, tags, source, régimes, vérification humaine, historique de cuisson, changelog, notes personnelles, etc.) — tout est encapsulé dans le champ JSON `data`, donc **les nouvelles fonctionnalités ajoutées plus tard sont automatiquement synchronisées sans modification de schéma**
+- **Planning** : les cellules (jour × créneau midi/soir/autre) avec la recette assignée et les portions
+
+### Ce qui n'est PAS synchronisé
+
+Ces données restent **locales à chaque appareil** (privées) :
+- La clé API Claude
+- Les préférences d'affichage (mode sombre, durée par défaut du garde-manger)
+- L'historique du chat avec l'IA
+- La liste de courses (active sur chaque appareil)
+- Le garde-manger (ce que vous avez chez vous)
+- Le minuteur en cours
+
+### Comportement
+
 - **À chaque ouverture de l'app**, elle récupère les dernières modifications du cloud (sync silencieuse)
 - **Quand vous créez/modifiez/supprimez une recette**, elle est envoyée au cloud immédiatement
+- **Quand vous planifiez un repas**, la cellule est synchronisée à la même seconde
 - **L'icône de sync** dans le header indique l'état :
   - ⟳ tournante = en cours de synchronisation
   - ✓ verte = synchronisé
   - ⚠️ rouge = erreur (touchez "Synchroniser maintenant" dans Paramètres)
   - vide = pas de réseau (l'app fonctionne quand même, sync à la prochaine connexion)
+- **Last-write-wins** : si vous modifiez une recette sur 2 appareils en même temps, le dernier enregistrement gagne (sans fusion automatique)
 
 ## 🔒 Sécurité
 
@@ -191,14 +212,27 @@ Vous avez choisi un code foyer trop générique (ex: `famille`, `recettes`). Cha
 ### "Je veux remettre à zéro la base cloud"
 Dans Supabase → SQL Editor → New query :
 ```sql
+-- Supprimer toutes les recettes de votre foyer
 DELETE FROM recipes WHERE foyer = 'votre-code-foyer-ici';
+
+-- Supprimer aussi le planning
+DELETE FROM planning WHERE foyer = 'votre-code-foyer-ici';
+```
+
+### "Je veux remettre à zéro seulement le planning"
+```sql
+DELETE FROM planning WHERE foyer = 'votre-code-foyer-ici';
 ```
 
 ## 📊 Suivre l'usage
 
-Sur Supabase → **Table Editor** → `recipes`, vous voyez toutes vos recettes synchronisées en temps réel. Pratique pour vérifier que ça marche.
+Sur Supabase → **Table Editor** :
+- **`recipes`** : toutes vos recettes synchronisées en temps réel
+- **`planning`** : les cellules de votre planning (1 ligne par jour × créneau)
 
-Sur **Settings** → **Usage**, vous voyez votre consommation de ressources (largement sous les quotas gratuits pour cet usage).
+Pratique pour vérifier que la sync marche.
+
+Sur **Settings** → **Usage**, vous voyez votre consommation de ressources (largement sous les quotas gratuits pour cet usage : pour 100 recettes avec photos, comptez ~10 Mo, soit 2 % du quota).
 
 ---
 

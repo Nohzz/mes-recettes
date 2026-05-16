@@ -1192,6 +1192,19 @@ a {
   overflow-x: auto;
   background: var(--color-surface);
   border-top: 1px solid var(--color-gray-200);
+  /* Position fixed pour qu'elles soient toujours visibles juste au-dessus de la chat-input-bar */
+  position: fixed;
+  bottom: calc(var(--input-bar-bottom, var(--nav-h)) + 56px);
+  left: 0;
+  right: 0;
+  max-width: var(--max-w);
+  margin: 0 auto;
+  z-index: 39;
+  transition: bottom 0.15s ease;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
+}
+.chat-attachments.hidden {
+  display: none;
 }
 
 .chat-attachment-thumb {
@@ -5482,4 +5495,293 @@ body.keyboard-open .bottom-nav {
 .timer-overlay-content.is-finished .timer-overlay-progress {
   background: rgba(239, 68, 68, 0.15);
   width: 100% !important;
+}
+
+/* ============================================
+   RECALCUL IA INGRÉDIENTS-ÉTAPES
+   ============================================ */
+
+/* Conteneur des actions sous la liste d'étapes */
+.recipe-steps-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* Bouton "Recalculer ingrédients-étapes" : style "magique" terracotta */
+.recipe-recalc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 9px 14px;
+  background: linear-gradient(135deg, var(--color-primary-cream) 0%, var(--color-primary-pale) 100%);
+  color: var(--color-primary-dark);
+  border: 1px solid var(--color-primary-soft);
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.recipe-recalc-btn:hover {
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+}
+
+.recipe-recalc-icon {
+  font-size: 14px;
+  animation: sparkle 3s ease-in-out infinite;
+}
+
+.recipe-recalc-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Bouton "Restaurer l'ancien" : plus discret */
+.recipe-recalc-restore {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--color-gray-600);
+  border: 1px dashed var(--color-gray-300);
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.recipe-recalc-restore:hover {
+  border-color: var(--color-gray-500);
+  color: var(--color-gray-800);
+  background: var(--color-bg);
+}
+
+/* Modal de progression du recalcul global */
+.recalc-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--color-gray-200);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  margin-top: 12px;
+}
+
+.recalc-progress-fill {
+  height: 100%;
+  background: var(--color-primary);
+  transition: width 0.3s ease;
+  border-radius: var(--radius-full);
+}
+
+/* Astuce sous les boutons paramètres */
+.settings-hint {
+  font-size: 11px;
+  color: var(--color-gray-500);
+  line-height: 1.4;
+  margin: 4px 0 0;
+  padding: 0 4px;
+}
+
+/* Chips ingrédients dans une étape : indication visuelle pour quantité partielle */
+.step-ingredient-chip.is-partial {
+  border-color: var(--color-accent);
+  background: var(--color-primary-cream);
+}
+
+.step-ingredient-note {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--color-gray-600);
+  font-size: 10px;
+  margin-left: 3px;
+}
+
+.cooking-ingredient.is-partial {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 8px;
+}
+
+.cooking-ingredient-note {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--color-gray-500);
+  font-size: 12px;
+  margin-left: 6px;
+}
+
+/* ============================================
+   MODAL VALIDATION : nouveaux champs
+   ============================================ */
+
+/* Bannière multi-recettes en haut de la modal */
+.validation-multi-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin: 0 0 16px;
+  background: var(--color-primary-cream);
+  border: 1px solid var(--color-primary-soft);
+  border-radius: var(--radius-md);
+  color: var(--color-primary-dark);
+  font-family: var(--font-display);
+  font-size: 13px;
+}
+.validation-multi-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.validation-multi-text {
+  font-weight: 600;
+}
+.validation-multi-text strong {
+  font-weight: 800;
+}
+
+/* Hint sous un champ */
+.validation-hint {
+  font-size: 11px;
+  color: var(--color-gray-500);
+  line-height: 1.4;
+  margin: 0 0 8px;
+}
+
+/* Asterisk obligatoire */
+.validation-required {
+  color: var(--color-primary);
+  font-weight: 900;
+}
+
+/* Chips de régime alimentaire */
+.validation-diet-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.validation-diet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: var(--color-bg);
+  border: 1.5px solid var(--color-gray-200);
+  border-radius: var(--radius-full);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--color-gray-700);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s;
+}
+.validation-diet-chip input[type="checkbox"] {
+  display: none;
+}
+.validation-diet-chip:hover {
+  border-color: var(--diet-color, var(--color-primary));
+}
+.validation-diet-chip.selected {
+  background: var(--diet-color, var(--color-primary-pale));
+  border-color: var(--diet-color, var(--color-primary));
+  color: white;
+}
+
+/* Checkbox "Vérifié par l'humain" */
+.validation-check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  user-select: none;
+}
+.validation-check-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+.validation-check-label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-gray-800);
+}
+
+/* Picker source (Web / Livre / Insta / Perso) */
+.validation-source-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.validation-source-option {
+  flex: 1;
+  min-width: 80px;
+  padding: 9px 12px;
+  background: var(--color-bg);
+  border: 1.5px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--color-gray-700);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.validation-source-option:hover {
+  border-color: var(--color-primary);
+}
+.validation-source-option.selected {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+.validation-source-fields {
+  margin-top: 10px;
+}
+
+/* Action "annuler les recettes restantes" */
+.validation-queue-actions {
+  margin-top: 16px;
+  text-align: center;
+}
+.btn-danger-link {
+  background: transparent;
+  border: none;
+  color: var(--color-red-600, #dc2626);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 6px 12px;
+  text-decoration: underline;
+}
+.btn-danger-link:hover {
+  color: var(--color-red-700, #b91c1c);
+}
+
+/* Quand attachments visibles : étendre le padding-bottom du chat */
+.chat-messages.has-attachments {
+  padding-bottom: calc(72px + 80px + var(--safe-bottom));
+}
+
+/* Chip "Vérifié" : style distinct vert */
+.recipe-meta-chip.is-verified {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+  color: #047857;
+}
+.recipe-meta-chip.is-verified:hover {
+  background: #d1fae5;
 }
