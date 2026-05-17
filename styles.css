@@ -2884,6 +2884,61 @@ body.is-drag-reordering textarea {
   border: 1.5px solid rgba(220, 38, 38, 0.25);
 }
 
+/* Zone dangereuse cachée par défaut derrière un <details> pour éviter
+   les appuis accidentels. Pas de rouge agressif quand fermée — juste un
+   bouton discret type "Plus d'options". */
+.settings-danger-collapse {
+  margin: 24px 0 8px;
+}
+
+.settings-danger-summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: transparent;
+  border: 1px dashed var(--color-gray-300, #d4d4d8);
+  border-radius: 12px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--color-gray-500, #71717a);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  -webkit-user-select: none;
+  letter-spacing: 0.02em;
+  transition: all var(--transition);
+}
+
+/* Masque le triangle natif de <summary> */
+.settings-danger-summary::-webkit-details-marker { display: none; }
+.settings-danger-summary::marker { content: ''; }
+
+.settings-danger-summary:hover {
+  background: rgba(220, 38, 38, 0.04);
+  border-color: rgba(220, 38, 38, 0.3);
+  color: var(--color-gray-700, #404040);
+}
+
+.settings-danger-summary-icon {
+  font-size: 10px;
+  transition: transform var(--transition);
+}
+
+.settings-danger-collapse[open] .settings-danger-summary-icon {
+  transform: rotate(180deg);
+}
+
+.settings-danger-collapse[open] .settings-danger-summary {
+  background: rgba(220, 38, 38, 0.06);
+  border-color: rgba(220, 38, 38, 0.35);
+  border-style: solid;
+  color: var(--color-red-pop, #dc2626);
+  margin-bottom: 4px;
+}
+
 .settings-body-v2 .settings-row {
   padding: 12px 16px;
   position: relative;

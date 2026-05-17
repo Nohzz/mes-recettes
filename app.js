@@ -7074,8 +7074,23 @@ function importData(file) {
 }
 
 async function clearAllData() {
-  if (!(await uiConfirm('Supprimer TOUTES vos recettes et données ? Cette action est irréversible.', { title: 'Suppression définitive', confirmLabel: 'Tout supprimer', danger: true }))) return;
-  if (!(await uiConfirm('Vraiment ? Cette action ne peut pas être annulée.', { title: 'Confirmation finale', confirmLabel: 'Oui, tout supprimer', danger: true }))) return;
+  // 1ère confirmation : intention
+  if (!(await uiConfirm(
+    `Supprimer TOUTES vos données ? Cela inclut :\n• ${state.recipes.length} recette${state.recipes.length > 1 ? 's' : ''}\n• Vos listes de courses, planning, garde-manger\n• Vos préférences (thème, génération IA…)\n\nCette action est IRRÉVERSIBLE.`,
+    { title: 'Suppression définitive', confirmLabel: 'Continuer', danger: true }
+  ))) return;
+  // 2ème confirmation : saisie d'un mot-clé (anti-doigt qui glisse)
+  const typed = await uiPrompt(
+    'Pour confirmer, tape exactement le mot SUPPRIMER en majuscules :',
+    '',
+    { title: 'Confirmation requise', confirmLabel: 'Vérifier', cancelLabel: 'Annuler' }
+  );
+  if (typed === null || typed === undefined) return;
+  if (String(typed).trim() !== 'SUPPRIMER') {
+    showToast('Mot-clé incorrect — suppression annulée', 'error');
+    return;
+  }
+  // 3ème étape : action
   state.recipes = [];
   state.shopping = [];
   state.shoppingChecked.clear();
@@ -7084,7 +7099,7 @@ async function clearAllData() {
   hideSettings();
   updateShoppingBadge();
   navigateTo('library');
-  showToast('Toutes les données ont été supprimées');
+  showToast('Toutes les données ont été supprimées', 'success');
 }
 
 async function forceUpdate() {
