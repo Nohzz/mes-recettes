@@ -843,6 +843,106 @@ a {
   position: relative;
 }
 
+/* ============================================
+   SKELETON PLACEHOLDERS — library au démarrage
+   Disparaissent au premier renderLibrary() qui écrase #recipes-grid
+   ============================================ */
+.skeleton-section {
+  margin-bottom: 20px;
+}
+
+.skeleton-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 0 4px;
+}
+
+.skeleton-section-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeleton-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: stretch;
+  min-height: 112px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.skeleton-card-visual {
+  width: 112px;
+  flex-shrink: 0;
+  height: 112px;
+}
+
+.skeleton-card-content {
+  flex: 1;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.skeleton-block {
+  background: linear-gradient(
+    90deg,
+    var(--color-primary-cream) 0%,
+    var(--color-brown-100) 50%,
+    var(--color-primary-cream) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.8s ease-in-out infinite;
+  border-radius: 8px;
+  /* Petite opacité pour rendre plus discret */
+  opacity: 0.7;
+}
+
+.skeleton-emoji {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+
+.skeleton-section-name {
+  width: 130px;
+  height: 18px;
+}
+
+.skeleton-card-title {
+  height: 18px;
+  width: 75%;
+}
+
+.skeleton-card-meta {
+  height: 12px;
+  width: 60%;
+}
+
+.skeleton-card-tag {
+  height: 16px;
+  width: 70px;
+  border-radius: 999px;
+}
+
+@keyframes skeletonShimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* Respecte la préférence "réduire les animations" du système */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-block {
+    animation: none;
+  }
+}
+
 .recipe-card:active {
   transform: scale(0.98);
 }
@@ -957,7 +1057,7 @@ a {
   background: var(--color-accent);
   border-radius: 50% 60% 40% 50% / 60% 40% 60% 40%;
   margin: 0 auto 24px;
-  opacity: 0.4;
+  opacity: 0.7;
   animation: morphBlob 8s ease-in-out infinite;
 }
 
@@ -1647,6 +1747,49 @@ a {
 }
 
 /* ============================================
+   BARRE DE CONTEXTE PLANNING (fiche recette)
+   Affichée quand on accède à la fiche via le planning
+   ============================================ */
+.planning-context-bar {
+  margin: 8px 0 24px;
+  padding: 14px 16px;
+  background: var(--color-primary-cream);
+  border: 2px solid var(--color-primary-soft);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.planning-context-bar-candidate {
+  background: linear-gradient(135deg, var(--color-primary-pale), var(--color-accent));
+  border-color: var(--color-primary);
+}
+
+.planning-context-bar-info {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-primary-dark);
+  margin: 0;
+  text-align: center;
+}
+
+.planning-context-bar-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.planning-context-bar-actions .btn-primary,
+.planning-context-bar-actions .btn-secondary {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  padding: 12px 14px;
+}
+
+/* ============================================
    SHOPPING LIST
    ============================================ */
 
@@ -1985,6 +2128,65 @@ a {
   gap: 8px;
   align-items: flex-start;
   margin-bottom: 8px;
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+
+/* Poignée de drag (long-press pour activer) */
+.validation-drag-handle {
+  flex-shrink: 0;
+  width: 28px;
+  height: 36px;
+  background: transparent;
+  border: none;
+  color: var(--color-gray-400);
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: -2px;
+  cursor: grab;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Important : empêche le navigateur d'intercepter le scroll natif sur la poignée
+     (sans ça, pointermove ne se déclenche pas en scroll vertical sur mobile) */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  border-radius: 6px;
+}
+
+.validation-drag-handle:active {
+  cursor: grabbing;
+  background: var(--color-primary-cream);
+}
+
+/* État draggué : item surélevé, ombre marquée */
+.validation-ingredient.is-dragging,
+.validation-step.is-dragging {
+  transform: scale(1.02);
+  box-shadow: 0 8px 24px -4px rgba(181, 83, 42, 0.25);
+  background: var(--color-surface);
+  border-radius: 10px;
+  padding: 4px;
+  z-index: 100;
+  position: relative;
+}
+
+.validation-ingredient.is-dragging .validation-drag-handle,
+.validation-step.is-dragging .validation-drag-handle {
+  color: var(--color-primary);
+}
+
+/* Pendant un drag global, désactiver la sélection de texte partout */
+body.is-drag-reordering {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grabbing !important;
+}
+
+body.is-drag-reordering input,
+body.is-drag-reordering textarea {
+  pointer-events: none;
 }
 
 .validation-ingredient .validation-input { flex: 1; }
@@ -2127,6 +2329,234 @@ a {
 
 .settings-section:last-child { margin-bottom: 0; }
 
+/* ============================================
+   SETTINGS V2 — Style "liste mobile-first" iOS-like
+   ============================================ */
+.settings-body-v2 {
+  background: var(--color-bg);
+  padding: 0 16px 32px;
+}
+
+.settings-body-v2 .settings-group-title {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-primary);
+  margin: 24px -16px 8px; /* étendre au bord du body pour cacher le contenu qui passe en-dessous */
+  padding: 8px 24px;
+  /* Sticky pour aider l'orientation pendant le scroll */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--color-bg);
+  /* Ombre subtile en bas pour différencier du contenu qui scroll dessous */
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+  transition: box-shadow var(--transition);
+}
+
+/* État stické (détecté via Intersection Observer en JS) : ombre plus marquée */
+.settings-body-v2 .settings-group-title.is-stuck {
+  box-shadow: 0 4px 10px -2px rgba(181, 83, 42, 0.15);
+}
+
+.settings-body-v2 .settings-group-title-danger {
+  color: var(--color-red-500, #dc2626);
+}
+
+.settings-body-v2 .settings-group {
+  background: var(--color-surface);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-body-v2 .settings-group-danger {
+  border: 1.5px solid rgba(220, 38, 38, 0.25);
+}
+
+.settings-body-v2 .settings-row {
+  padding: 12px 16px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-body-v2 .settings-row + .settings-row {
+  border-top: 1px solid var(--color-gray-100, rgba(0, 0, 0, 0.06));
+}
+
+.settings-body-v2 .settings-row-block {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.settings-body-v2 .settings-row-info {
+  padding: 12px 16px;
+  background: var(--color-primary-cream);
+}
+
+.settings-body-v2 .settings-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-body-v2 .settings-row-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--color-gray-800);
+  margin: 0;
+}
+
+.settings-body-v2 .settings-row-hint,
+.settings-body-v2 .settings-row-info p {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-gray-600);
+  margin: 0;
+}
+
+.settings-body-v2 .settings-row-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-gray-700);
+  margin-bottom: 2px;
+}
+
+/* Badge "✓ Configurée" à côté du label quand la valeur est sauvegardée */
+.settings-saved-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-primary);
+  background: var(--color-primary-pale);
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+
+.settings-saved-badge[hidden] {
+  display: none;
+}
+
+/* Input avec bouton 👁️ pour révéler */
+.settings-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.settings-input-wrap input {
+  flex: 1;
+  padding-right: 44px;
+}
+
+.settings-reveal-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.5;
+  transition: opacity var(--transition), background var(--transition);
+}
+
+.settings-reveal-btn:hover,
+.settings-reveal-btn.is-revealed {
+  opacity: 1;
+  background: var(--color-primary-cream);
+}
+
+/* Toggle redessiné pour les rows */
+.settings-body-v2 .settings-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  width: 100%;
+}
+
+.settings-body-v2 .settings-toggle input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.settings-body-v2 .settings-toggle span {
+  flex: 1;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--color-gray-800);
+}
+
+.settings-body-v2 .settings-toggle small {
+  display: inline;
+  font-size: 12px;
+  color: var(--color-gray-500);
+  margin-left: 4px;
+}
+
+.settings-body-v2 .settings-cost {
+  color: var(--color-primary-dark);
+  font-weight: 600;
+}
+
+.settings-body-v2 .settings-hint {
+  font-size: 12px;
+  color: var(--color-gray-500);
+  line-height: 1.4;
+  margin: 4px 0 0;
+}
+
+.settings-body-v2 .settings-theme-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.settings-body-v2 .settings-theme-row .theme-option {
+  flex: 1;
+}
+
+.settings-body-v2 .settings-select {
+  width: 100%;
+}
+
+.settings-body-v2 .settings-about {
+  margin-top: 32px;
+  padding: 16px;
+  text-align: center;
+  border-top: none;
+  color: var(--color-gray-500);
+}
+
+.settings-body-v2 .settings-about p {
+  margin: 2px 0;
+  font-size: 12px;
+}
+
 .settings-label {
   display: block;
   font-family: var(--font-display);
@@ -2175,7 +2605,7 @@ a {
 .toast {
   background: var(--color-gray-800);
   color: var(--color-surface);
-  padding: 12px 20px;
+  padding: 12px 18px 12px 14px;
   border-radius: var(--radius-full);
   font-size: 13px;
   font-weight: 600;
@@ -2183,14 +2613,35 @@ a {
   animation: toastSlide 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: auto;
   max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Icône distinctive par type via pseudo-élément (pas besoin de modifier le JS) */
+.toast::before {
+  content: 'ℹ️';
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .toast.success {
   background: var(--color-primary);
 }
 
+.toast.success::before {
+  content: '✓';
+  font-weight: 900;
+  font-size: 17px;
+}
+
 .toast.error {
   background: var(--color-red-pop);
+}
+
+.toast.error::before {
+  content: '⚠️';
 }
 
 @keyframes toastSlide {
@@ -3819,6 +4270,34 @@ body.keyboard-open .bottom-nav {
   transition: background var(--transition);
 }
 
+/* Slot rempli : le slot lui-même n'est plus cliquable, seulement les recettes individuelles et le bouton "+ Ajouter" */
+.planning-slot.is-filled {
+  cursor: default;
+}
+
+.planning-slot.is-filled .planning-slot-recipe,
+.planning-slot.is-filled .planning-slot-add-more {
+  cursor: pointer;
+}
+
+.planning-slot.is-filled .planning-slot-recipe:hover {
+  background: var(--color-primary-pale, rgba(255, 255, 255, 0.85)) !important;
+}
+
+/* Recette en batch cooking : bordure pointillée + badge 🍱 */
+.planning-slot.is-filled .planning-slot-recipe.is-batch {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 5px;
+}
+
+.planning-slot-batch-badge {
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-left: 2px;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.15));
+}
+
 .planning-slot.is-empty {
   background: var(--color-bg);
   border: 1.5px dashed var(--color-gray-300);
@@ -3875,10 +4354,14 @@ body.keyboard-open .bottom-nav {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 13px;
+  line-height: 1.25;
   color: var(--color-gray-800);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  word-break: break-word;
 }
 
 .planning-slot-servings {
@@ -4102,6 +4585,21 @@ body.keyboard-open .bottom-nav {
   padding: 10px 12px;
   border-radius: var(--radius-md);
   margin-bottom: 4px;
+}
+
+/* Compteur de caractères du textarea de contraintes */
+.planning-menu-gen-counter {
+  font-size: 11px;
+  color: var(--color-gray-500);
+  text-align: right;
+  margin-top: -4px;
+  font-variant-numeric: tabular-nums;
+  transition: color var(--transition);
+}
+
+.planning-menu-gen-counter.is-near-limit {
+  color: var(--color-primary-dark);
+  font-weight: 700;
 }
 .planning-menu-gen-label {
   font-family: var(--font-display);

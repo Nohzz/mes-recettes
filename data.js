@@ -710,6 +710,120 @@ const COMMON_INGREDIENTS = [
 ];
 
 // ============================================
+// DÉTECTION DE LA PROTÉINE PRINCIPALE D'UNE RECETTE
+// ============================================
+// Utilisée par la génération de menu IA pour appliquer les règles :
+//   - protéine à chaque repas (sauf max 1 jour/semaine sans)
+//   - max 2x viande rouge / semaine
+//   - min 2x poisson / semaine
+//   - pas 2x la même protéine sur 2 jours consécutifs
+//   - min 1 plat 100% végétal / semaine
+// On scanne les ingrédients et on retourne le type le plus "fort" trouvé (animal > végétal).
+
+const PROTEIN_KEYWORDS = {
+  // Viandes rouges
+  'viande-rouge': [
+    'boeuf', 'bœuf', 'steak', 'bavette', 'entrecote', 'entrecôte', 'rumsteck', 'faux-filet',
+    'bourguignon', 'pot-au-feu', 'paleron', 'gite', 'gîte', 'macreuse', 'tende de tranche',
+    'agneau', 'gigot', 'collier d\'agneau', 'epaule d\'agneau', 'épaule d\'agneau',
+    'porc', 'echine', 'échine', 'rouelle', 'roti de porc', 'rôti de porc', 'travers de porc',
+    'jambon cru', 'lardons', 'lardon', 'poitrine fumee', 'poitrine fumée', 'pancetta',
+    'chorizo', 'saucisse', 'saucisson', 'merguez', 'andouillette', 'boudin',
+    'sanglier', 'biche', 'chevreuil', 'cerf', 'gibier',
+    'canard', 'magret', 'cuisse de canard', 'foie gras', 'gesier', 'gésier'
+  ],
+  // Viandes blanches
+  'viande-blanche': [
+    'poulet', 'blanc de poulet', 'cuisse de poulet', 'pilon', 'aile de poulet', 'escalope de poulet',
+    'dinde', 'escalope de dinde', 'roti de dinde', 'rôti de dinde',
+    'lapin', 'rable de lapin', 'râble de lapin',
+    'veau', 'escalope de veau', 'osso bucco', 'blanquette',
+    'pintade', 'caille', 'pigeon'
+  ],
+  // Poissons & fruits de mer
+  'poisson': [
+    'saumon', 'thon', 'cabillaud', 'morue', 'colin', 'lieu noir', 'lieu jaune',
+    'dorade', 'daurade', 'bar', 'loup', 'rouget', 'sardine', 'maquereau', 'hareng',
+    'truite', 'merlu', 'merlan', 'sole', 'limande', 'turbot', 'flétan', 'fletan',
+    'espadon', 'lotte', 'raie', 'eglefin', 'églefin', 'haddock', 'anchois',
+    'crevette', 'crevettes', 'gambas', 'langoustine', 'homard', 'crabe', 'tourteau',
+    'moule', 'moules', 'huitre', 'huître', 'huitres', 'huîtres', 'palourde', 'coquille saint-jacques',
+    'noix de saint-jacques', 'st-jacques', 'st jacques', 'calamar', 'encornet', 'seiche', 'poulpe',
+    'surimi'
+  ],
+  // Œufs
+  'oeuf': [
+    'oeuf', 'œuf', 'oeufs', 'œufs', 'jaune d\'oeuf', 'jaune d\'œuf', 'blanc d\'oeuf', 'blanc d\'œuf'
+  ],
+  // Fromages (source de protéine animale significative quand c'est l'élément principal)
+  'fromage': [
+    'mozzarella', 'parmesan', 'pecorino', 'ricotta', 'feta', 'comte', 'comté', 'gruyere', 'gruyère',
+    'emmental', 'cheddar', 'reblochon', 'raclette', 'chevre', 'chèvre', 'roquefort', 'bleu',
+    'camembert', 'brie', 'munster', 'tomme', 'halloumi', 'burrata', 'mascarpone', 'cream cheese'
+  ],
+  // Légumineuses (protéine végétale)
+  'legumineuse': [
+    'lentille', 'lentilles', 'lentilles corail', 'lentilles vertes', 'lentilles beluga',
+    'pois chiche', 'pois chiches', 'haricot rouge', 'haricots rouges', 'haricot noir', 'haricots noirs',
+    'haricot blanc', 'haricots blancs', 'flageolet', 'flageolets', 'cocos', 'azuki',
+    'feve', 'fève', 'feves', 'fèves', 'pois casse', 'pois cassé', 'pois cassés',
+    'edamame'
+  ],
+  // Soja & dérivés (protéine végétale)
+  'tofu': [
+    'tofu', 'tempeh', 'seitan', 'proteines de soja', 'protéines de soja', 'soja texture', 'soja texturé'
+  ]
+};
+
+// Ordre de priorité : si une recette contient plusieurs types, on retient le plus "principal"
+// (l'animal prend le pas sur le végétal pour les règles nutritionnelles classiques)
+const PROTEIN_PRIORITY = ['viande-rouge', 'viande-blanche', 'poisson', 'oeuf', 'legumineuse', 'tofu', 'fromage'];
+
+function _normalizeProteinText(s) {
+  if (!s) return '';
+  return String(s)
+    .toLowerCase()
+    .replace(/œ/g, 'oe')
+    .replace(/æ/g, 'ae')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
+}
+
+// Retourne { hasProtein, type } pour une liste d'ingrédients d'une recette.
+// type: 'viande-rouge' | 'viande-blanche' | 'poisson' | 'oeuf' | 'fromage' | 'legumineuse' | 'tofu' | null
+function detectProteinType(ingredients) {
+  if (!Array.isArray(ingredients) || ingredients.length === 0) {
+    return { hasProtein: false, type: null };
+  }
+  const found = new Set();
+  for (const ing of ingredients) {
+    const name = _normalizeProteinText(ing && ing.name);
+    if (!name) continue;
+    for (const [type, keywords] of Object.entries(PROTEIN_KEYWORDS)) {
+      for (const kw of keywords) {
+        const nkw = _normalizeProteinText(kw);
+        // Match avec mot délimité (évite "soja" qui matche dans "sauce soja" — qui n'apporte pas de protéine)
+        const re = new RegExp(`(^|[^a-z])${nkw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z]|$)`);
+        if (re.test(name)) {
+          // Cas particulier : "sauce soja" ne compte pas comme protéine
+          if (type === 'tofu' && /sauce\s+soja/.test(name)) break;
+          // Cas particulier : "huile" + protéine ne compte pas
+          if (/^huile\s/.test(name)) break;
+          found.add(type);
+          break;
+        }
+      }
+    }
+  }
+  if (found.size === 0) return { hasProtein: false, type: null };
+  // Retenir le type le plus prioritaire trouvé
+  for (const t of PROTEIN_PRIORITY) {
+    if (found.has(t)) return { hasProtein: true, type: t };
+  }
+  return { hasProtein: false, type: null };
+}
+
+// ============================================
 // UNITÉS COURANTES (pour autocomplete)
 // ============================================
 const COMMON_UNITS = [
