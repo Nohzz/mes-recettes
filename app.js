@@ -240,7 +240,7 @@ function loadState() {
     // Migration FODMAP : recalcul auto pour toutes les recettes existantes
     // Ajoute low-fodmap / high-fodmap selon les ingrédients, en complétant les tags existants
     if (typeof calculateFodmapTags === 'function') {
-      const FODMAP_VERSION = 'fodmap-auto-v3';
+      const FODMAP_VERSION = 'fodmap-auto-v4';
       const fodmapMigrated = localStorage.getItem('mr_fodmap_version');
       if (fodmapMigrated !== FODMAP_VERSION) {
         state.recipes = state.recipes.map(r => {
@@ -2639,6 +2639,37 @@ async function recalcAllRecipes() {
   document.getElementById('recalc-done-btn').addEventListener('click', () => modal.classList.add('hidden'));
 }
 window.recalcAllRecipes = recalcAllRecipes;
+
+// Recalcul local des tags FODMAP de toutes les recettes (pas d'appel IA)
+async function recalcAllFodmap() {
+  const count = state.recipes.length;
+  if (!count) { await uiAlert('Aucune recette à recalculer.'); return; }
+  if (typeof calculateFodmapTags !== 'function') {
+    await uiAlert('Fonction de calcul FODMAP indisponible (data.js non chargé ?).');
+    return;
+  }
+  if (!(await uiConfirm(
+    `Recalculer les tags FODMAP de toutes les ${count} recettes ?\n\n• Local, instantané, gratuit (pas d'IA)\n• Remplace les tags low-fodmap / high-fodmap existants par ceux calculés à partir des ingrédients`,
+    { confirmLabel: 'Recalculer' }
+  ))) return;
+
+  let high = 0, low = 0;
+  state.recipes = state.recipes.map(r => {
+    if (!r.ingredients) return r;
+    const currentDiets = Array.isArray(r.dietTags) ? r.dietTags.slice() : [];
+    const cleanedDiets = currentDiets.filter(t => t !== 'low-fodmap' && t !== 'high-fodmap' && t !== 'fodmap');
+    const autoFodmap = calculateFodmapTags(r.ingredients);
+    if (autoFodmap.includes('high-fodmap')) high++;
+    else if (autoFodmap.includes('low-fodmap')) low++;
+    return { ...r, dietTags: [...cleanedDiets, ...autoFodmap] };
+  });
+  saveRecipes();
+  try { localStorage.setItem('mr_fodmap_version', 'fodmap-auto-v4'); } catch {}
+  hideSettings();
+  renderLibrary();
+  showToast(`FODMAP recalculés : ${high} high, ${low} low`, 'success');
+}
+window.recalcAllFodmap = recalcAllFodmap;
 
 // Mappe une action vers un emoji
 function changeLogIcon(action) {
@@ -7347,6 +7378,11 @@ async function bindEvents() {
   const recalcAllBtn = document.getElementById('settings-recalc-all');
   if (recalcAllBtn) {
     recalcAllBtn.addEventListener('click', recalcAllRecipes);
+  }
+
+  const recalcFodmapBtn = document.getElementById('settings-recalc-fodmap');
+  if (recalcFodmapBtn) {
+    recalcFodmapBtn.addEventListener('click', recalcAllFodmap);
   }
 
   // Validation modal
