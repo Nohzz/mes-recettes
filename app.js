@@ -1721,8 +1721,17 @@ function renderRecipeDetail(recipe) {
         ${timesHtml}
 
         <div class="recipe-detail-tags">
-          ${months.length === 0 ? '<span class="month-tag">Toute saison</span>' :
-            months.map(m => `<span class="month-tag ${m === currentMonth ? 'current' : ''}">${MONTH_NAMES[m]}</span>`).join('')}
+          ${(() => {
+            // Affichage compact : juste l'état saisonnier ce mois-ci. Tap → détail des 12 mois.
+            if (months.length === 0) {
+              return `<button class="month-badge month-badge-allseason" onclick="openSeasonalityDetail('${r.id}')" title="Toucher pour voir le détail">🌍 Toute saison</button>`;
+            }
+            const inSeason = months.includes(currentMonth);
+            if (inSeason) {
+              return `<button class="month-badge month-badge-in-season" onclick="openSeasonalityDetail('${r.id}')" title="Toucher pour voir tous les mois de saison">✅ De saison ce mois</button>`;
+            }
+            return `<button class="month-badge month-badge-off-season" onclick="openSeasonalityDetail('${r.id}')" title="Toucher pour voir les mois de saison">🍂 Hors saison ce mois</button>`;
+          })()}
         </div>
 
         ${metaBarHtml}
@@ -2088,23 +2097,37 @@ function renderStepsList(steps, ingredients, ratio, recipeId) {
       const noteHtml = use.note ? ` <span class="step-ingredient-note">${escapeHtml(use.note)}</span>` : '';
       return `<span class="step-ingredient-chip${isPartialClass}">${escapeHtml(use.name)}${amount === '' ? '' : ' · ' + formatAmount(amount, use.unit)}${noteHtml}</span>`;
     }).join('');
+    // Affichage tap-hint : si étape avec ingrédients liés, ajouter une icône ✏️ discrète pour signaler éditabilité
+    const stepIngredientsBlock = stepIngredients
+      ? `<div class="step-ingredients is-editable" onclick="event.stopPropagation(); openStepIngredientUsesDialog('${recipeId}', ${i})" title="Toucher pour modifier les ingrédients de cette étape">${stepIngredients}<span class="step-ingredients-edit-hint" aria-hidden="true">✏️</span></div>`
+      : `<button class="step-ingredients-empty" onclick="event.stopPropagation(); openStepIngredientUsesDialog('${recipeId}', ${i})">+ Lier des ingrédients à cette étape</button>`;
 
-    // NOUVEAU : détecter les durées dans le texte de l'étape
-    const durations = extractDurations(step.text || '');
-    const timerButtons = durations.map(d => {
-      const seconds = d.minutes * 60;
-      return `<button class="step-timer-btn" onclick="event.stopPropagation(); startStepTimer(${seconds}, '${escapeHtml(d.label)}', '${recipeId}', ${i})" title="Démarrer un minuteur de ${d.label}">
-        <span class="step-timer-icon">⏱️</span>
-        <span class="step-timer-label">${escapeHtml(d.label)}</span>
-      </button>`;
+    // NOUVEAU : détecter les durées dans le texte de l'étape + appliquer les overrides utilisateur
+    const rawDurations = extractDurations(step.text || '');
+    const overrides = Array.isArray(step.timerOverrides) ? step.timerOverrides : [];
+    const durations = rawDurations.map(d => {
+      const ov = overrides.find(o => o.originalLabel === d.label);
+      if (ov) return { label: ov.label || d.label, minutes: ov.minutes, originalLabel: d.label, isOverridden: true };
+      return { ...d, originalLabel: d.label, isOverridden: false };
+    });
+    const timerButtons = durations.map((d, dIdx) => {
+      const seconds = Math.round(d.minutes * 60);
+      const overrideClass = d.isOverridden ? ' is-overridden' : '';
+      return `<span class="step-timer-group${overrideClass}">
+        <button class="step-timer-btn" onclick="event.stopPropagation(); startStepTimer(${seconds}, '${escapeHtml(d.label)}', '${recipeId}', ${i})" title="Démarrer un minuteur de ${d.label}">
+          <span class="step-timer-icon">⏱️</span>
+          <span class="step-timer-label">${escapeHtml(d.label)}</span>
+        </button>
+        <button class="step-timer-edit" onclick="event.stopPropagation(); openStepTimerEdit('${recipeId}', ${i}, '${escapeHtml(d.originalLabel)}')" aria-label="Modifier la durée" title="Modifier la durée">✏️</button>
+      </span>`;
     }).join('');
 
     return `
-      <div class="step-item" onclick="editStepInline('${recipeId}', ${i})" title="Toucher pour modifier">
+      <div class="step-item" onclick="editStepInline('${recipeId}', ${i})" title="Toucher pour modifier le texte">
         <div class="step-number">${i + 1}</div>
         <div class="step-content">
           <div class="step-text">${escapeHtml(step.text)}</div>
-          ${stepIngredients ? `<div class="step-ingredients" onclick="event.stopPropagation()">${stepIngredients}</div>` : ''}
+          ${stepIngredientsBlock}
           ${timerButtons ? `<div class="step-timers" onclick="event.stopPropagation()">${timerButtons}</div>` : ''}
         </div>
       </div>
@@ -2706,6 +2729,65 @@ window.manageCookedHistory = manageCookedHistory;
 // ============================================
 // CHANGELOG / HISTORIQUE DES MODIFICATIONS
 // ============================================
+
+// Détail de saisonnalité : modal compacte qui montre les 12 mois,
+// avec ceux où la recette est de saison surlignés. Permet aussi d'ajuster les mois.
+async function openSeasonalityDetail(id) {
+  const recipe = state.recipes.find(r => r.id === id);
+  if (!recipe) return;
+  const currentMonth = getCurrentMonth();
+  const selected = new Set(recipe.months || []);
+
+  let menu = document.getElementById('recipe-kebab-menu');
+  if (menu) menu.remove();
+  menu = document.createElement('div');
+  menu.id = 'recipe-kebab-menu';
+  menu.className = 'recipe-kebab-menu';
+  const monthsHtml = [1,2,3,4,5,6,7,8,9,10,11,12].map(m => {
+    const isSel = selected.has(m);
+    const isCur = m === currentMonth;
+    return `<button class="seasonality-month-chip ${isSel ? 'is-selected' : ''} ${isCur ? 'is-current' : ''}" data-month="${m}">
+      ${MONTH_NAMES[m]}${isCur ? ' ·' : ''}
+    </button>`;
+  }).join('');
+  const summary = selected.size === 0
+    ? '🌍 Toute saison (aucun mois spécifique)'
+    : (selected.has(currentMonth) ? `✅ De saison en ${MONTH_NAMES[currentMonth]}` : `🍂 Hors saison en ${MONTH_NAMES[currentMonth]}`);
+  menu.innerHTML = `
+    <div class="recipe-kebab-backdrop"></div>
+    <div class="recipe-kebab-panel">
+      <div class="recipe-kebab-header">Mois de saisonnalité</div>
+      <p class="seasonality-summary">${summary}</p>
+      <div class="seasonality-grid">${monthsHtml}</div>
+      <p class="seasonality-hint">Touche un mois pour l'activer/désactiver. Aucun mois = toute saison.</p>
+    </div>
+  `;
+  document.body.appendChild(menu);
+  const close = () => menu.remove();
+  menu.querySelector('.recipe-kebab-backdrop').addEventListener('click', close);
+  let changed = false;
+  menu.querySelectorAll('.seasonality-month-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const m = Number(btn.dataset.month);
+      if (selected.has(m)) selected.delete(m); else selected.add(m);
+      btn.classList.toggle('is-selected', selected.has(m));
+      changed = true;
+    });
+  });
+  // Sauvegarde différée à la fermeture (UX moins intrusive)
+  menu.addEventListener('click', e => {
+    if (e.target === menu.querySelector('.recipe-kebab-backdrop') && changed) {
+      const sorted = [...selected].sort((a, b) => a - b);
+      recipe.months = sorted;
+      updateRecipeAndSync(recipe, 'mois modifiés');
+      if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
+        state.currentRecipe.months = sorted;
+        renderRecipeDetail(recipe);
+      }
+    }
+  }, true);
+}
+window.openSeasonalityDetail = openSeasonalityDetail;
 
 function openChangeLog(id) {
   const recipe = state.recipes.find(r => r.id === id);
@@ -4485,6 +4567,179 @@ function _showIngredientEditDialog({ title, name, amount, unit, showDelete }) {
     }, { once: true });
   });
 }
+
+// Édition de la durée associée à un timer dans une étape.
+// La durée est détectée automatiquement dans le texte ; cet override permet de la
+// modifier sans toucher au texte. Toast incitatif au save : il faut quand même
+// penser à corriger le texte si on veut que la lecture soit cohérente.
+async function openStepTimerEdit(recipeId, stepIdx, originalLabel) {
+  const recipe = state.recipes.find(r => r.id === recipeId);
+  if (!recipe) return;
+  const step = recipe.steps[stepIdx];
+  if (!step) return;
+  if (!Array.isArray(step.timerOverrides)) step.timerOverrides = [];
+  const existing = step.timerOverrides.find(o => o.originalLabel === originalLabel);
+  const currentMinutes = existing ? existing.minutes : (extractDurations(step.text || '').find(d => d.label === originalLabel)?.minutes || 0);
+
+  const result = await uiPrompt(
+    `Durée du minuteur "${originalLabel}" (en minutes) :`,
+    String(currentMinutes),
+    { confirmLabel: 'Enregistrer', cancelLabel: 'Annuler' }
+  );
+  if (result === null || result === undefined || result === '') return;
+  const minutes = Number(String(result).replace(',', '.'));
+  if (!isFinite(minutes) || minutes <= 0) {
+    showToast('Durée invalide', 'error');
+    return;
+  }
+  // Format label lisible (ex: 25 → "25 min", 90 → "1h30")
+  const formatMinutes = (m) => {
+    if (m >= 60) {
+      const h = Math.floor(m / 60);
+      const rest = Math.round(m - h * 60);
+      return rest > 0 ? `${h}h${String(rest).padStart(2, '0')}` : `${h}h`;
+    }
+    return `${m} min`;
+  };
+  const newLabel = formatMinutes(minutes);
+  // Remplacer ou ajouter l'override
+  step.timerOverrides = step.timerOverrides.filter(o => o.originalLabel !== originalLabel);
+  step.timerOverrides.push({ originalLabel, minutes, label: newLabel });
+  updateRecipeAndSync(recipe, `durée étape ${stepIdx + 1} modifiée`);
+  if (state.currentView === 'recipe' && state.currentRecipe?.id === recipeId) {
+    state.currentRecipe.steps = recipe.steps;
+    renderRecipeDetail(recipe);
+  }
+  // Toast incitatif : on garde le texte de l'étape inchangé, mais on rappelle qu'il faudrait le mettre à jour
+  showToast(`Durée → ${newLabel} · 💡 Pense à mettre à jour le texte de l'étape`, 'success');
+}
+window.openStepTimerEdit = openStepTimerEdit;
+
+// Dialog de gestion des ingredientUses pour une étape :
+// permet d'éditer qté/unité/note de chaque ingrédient référencé,
+// d'en retirer, et d'en ajouter parmi ceux de la recette qui ne sont pas encore liés.
+function openStepIngredientUsesDialog(recipeId, idx) {
+  const recipe = state.recipes.find(r => r.id === recipeId);
+  if (!recipe) return;
+  const step = recipe.steps[idx];
+  if (!step) return;
+  // Normaliser en ingredientUses (gère ancien format ingredientIds)
+  if (!Array.isArray(step.ingredientUses)) {
+    if (Array.isArray(step.ingredientIds)) {
+      step.ingredientUses = step.ingredientIds.map(id => ({ id: String(id) }));
+    } else {
+      step.ingredientUses = [];
+    }
+  }
+
+  // Construire la liste des ingrédients NON encore référencés (pour le sélecteur d'ajout)
+  const renderRows = () => {
+    const usedIds = new Set(step.ingredientUses.map(u => u.id));
+    const rowsHtml = step.ingredientUses.map((use, useIdx) => {
+      const ing = recipe.ingredients.find(i => i.id === use.id);
+      if (!ing) return '';
+      const placeholderQty = ing.amount != null ? `Total recette : ${ing.amount} ${ing.unit || ''}`.trim() : 'ex: 50';
+      return `
+        <div class="step-uses-row" data-use-idx="${useIdx}">
+          <div class="step-uses-row-name">${escapeHtml(ing.name)}</div>
+          <div class="step-uses-row-fields">
+            <input type="number" step="any" class="step-uses-input step-uses-qty" placeholder="${escapeHtml(placeholderQty)}" value="${use.amount == null ? '' : use.amount}" data-field="amount">
+            <input type="text" class="step-uses-input step-uses-unit" placeholder="${escapeHtml(ing.unit || 'unité')}" value="${escapeHtml(use.unit || '')}" data-field="unit">
+            <input type="text" class="step-uses-input step-uses-note" placeholder="note (ex: à part)" value="${escapeHtml(use.note || '')}" data-field="note">
+            <button class="step-uses-remove" data-action="remove" aria-label="Retirer cet ingrédient de l'étape">🗑️</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+    const availableHtml = recipe.ingredients
+      .filter(i => !usedIds.has(i.id))
+      .map(i => `<button class="step-uses-add-chip" data-add-id="${i.id}">+ ${escapeHtml(i.name)}</button>`)
+      .join('');
+    return `
+      <div class="recipe-kebab-header">Ingrédients de l'étape ${idx + 1}</div>
+      <div class="step-uses-list">${rowsHtml || '<p class="step-uses-empty">Aucun ingrédient lié à cette étape. Ajoute-en ci-dessous.</p>'}</div>
+      ${availableHtml ? `
+        <div class="step-uses-add-header">+ Ajouter un ingrédient à cette étape</div>
+        <div class="step-uses-add-list">${availableHtml}</div>
+      ` : '<p class="step-uses-empty">Tous les ingrédients de la recette sont déjà liés à cette étape.</p>'}
+      <div class="step-uses-actions">
+        <button class="btn-secondary step-uses-cancel">Annuler</button>
+        <button class="btn-primary step-uses-save">Enregistrer</button>
+      </div>
+    `;
+  };
+
+  let menu = document.getElementById('recipe-kebab-menu');
+  if (menu) menu.remove();
+  menu = document.createElement('div');
+  menu.id = 'recipe-kebab-menu';
+  menu.className = 'recipe-kebab-menu';
+  menu.innerHTML = `
+    <div class="recipe-kebab-backdrop"></div>
+    <div class="recipe-kebab-panel step-uses-panel">${renderRows()}</div>
+  `;
+  document.body.appendChild(menu);
+  const close = () => menu.remove();
+
+  // Sauve le state local depuis les inputs courants (sans persister tant qu'on n'a pas cliqué Enregistrer)
+  const syncFromInputs = () => {
+    menu.querySelectorAll('.step-uses-row').forEach(row => {
+      const useIdx = Number(row.dataset.useIdx);
+      const use = step.ingredientUses[useIdx];
+      if (!use) return;
+      row.querySelectorAll('.step-uses-input').forEach(inp => {
+        const field = inp.dataset.field;
+        const v = inp.value.trim();
+        if (field === 'amount') use.amount = v === '' ? null : Number(v);
+        else use[field] = v;
+      });
+    });
+  };
+
+  const rebind = () => {
+    // Suppressions
+    menu.querySelectorAll('[data-action="remove"]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.preventDefault();
+        syncFromInputs();
+        const row = btn.closest('.step-uses-row');
+        const useIdx = Number(row.dataset.useIdx);
+        step.ingredientUses.splice(useIdx, 1);
+        menu.querySelector('.step-uses-panel').innerHTML = renderRows();
+        rebind();
+      });
+    });
+    // Ajouts
+    menu.querySelectorAll('[data-add-id]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.preventDefault();
+        syncFromInputs();
+        step.ingredientUses.push({ id: btn.dataset.addId });
+        menu.querySelector('.step-uses-panel').innerHTML = renderRows();
+        rebind();
+      });
+    });
+    // Cancel / Save
+    menu.querySelector('.step-uses-cancel').addEventListener('click', close);
+    menu.querySelector('.step-uses-save').addEventListener('click', () => {
+      syncFromInputs();
+      // Nettoyer les use vides (id manquant)
+      step.ingredientUses = step.ingredientUses.filter(u => u && u.id);
+      // Compat : on retire ingredientIds (ancien format) pour éviter incohérence
+      delete step.ingredientIds;
+      updateRecipeAndSync(recipe, `ingrédients étape ${idx + 1} modifiés`);
+      if (state.currentView === 'recipe' && state.currentRecipe?.id === recipeId) {
+        state.currentRecipe.steps = recipe.steps;
+        renderRecipeDetail(recipe);
+      }
+      showToast('Ingrédients de l\'étape mis à jour ✓', 'success');
+      close();
+    });
+  };
+  rebind();
+  menu.querySelector('.recipe-kebab-backdrop').addEventListener('click', close);
+}
+window.openStepIngredientUsesDialog = openStepIngredientUsesDialog;
 
 async function editStepInline(recipeId, idx) {
   const recipe = state.recipes.find(r => r.id === recipeId);
@@ -7067,6 +7322,7 @@ const _planningPickerFilters = {
   category: 'all',
   dietTags: [],      // tableau d'ids
   seasonOnly: false, // true = uniquement de saison
+  verifiedOnly: false, // true = uniquement les recettes vérifiées par l'humain
   sort: 'alpha'      // 'alpha' | 'recent' | 'favorites'
 };
 
@@ -7089,6 +7345,8 @@ function openPlanningSlot(dateStr, slotId, opts) {
 
   // Catégorie active ? Si oui, on ouvre par défaut
   const catActive = _planningPickerFilters.category && _planningPickerFilters.category !== 'all';
+  // Régime actif ? Si oui, on ouvre par défaut
+  const dietActive = _planningPickerFilters.dietTags && _planningPickerFilters.dietTags.length > 0;
 
   const html = `
     <div class="modal-header">
@@ -7101,34 +7359,41 @@ function openPlanningSlot(dateStr, slotId, opts) {
       <input type="search" id="planning-search" class="search-input" placeholder="Rechercher une recette...">
 
       <div class="picker-filters-row">
-        <div class="picker-filter-section">
-          <div class="picker-filter-label">Régime</div>
-          <div class="picker-filter-chips">
-            ${dietChips}
+        <div class="picker-filters-toggles-row">
+          <div class="picker-filter-section picker-filter-section-half">
+            <button class="picker-filter-collapse-toggle ${dietActive ? 'has-active' : ''}" id="picker-toggle-diet" type="button">
+              <span>Régime${dietActive ? ` (${_planningPickerFilters.dietTags.length})` : ''}</span>
+              <span class="picker-filter-more-icon">▼</span>
+            </button>
+          </div>
+          <div class="picker-filter-section picker-filter-section-half">
+            <button class="picker-filter-collapse-toggle ${catActive ? 'has-active' : ''}" id="picker-toggle-category" type="button">
+              <span>Catégorie${catActive ? ' (1)' : ''}</span>
+              <span class="picker-filter-more-icon">▼</span>
+            </button>
           </div>
         </div>
-
-        <div class="picker-filter-section">
-          <button class="picker-filter-collapse-toggle ${catActive ? 'has-active' : ''}" id="picker-toggle-category" type="button">
-            <span>Catégorie${catActive ? ' (1)' : ''}</span>
-            <span class="picker-filter-more-icon">▼</span>
-          </button>
-          <div class="picker-filter-chips picker-category-row ${catActive ? '' : 'hidden'}" id="picker-category-row">
-            ${catChips}
-          </div>
+        <div class="picker-filter-chips picker-diet-row ${dietActive ? '' : 'hidden'}" id="picker-diet-row">
+          ${dietChips}
+        </div>
+        <div class="picker-filter-chips picker-category-row ${catActive ? '' : 'hidden'}" id="picker-category-row">
+          ${catChips}
         </div>
 
         <div class="picker-filter-section picker-filter-controls">
           <label class="picker-filter-toggle">
             <input type="checkbox" id="picker-filter-season" ${_planningPickerFilters.seasonOnly ? 'checked' : ''}>
-            <span>De saison uniquement</span>
+            <span>De saison</span>
+          </label>
+          <label class="picker-filter-toggle">
+            <input type="checkbox" id="picker-filter-verified" ${_planningPickerFilters.verifiedOnly ? 'checked' : ''}>
+            <span>✅ Vérifiée</span>
           </label>
           <div class="picker-filter-sort">
-            <span class="picker-filter-label-inline">Tri :</span>
-            <select id="picker-filter-sort" class="picker-sort-select">
+            <select id="picker-filter-sort" class="picker-sort-select" aria-label="Tri">
               <option value="alpha" ${_planningPickerFilters.sort === 'alpha' ? 'selected' : ''}>A → Z</option>
               <option value="recent" ${_planningPickerFilters.sort === 'recent' ? 'selected' : ''}>Récentes</option>
-              <option value="favorites" ${_planningPickerFilters.sort === 'favorites' ? 'selected' : ''}>Favorites d'abord</option>
+              <option value="favorites" ${_planningPickerFilters.sort === 'favorites' ? 'selected' : ''}>Favorites</option>
             </select>
           </div>
         </div>
@@ -7182,6 +7447,10 @@ function openPlanningSlot(dateStr, slotId, opts) {
     _planningPickerFilters.seasonOnly = e.target.checked;
     renderPlanningPickerList(document.getElementById('planning-search').value);
   });
+  document.getElementById('picker-filter-verified').addEventListener('change', e => {
+    _planningPickerFilters.verifiedOnly = e.target.checked;
+    renderPlanningPickerList(document.getElementById('planning-search').value);
+  });
   document.getElementById('picker-filter-sort').addEventListener('change', e => {
     _planningPickerFilters.sort = e.target.value;
     renderPlanningPickerList(document.getElementById('planning-search').value);
@@ -7209,6 +7478,18 @@ function openPlanningSlot(dateStr, slotId, opts) {
       const isOpen = !row.classList.contains('hidden');
       row.classList.toggle('hidden');
       const iconEl = toggleCatBtn.querySelector('.picker-filter-more-icon');
+      if (iconEl) iconEl.textContent = isOpen ? '▼' : '▲';
+    });
+  }
+
+  // Toggle "Régime" (rendu cohérent avec Catégorie : pliable par défaut)
+  const toggleDietBtn = document.getElementById('picker-toggle-diet');
+  if (toggleDietBtn) {
+    toggleDietBtn.addEventListener('click', () => {
+      const row = document.getElementById('picker-diet-row');
+      const isOpen = !row.classList.contains('hidden');
+      row.classList.toggle('hidden');
+      const iconEl = toggleDietBtn.querySelector('.picker-filter-more-icon');
       if (iconEl) iconEl.textContent = isOpen ? '▼' : '▲';
     });
   }
@@ -7253,6 +7534,10 @@ function renderPlanningPickerList(query) {
       const months = r.months || [];
       return months.length === 0 || months.includes(currentMonth);
     });
+  }
+  // Filtre "Vérifiée par l'humain"
+  if (_planningPickerFilters.verifiedOnly) {
+    recipes = recipes.filter(r => r.verifiedByHuman === true);
   }
 
   // Tri
