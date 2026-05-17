@@ -1426,6 +1426,17 @@ function openRecipe(id) {
 
 window.openRecipe = openRecipe;
 
+// Bouton retour de la fiche recette : utilise l'historique navigateur si dispo
+// (preserve la provenance — library, planning, shopping, search…) plutôt que de toujours retomber sur library.
+function recipeDetailBack() {
+  if (window.history.length > 1) {
+    history.back();
+  } else {
+    navigateTo('library');
+  }
+}
+window.recipeDetailBack = recipeDetailBack;
+
 // ============================================
 // RECIPE DETAIL
 // ============================================
@@ -1469,20 +1480,23 @@ function renderRecipeDetail(recipe) {
   }
 
   // === Barre compacte de méta-infos (tags, régimes, source, cuisson, historique) ===
-  // Toutes ces infos étaient autrefois sur 5 lignes distinctes : on les regroupe en chips sur une seule
-  // barre wrappante. Chips remplis = info présente ; chips vides en pointillés = "ajouter".
+  // Séparé en 2 groupes : factuel (tags, régimes, source) en haut, validation (cuisson, vérifié, log) en bas
+  // pour réduire la perception de "champs vides" sur les recettes neuves.
 
-  const metaChips = [];
+  const factualChips = [];   // tags, régimes, source : descriptifs de la recette
+  const statusChips = [];    // cuisson, vérifié, changelog : état d'utilisation
+
+  // --- Groupe FACTUEL : tags + régimes + source ---
 
   // Tags personnalisés
   if (r.tags && r.tags.length) {
     const tagsList = r.tags.map(t => escapeHtml(t)).join(', ');
-    metaChips.push(`<button class="recipe-meta-chip is-filled" onclick="editRecipeTags('${r.id}')" title="${escapeHtml(tagsList)}">
+    factualChips.push(`<button class="recipe-meta-chip is-filled" onclick="editRecipeTags('${r.id}')" title="${escapeHtml(tagsList)}">
       <span class="recipe-meta-chip-icon">🏷️</span>
       <span class="recipe-meta-chip-text">${escapeHtml(tagsList)}</span>
     </button>`);
   } else {
-    metaChips.push(`<button class="recipe-meta-chip is-empty" onclick="editRecipeTags('${r.id}')">+ Tags</button>`);
+    factualChips.push(`<button class="recipe-meta-chip is-empty" onclick="editRecipeTags('${r.id}')">+ Tags</button>`);
   }
 
   // Régimes alimentaires (chips compactes : juste les emojis si remplis)
@@ -1492,11 +1506,11 @@ function renderRecipeDetail(recipe) {
       const t = DIET_TAGS.find(x => x.id === id);
       return t ? `<span class="recipe-meta-diet-emoji" style="color:${t.color}" title="${escapeHtml(t.label)}">${t.emoji}</span>` : '';
     }).join('');
-    metaChips.push(`<button class="recipe-meta-chip is-filled" onclick="openDietTagsEditor('${r.id}')">
+    factualChips.push(`<button class="recipe-meta-chip is-filled" onclick="openDietTagsEditor('${r.id}')">
       ${emojis}
     </button>`);
   } else {
-    metaChips.push(`<button class="recipe-meta-chip is-empty" onclick="openDietTagsEditor('${r.id}')">+ Régime</button>`);
+    factualChips.push(`<button class="recipe-meta-chip is-empty" onclick="openDietTagsEditor('${r.id}')">+ Régime</button>`);
   }
 
   // Source
@@ -1506,15 +1520,17 @@ function renderRecipeDetail(recipe) {
     if (src.type === 'book') { icon = '📖'; text = src.title || 'Livre'; }
     else if (src.type === 'web') { icon = '🌐'; text = src.siteName || (src.url ? new URL(src.url).hostname.replace(/^www\./, '') : 'Web'); }
     else if (src.type === 'instagram') { icon = '📷'; text = src.account ? '@' + src.account.replace(/^@/, '') : 'Instagram'; }
-    metaChips.push(`<button class="recipe-meta-chip is-filled" onclick="openSourceEditor('${r.id}')" title="${escapeHtml(text)}">
+    factualChips.push(`<button class="recipe-meta-chip is-filled" onclick="openSourceEditor('${r.id}')" title="${escapeHtml(text)}">
       <span class="recipe-meta-chip-icon">${icon}</span>
       <span class="recipe-meta-chip-text">${escapeHtml(text)}</span>
     </button>`);
   } else {
-    metaChips.push(`<button class="recipe-meta-chip is-empty" onclick="openSourceEditor('${r.id}')">+ Source</button>`);
+    factualChips.push(`<button class="recipe-meta-chip is-empty" onclick="openSourceEditor('${r.id}')">+ Source</button>`);
   }
 
-  // Historique cuisson (chip)
+  // --- Groupe VALIDATION : cuisson + vérifié + changelog ---
+
+  // Historique cuisson (chip) — code couleur selon fraîcheur
   const cookedHistory = r.cookedHistory || [];
   const lastCooked = cookedHistory.length ? cookedHistory[cookedHistory.length - 1] : 0;
   if (lastCooked) {
@@ -1526,25 +1542,32 @@ function renderRecipeDetail(recipe) {
     else if (days < 30) when = `${Math.floor(days/7)}sem`;
     else if (days < 365) when = `${Math.floor(days/30)}mo`;
     else when = `${Math.floor(days/365)}an${Math.floor(days/365) > 1 ? 's' : ''}`;
-    metaChips.push(`<button class="recipe-meta-chip is-filled" onclick="manageCookedHistory('${r.id}')" title="Cuisinée ${cookedHistory.length} fois">
+    // Code couleur : vert < 14j (récent), neutre 14-60j (moyen), gris ≥ 60j (ancien)
+    let freshClass = 'is-cooked-old';
+    if (days < 14) freshClass = 'is-cooked-recent';
+    else if (days < 60) freshClass = 'is-cooked-medium';
+    statusChips.push(`<button class="recipe-meta-chip is-filled ${freshClass}" onclick="manageCookedHistory('${r.id}')" title="Cuisinée ${cookedHistory.length} fois, dernière fois il y a ${days} jour${days > 1 ? 's' : ''}">
       <span class="recipe-meta-chip-icon">✓</span>
       <span class="recipe-meta-chip-text">${cookedHistory.length} · ${when}</span>
     </button>`);
   } else {
-    metaChips.push(`<button class="recipe-meta-chip is-empty" onclick="manageCookedHistory('${r.id}')">📅 Cuisson</button>`);
+    statusChips.push(`<button class="recipe-meta-chip is-empty" onclick="manageCookedHistory('${r.id}')">📅 Cuisson</button>`);
   }
 
-  // Vérifié par l'humain : chip distinctif (clic = toggle)
+  // Vérifié par l'humain — pertinent surtout pour les recettes issues de l'IA
+  // (les recettes "perso" sont saisies à la main donc déjà vérifiées par essence)
+  const isAiExtracted = src && src.type && src.type !== 'perso';
   if (r.verifiedByHuman) {
-    metaChips.push(`<button class="recipe-meta-chip is-filled is-verified" onclick="toggleVerifiedByHuman('${r.id}')" title="Recette vérifiée et validée par l'humain. Cliquer pour retirer.">
+    statusChips.push(`<button class="recipe-meta-chip is-filled is-verified" onclick="toggleVerifiedByHuman('${r.id}')" title="Recette vérifiée et validée par l'humain. Cliquer pour retirer.">
       <span class="recipe-meta-chip-icon">✅</span>
       <span class="recipe-meta-chip-text">Vérifiée</span>
     </button>`);
-  } else {
-    metaChips.push(`<button class="recipe-meta-chip is-empty" onclick="toggleVerifiedByHuman('${r.id}')" title="Marquer comme vérifiée par l'humain">
+  } else if (isAiExtracted) {
+    statusChips.push(`<button class="recipe-meta-chip is-empty" onclick="toggleVerifiedByHuman('${r.id}')" title="Marquer comme vérifiée par l'humain">
       ☐ À vérifier
     </button>`);
   }
+  // Si recette perso non vérifiée : on n'affiche rien (pas de bruit visuel)
 
   // Historique modifications (changelog) : badge si nouvelles modifs
   const changeLog = r.changeLog || [];
@@ -1553,14 +1576,19 @@ function renderRecipeDetail(recipe) {
   const newCount = changeLog.filter(e => (e.at || 0) > lastViewed).length;
   const showBadge = lastViewed > 0 && newCount > 0;
   if (changeLog.length > 0) {
-    metaChips.push(`<button class="recipe-meta-chip is-filled ${showBadge ? 'has-new' : ''}" onclick="openChangeLog('${r.id}')">
+    statusChips.push(`<button class="recipe-meta-chip is-filled ${showBadge ? 'has-new' : ''}" onclick="openChangeLog('${r.id}')">
       <span class="recipe-meta-chip-icon">📋</span>
       <span class="recipe-meta-chip-text">${changeLog.length}</span>
       ${showBadge ? `<span class="recipe-meta-chip-badge">${newCount > 9 ? '9+' : newCount}</span>` : ''}
     </button>`);
   }
 
-  const metaBarHtml = `<div class="recipe-meta-bar">${metaChips.join('')}</div>`;
+  // Assemblage : 2 groupes visuellement distincts dans la meta-bar
+  // (séparateur subtil entre factuel et validation)
+  const metaBarHtml = `<div class="recipe-meta-bar">
+    <div class="recipe-meta-group recipe-meta-group-factual">${factualChips.join('')}</div>
+    ${statusChips.length > 0 ? `<div class="recipe-meta-group recipe-meta-group-status">${statusChips.join('')}</div>` : ''}
+  </div>`;
 
   // Notes personnelles
   const notesHtml = r.personalNotes
@@ -1579,7 +1607,7 @@ function renderRecipeDetail(recipe) {
       <div class="recipe-detail-hero ${r.photo ? 'has-photo' : ''}" style="background: ${heroBg}">
         ${!r.photo ? '<div class="recipe-detail-hero-blob" style="background: rgba(255,255,255,0.4); width: 140px; height: 140px; top: -20px; right: -20px;"></div>' : ''}
         ${!r.photo ? '<div class="recipe-detail-hero-blob" style="background: rgba(255,255,255,0.3); width: 100px; height: 100px; bottom: -20px; left: 20%;"></div>' : ''}
-        <button class="recipe-detail-back" onclick="navigateTo('library')" aria-label="Retour">
+        <button class="recipe-detail-back" onclick="recipeDetailBack()" aria-label="Retour">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M15 19l-7-7 7-7" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
@@ -1593,23 +1621,28 @@ function renderRecipeDetail(recipe) {
               <path d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </button>
-          <button class="icon-btn" onclick="editRecipe('${r.id}')" aria-label="Modifier">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </button>
-          <button class="icon-btn" onclick="confirmDeleteRecipe('${r.id}')" aria-label="Supprimer">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" stroke-linecap="round" stroke-linejoin="round"/>
+          <button class="icon-btn recipe-hero-kebab" onclick="openRecipeKebabMenu('${r.id}')" aria-label="Plus d'options">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="5" r="1.5" fill="currentColor"/>
+              <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+              <circle cx="12" cy="19" r="1.5" fill="currentColor"/>
             </svg>
           </button>
         </div>
         ${heroVisual}
-        <button class="recipe-photo-add ${r.photo ? 'has-photo' : ''}" onclick="attachRecipePhoto('${r.id}')" aria-label="${r.photo ? 'Modifier la photo' : 'Ajouter une photo'}">📷</button>
+        <button class="recipe-photo-add ${r.photo ? 'has-photo' : ''}" onclick="attachRecipePhoto('${r.id}')" aria-label="${r.photo ? 'Modifier la photo' : 'Ajouter une photo'}">
+          <span class="recipe-photo-add-icon">📷</span>
+          ${!r.photo ? '<span class="recipe-photo-add-label">Ajouter une photo</span>' : ''}
+        </button>
       </div>
       <div class="recipe-detail-body">
-        <h1 class="recipe-detail-title" onclick="quickEditField('title', '${r.id}')" title="Toucher pour modifier">${escapeHtml(r.title)}</h1>
-        ${r.description ? `<p class="recipe-detail-description" onclick="quickEditField('description', '${r.id}')" title="Toucher pour modifier">${escapeHtml(r.description)}</p>` : `<p class="recipe-detail-description recipe-detail-description-empty" onclick="quickEditField('description', '${r.id}')">+ Ajouter une description</p>`}
+        <h1 class="recipe-detail-title is-editable" onclick="quickEditField('title', '${r.id}')" title="Toucher pour modifier le titre">
+          ${escapeHtml(r.title)}
+          <span class="recipe-edit-pencil" aria-hidden="true">✏️</span>
+        </h1>
+        ${r.description
+          ? `<p class="recipe-detail-description is-editable" onclick="quickEditField('description', '${r.id}')" title="Toucher pour modifier la description">${escapeHtml(r.description)}<span class="recipe-edit-pencil" aria-hidden="true">✏️</span></p>`
+          : `<p class="recipe-detail-description recipe-detail-description-empty" onclick="quickEditField('description', '${r.id}')">+ Ajouter une description</p>`}
 
         ${timesHtml}
 
@@ -1621,28 +1654,23 @@ function renderRecipeDetail(recipe) {
         ${metaBarHtml}
 
         <div class="recipe-quick-actions">
-          <button class="btn-cook" onclick="markAsCooked('${r.id}')">
-            <span>✓</span> J'ai fait cette recette
-          </button>
-          <button class="btn-cooking-mode" onclick="enterCookingMode('${r.id}')">
-            <span>👨‍🍳</span> Mode cuisine
+          <button class="btn-cook btn-cook-full" onclick="markAsCooked('${r.id}')" title="Enregistrer dans l'historique de cuisson">
+            <span>✓</span> J'ai cuisiné cette recette aujourd'hui
           </button>
         </div>
 
-        <div class="servings-card">
-          <div class="servings-info">
-            <span class="servings-label">Portions</span>
-            <span class="servings-hint">Ajuster les quantités</span>
+        <div class="servings-block">
+          <div class="servings-block-main">
+            <span class="servings-block-label">Portions</span>
+            <div class="servings-controls">
+              <button class="servings-btn" id="servings-minus" ${r.currentServings <= 1 ? 'disabled' : ''}>−</button>
+              <span class="servings-value" id="servings-value">${r.currentServings}</span>
+              <button class="servings-btn" id="servings-plus">+</button>
+            </div>
           </div>
-          <div class="servings-controls">
-            <button class="servings-btn" id="servings-minus" ${r.currentServings <= 1 ? 'disabled' : ''}>−</button>
-            <span class="servings-value" id="servings-value">${r.currentServings}</span>
-            <button class="servings-btn" id="servings-plus">+</button>
+          <div class="servings-block-presets">
+            ${state.prefs.servingsPresets.map(p => `<button class="servings-preset ${r.currentServings === p ? 'active' : ''}" onclick="setServings('${r.id}', ${p})">${p}</button>`).join('')}
           </div>
-        </div>
-
-        <div class="servings-presets">
-          ${state.prefs.servingsPresets.map(p => `<button class="servings-preset ${r.currentServings === p ? 'active' : ''}" onclick="setServings('${r.id}', ${p})">${p}</button>`).join('')}
         </div>
 
         ${notesHtml}
@@ -1655,6 +1683,7 @@ function renderRecipeDetail(recipe) {
               </svg>
             </span>
             Ingrédients
+            <span class="recipe-section-count">${r.ingredients.length}</span>
           </h3>
           <div class="ingredients-list" id="ingredients-list">
             ${renderIngredientsList(r.ingredients, ratio, r.id)}
@@ -1662,9 +1691,11 @@ function renderRecipeDetail(recipe) {
           <button class="recipe-inline-add" onclick="addIngredientInline('${r.id}')">+ Ajouter un ingrédient</button>
           ${(() => {
             const inPantryCount = r.ingredients.filter(i => isInPantry(i.name)).length;
-            return inPantryCount > 0
-              ? `<p class="ingredients-pantry-hint">📦 ${inPantryCount} ingrédient${inPantryCount > 1 ? 's' : ''} déjà chez vous</p>`
-              : '';
+            const toBuyCount = r.ingredients.filter(i => !isInPantry(i.name) && !isShoppingExcluded(i.name)).length;
+            const parts = [];
+            if (inPantryCount > 0) parts.push(`<span class="ingredients-hint-pill ingredients-hint-pantry">📦 ${inPantryCount} chez vous</span>`);
+            if (toBuyCount > 0) parts.push(`<span class="ingredients-hint-pill ingredients-hint-buy">🛒 ${toBuyCount} à acheter</span>`);
+            return parts.length > 0 ? `<div class="ingredients-pantry-hint">${parts.join('')}</div>` : '';
           })()}
         </div>
 
@@ -1676,69 +1707,79 @@ function renderRecipeDetail(recipe) {
               </svg>
             </span>
             Étapes
+            <span class="recipe-section-count">${r.steps.length}</span>
+            <button class="recipe-section-kebab" onclick="openStepsKebabMenu('${r.id}')" aria-label="Outils IA pour les étapes">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="5" r="1.5" fill="currentColor"/>
+                <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+                <circle cx="12" cy="19" r="1.5" fill="currentColor"/>
+              </svg>
+            </button>
           </h3>
           <div class="steps-list" id="steps-list">
             ${renderStepsList(r.steps, r.ingredients, ratio, r.id)}
           </div>
-          <div class="recipe-steps-actions">
-            <button class="recipe-inline-add" onclick="addStepInline('${r.id}')">+ Ajouter une étape</button>
-            <button class="recipe-recalc-btn" onclick="recalcSingleRecipe('${r.id}')" title="Demander à l'IA d'analyser à nouveau quel ingrédient est utilisé à quelle étape">
-              <span class="recipe-recalc-icon">🪄</span>
-              <span class="recipe-recalc-label">Recalculer ingrédients-étapes</span>
-            </button>
-            ${r._stepsBackup?.lastRecalc ? `
-              <button class="recipe-recalc-restore" onclick="restoreRecipeSteps('${r.id}')" title="Restaurer l'état précédent">
-                ↶ Restaurer l'ancien
-              </button>
-            ` : ''}
-          </div>
+          <button class="recipe-inline-add" onclick="addStepInline('${r.id}')">+ Ajouter une étape</button>
         </div>
 
-        <div class="recipe-add-shopping">
-          ${isInShopping ?
-            `<button class="btn-secondary" onclick="removeFromShopping('${r.id}')">✓ Ajoutée à la liste de courses</button>` :
-            `<button class="btn-primary" onclick="addToShopping('${r.id}', ${r.currentServings})">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="btn-icon">
+      </div>
+      ${(() => {
+        // === Sticky action bar en bas ===
+        // 3 modes :
+        //   - planning-current : Changer / Valider (priorité)
+        //   - planning-candidate : Confirmer (priorité)
+        //   - normal : Mode cuisine + Ajouter aux courses
+        const ctx = state._planningContext;
+        if (ctx && ctx.mode === 'current' && ctx.originalRecipeId === r.id) {
+          const slotLbl = (MEAL_SLOTS.find(s => s.id === ctx.slotId) || {}).label || ctx.slotId;
+          let dLbl = ctx.dateStr;
+          try {
+            const [y, m, day] = ctx.dateStr.split('-').map(Number);
+            const dObj = new Date(y, m - 1, day);
+            dLbl = dObj.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+          } catch (e) {}
+          return `
+            <div class="recipe-detail-sticky is-planning-current">
+              <p class="recipe-detail-sticky-info">📅 Planifiée pour <strong>${escapeHtml(dLbl)}</strong> · <strong>${escapeHtml(slotLbl)}</strong></p>
+              <div class="recipe-detail-sticky-actions">
+                <button class="btn-secondary" onclick="changePlanningRecipe()">🔄 Changer</button>
+                <button class="btn-primary" onclick="confirmPlanningCurrent()">✓ Valider le choix</button>
+              </div>
+            </div>
+          `;
+        }
+        if (ctx && ctx.mode === 'candidate' && ctx.candidateRecipeId === r.id) {
+          return `
+            <div class="recipe-detail-sticky is-planning-candidate">
+              <p class="recipe-detail-sticky-info">🔄 Remplacer la recette planifiée par celle-ci ?</p>
+              <div class="recipe-detail-sticky-actions">
+                <button class="btn-primary btn-block" onclick="confirmPlanningCandidate()">✓ Confirmer le changement</button>
+              </div>
+            </div>
+          `;
+        }
+        // Mode normal : actions principales toujours à portée de pouce
+        const shoppingBtn = isInShopping
+          ? `<button class="btn-secondary recipe-detail-sticky-shopping" onclick="removeFromShopping('${r.id}')" title="Retirer de la liste de courses">
+              <span>✓</span> Dans les courses
+            </button>`
+          : `<button class="btn-primary recipe-detail-sticky-shopping" onclick="addToShopping('${r.id}', ${r.currentServings})" title="Ajouter à la liste de courses">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
                 <path d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
-              Ajouter à la liste de courses
-            </button>`
-          }
-        </div>
-        ${(() => {
-          const ctx = state._planningContext;
-          if (!ctx) return '';
-          if (ctx.mode === 'current' && ctx.originalRecipeId === r.id) {
-            const slotLbl = (MEAL_SLOTS.find(s => s.id === ctx.slotId) || {}).label || ctx.slotId;
-            let dLbl = ctx.dateStr;
-            try {
-              const [y, m, day] = ctx.dateStr.split('-').map(Number);
-              const dObj = new Date(y, m - 1, day);
-              dLbl = dObj.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-            } catch (e) {}
-            return `
-              <div class="planning-context-bar">
-                <p class="planning-context-bar-info">📅 Planifiée pour <strong>${escapeHtml(dLbl)}</strong> · <strong>${escapeHtml(slotLbl)}</strong></p>
-                <div class="planning-context-bar-actions">
-                  <button class="btn-secondary" onclick="changePlanningRecipe()">🔄 Changer</button>
-                  <button class="btn-primary" onclick="confirmPlanningCurrent()">✓ Valider le choix</button>
-                </div>
-              </div>
-            `;
-          }
-          if (ctx.mode === 'candidate' && ctx.candidateRecipeId === r.id) {
-            return `
-              <div class="planning-context-bar planning-context-bar-candidate">
-                <p class="planning-context-bar-info">🔄 Remplacer la recette planifiée par celle-ci ?</p>
-                <div class="planning-context-bar-actions">
-                  <button class="btn-primary btn-block" onclick="confirmPlanningCandidate()">✓ Confirmer le changement</button>
-                </div>
-              </div>
-            `;
-          }
-          return '';
-        })()}
-      </div>
+              <span>Courses</span>
+            </button>`;
+        return `
+          <div class="recipe-detail-sticky">
+            <div class="recipe-detail-sticky-actions">
+              ${shoppingBtn}
+              <button class="btn-primary recipe-detail-sticky-cook" onclick="enterCookingMode('${r.id}')" title="Lancer le mode cuisine pas-à-pas">
+                <span>👨‍🍳</span> Mode cuisine
+              </button>
+            </div>
+          </div>
+        `;
+      })()}
     </div>
   `;
 
@@ -2327,6 +2368,88 @@ function _updateTimerDisplay() {
   `;
 }
 
+// Menu kebab ⋮ à côté du titre "Étapes" : outils IA techniques (recalcul, restauration)
+// rangés hors du flux principal de la fiche.
+function openStepsKebabMenu(id) {
+  const recipe = state.recipes.find(r => r.id === id);
+  if (!recipe) return;
+  const hasBackup = recipe._stepsBackup?.lastRecalc;
+  let menu = document.getElementById('recipe-kebab-menu');
+  if (menu) menu.remove();
+  menu = document.createElement('div');
+  menu.id = 'recipe-kebab-menu';
+  menu.className = 'recipe-kebab-menu';
+  menu.innerHTML = `
+    <div class="recipe-kebab-backdrop"></div>
+    <div class="recipe-kebab-panel">
+      <div class="recipe-kebab-header">Outils IA — Étapes</div>
+      <button class="recipe-kebab-item" data-action="recalc">
+        <span class="recipe-kebab-icon">🪄</span>
+        <div class="recipe-kebab-item-text">
+          <span>Recalculer ingrédients-étapes</span>
+          <small>L'IA réanalyse quel ingrédient est utilisé à chaque étape (~1 centime)</small>
+        </div>
+      </button>
+      ${hasBackup ? `
+        <button class="recipe-kebab-item" data-action="restore">
+          <span class="recipe-kebab-icon">↶</span>
+          <div class="recipe-kebab-item-text">
+            <span>Restaurer l'ancien état</span>
+            <small>Annule le dernier recalcul IA</small>
+          </div>
+        </button>
+      ` : ''}
+    </div>
+  `;
+  document.body.appendChild(menu);
+  const close = () => menu.remove();
+  menu.querySelector('.recipe-kebab-backdrop').addEventListener('click', close);
+  menu.querySelectorAll('.recipe-kebab-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.action;
+      close();
+      if (action === 'recalc') recalcSingleRecipe(id);
+      else if (action === 'restore') restoreRecipeSteps(id);
+    });
+  });
+}
+window.openStepsKebabMenu = openStepsKebabMenu;
+
+// Menu kebab ⋮ sur le hero de la fiche recette : range les actions secondaires
+// (Modifier, Supprimer) pour éviter les appuis accidentels destructifs depuis le hero.
+function openRecipeKebabMenu(id) {
+  let menu = document.getElementById('recipe-kebab-menu');
+  if (menu) menu.remove();
+  menu = document.createElement('div');
+  menu.id = 'recipe-kebab-menu';
+  menu.className = 'recipe-kebab-menu';
+  menu.innerHTML = `
+    <div class="recipe-kebab-backdrop"></div>
+    <div class="recipe-kebab-panel">
+      <button class="recipe-kebab-item" data-action="edit">
+        <span class="recipe-kebab-icon">✏️</span>
+        <span>Modifier (formulaire complet)</span>
+      </button>
+      <button class="recipe-kebab-item is-danger" data-action="delete">
+        <span class="recipe-kebab-icon">🗑️</span>
+        <span>Supprimer la recette</span>
+      </button>
+    </div>
+  `;
+  document.body.appendChild(menu);
+  const close = () => menu.remove();
+  menu.querySelector('.recipe-kebab-backdrop').addEventListener('click', close);
+  menu.querySelectorAll('.recipe-kebab-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.action;
+      close();
+      if (action === 'edit') editRecipe(id);
+      else if (action === 'delete') confirmDeleteRecipe(id);
+    });
+  });
+}
+window.openRecipeKebabMenu = openRecipeKebabMenu;
+
 async function confirmDeleteRecipe(id) {
   if (!(await uiConfirm('Supprimer cette recette ?', { confirmLabel: 'Supprimer', danger: true }))) return;
   const deletedRecipe = state.recipes.find(r => r.id === id);
@@ -2419,7 +2542,17 @@ function markAsCooked(id) {
   // Garde les 50 derniers
   if (recipe.cookedHistory.length > 50) recipe.cookedHistory = recipe.cookedHistory.slice(-50);
   updateRecipeAndSync(recipe, 'cuisiné');
-  showToast('Bravo ! Recette marquée comme faite ✓', 'success');
+  // Toast contextuel qui change selon le nombre de fois cuisinée
+  const count = recipe.cookedHistory.length;
+  let msg;
+  if (count === 1) msg = '🎉 Première fois ! Recette ajoutée à l\'historique';
+  else if (count === 2) msg = '👏 Bravo, deuxième fois !';
+  else if (count === 5) msg = '🔥 5 fois déjà — c\'est un classique !';
+  else if (count === 10) msg = '⭐ 10 fois ! Cette recette mérite une étoile';
+  else if (count % 10 === 0) msg = `✨ ${count}ᵉ fois — une vraie référence !`;
+  else if (count <= 3) msg = `Bravo, ${count}ᵉ fois ✓`;
+  else msg = `✓ Recette faite (${count}ᵉ fois)`;
+  showToast(msg, 'success');
   if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
     state.currentRecipe.cookedHistory = recipe.cookedHistory;
     renderRecipeDetail(recipe);
