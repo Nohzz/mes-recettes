@@ -532,14 +532,20 @@
           </div>
         </div>
 
-        <!-- ⚠️ Zone dangereuse -->
-        <h3 class="settings-group-title settings-group-title-danger">⚠️ Zone dangereuse</h3>
-        <div class="settings-group settings-group-danger">
-          <div class="settings-row settings-row-block">
-            <p class="settings-hint">Cette action supprime <strong>toutes</strong> vos recettes, listes, planning et préférences. Irréversible.</p>
-            <button id="settings-clear" class="btn-danger btn-block">Tout supprimer</button>
+        <!-- ⚠️ Zone dangereuse — masquée par défaut derrière un collapse pour éviter
+             les appuis accidentels. L'utilisateur doit explicitement la dérouler. -->
+        <details class="settings-danger-collapse">
+          <summary class="settings-danger-summary">
+            <span class="settings-danger-summary-text">⚠️ Actions avancées (masquées)</span>
+            <span class="settings-danger-summary-icon">▼</span>
+          </summary>
+          <div class="settings-group settings-group-danger">
+            <div class="settings-row settings-row-block">
+              <p class="settings-hint">Cette action supprime <strong>toutes</strong> vos recettes, listes, planning et préférences. Irréversible et non synchronisée vers les autres appareils tant que vous ne re-synchronisez pas manuellement.</p>
+              <button id="settings-clear" class="btn-danger btn-block">🗑️ Tout supprimer</button>
+            </div>
           </div>
-        </div>
+        </details>
 
         <!-- ℹ️ À propos -->
         <div class="settings-section settings-about">
