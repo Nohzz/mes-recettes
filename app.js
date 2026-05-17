@@ -240,7 +240,7 @@ function loadState() {
     // Migration FODMAP : recalcul auto pour toutes les recettes existantes
     // Ajoute low-fodmap / high-fodmap selon les ingrédients, en complétant les tags existants
     if (typeof calculateFodmapTags === 'function') {
-      const FODMAP_VERSION = 'fodmap-auto-v1';
+      const FODMAP_VERSION = 'fodmap-auto-v3';
       const fodmapMigrated = localStorage.getItem('mr_fodmap_version');
       if (fodmapMigrated !== FODMAP_VERSION) {
         state.recipes = state.recipes.map(r => {
@@ -889,6 +889,17 @@ window.navigateTo = navigateTo;
 
 // Rendu pur de la vue, sans toucher à l'historique
 function _renderView(view, data) {
+  // Mémoriser la position de scroll de la vue qu'on quitte (pour la restaurer au retour)
+  // On ne mémorise QUE pour les vues "liste" qui ont du scroll utile (library, planning, shopping)
+  const mainContent = document.getElementById('main-content');
+  const previousView = state.currentView;
+  if (mainContent && previousView && previousView !== view) {
+    if (!state._viewScrolls) state._viewScrolls = {};
+    if (['library', 'planning', 'shopping'].includes(previousView)) {
+      state._viewScrolls[previousView] = mainContent.scrollTop;
+    }
+  }
+
   state.currentView = view;
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-' + view).classList.add('active');
@@ -908,7 +919,18 @@ function _renderView(view, data) {
   const header = document.querySelector('.app-header');
   header.style.display = view === 'recipe' ? 'none' : '';
 
-  document.getElementById('main-content').scrollTo({ top: 0, behavior: 'instant' });
+  // Restaurer le scroll si on revient sur une vue déjà visitée, sinon remonter en haut
+  const savedScroll = state._viewScrolls && state._viewScrolls[view];
+  if (savedScroll && savedScroll > 0 && view !== 'recipe') {
+    // requestAnimationFrame pour s'assurer que le contenu est rendu avant le scrollTo
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (mainContent) mainContent.scrollTo({ top: savedScroll, behavior: 'instant' });
+      });
+    });
+  } else if (mainContent) {
+    mainContent.scrollTo({ top: 0, behavior: 'instant' });
+  }
 
   if (view === 'library') renderLibrary();
   if (view === 'shopping') renderShopping();
@@ -6249,10 +6271,8 @@ function openPlanningSlot(dateStr, slotId) {
     ).join('')}
   `;
 
-  // Régimes : uniquement Végétarien + Low FODMAP + High FODMAP (les seuls utiles au quotidien)
-  const VISIBLE_DIETS = ['vegetarien', 'low-fodmap', 'high-fodmap'];
+  // Régimes : tous ceux de DIET_TAGS (configuré dans data.js — 5 régimes par défaut)
   const dietChips = DIET_TAGS
-    .filter(t => VISIBLE_DIETS.includes(t.id))
     .map(t => {
       const active = _planningPickerFilters.dietTags.includes(t.id);
       return `<button class="picker-filter-chip diet ${active ? 'active' : ''}" data-filter-diet="${t.id}" style="--diet-color:${t.color}">${t.emoji} ${escapeHtml(t.label)}</button>`;

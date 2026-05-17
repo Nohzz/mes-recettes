@@ -418,109 +418,149 @@ function normalizeAmount(amount, unit) {
 }
 
 
+// Régimes alimentaires affichés dans l'interface (modal validation, filtres, chips...)
+// Les tags FODMAP sont calculés AUTOMATIQUEMENT à partir des ingrédients via calculateFodmapTags(),
+// les autres sont cochés manuellement par l'utilisateur.
+// Si vous voulez rétablir d'autres régimes (vegan, keto, halal, casher, sans-sucre), il suffit de
+// les rajouter dans ce tableau, ils réapparaîtront partout dans l'app.
 const DIET_TAGS = [
-  { id: 'vegan', label: 'Vegan', emoji: '🌱', color: '#4ade80' },
   { id: 'vegetarien', label: 'Végétarien', emoji: '🥗', color: '#86efac' },
   { id: 'sans-gluten', label: 'Sans gluten', emoji: '🌾', color: '#fbbf24' },
   { id: 'sans-lactose', label: 'Sans lactose', emoji: '🥛', color: '#7dd3fc' },
   { id: 'low-fodmap', label: 'Low FODMAP', emoji: '💚', color: '#22c55e' },
   { id: 'high-fodmap', label: 'High FODMAP', emoji: '⚠️', color: '#f97316' },
-  { id: 'sans-sucre', label: 'Sans sucre', emoji: '🚫', color: '#f87171' },
-  { id: 'keto', label: 'Keto', emoji: '🥑', color: '#65a30d' },
-  { id: 'halal', label: 'Halal', emoji: '🕌', color: '#10b981' },
-  { id: 'casher', label: 'Casher', emoji: '✡️', color: '#3b82f6' },
 ];
 
 // ============================================
 // BASE FODMAP : classification des aliments
 // ============================================
-// Source : régime FODMAP, recommandations utilisateur.
-// Les noms sont normalisés (sans accents, minuscule) pour matcher facilement les ingrédients.
-// Quand un aliment apparaît à la fois en HIGH et LOW selon la quantité, on liste les deux
-// (le matching utilise toujours HIGH en priorité pour rester sécuritaire).
+// LOGIQUE BINAIRE STRICTE :
+// - Si AU MOINS UN ingrédient est dans FODMAP_HIGH → la recette est 'high-fodmap'
+// - Dans TOUS les autres cas → 'low-fodmap'
+//
+// Liste basée sur les recommandations utilisateur, classée par catégorie de FODMAP :
+// GOS (Galacto-oligosaccharides), Fructanes (FOS), Lactose, Fructose en excès, Polyols.
+// Les noms sont normalisés (sans accent, minuscule, ligature œ→oe) pour le matching.
 
 const FODMAP_HIGH = new Set([
+  // ====== GOS — Galacto-oligosaccharides ======
   // Légumineuses
   'pois chiches', 'pois chiche', 'haricots rouges', 'haricot rouge', 'haricots pinto', 'haricot pinto',
-  'haricots de lima', 'haricot de lima', 'pois cassés', 'pois casses', 'lentille', 'lentilles',
-  'flageolet', 'flageolets', 'feve de soja', 'fèves de soja', 'soja',
-  // Légumes high FODMAP
-  'asperge', 'asperges', 'betterave', 'betteraves', 'pois mange-tout', 'chou de bruxelles', 'choux de bruxelles',
-  'courge butternut', 'courges butternut', 'butternut', 'mais', 'maïs', 'petit pois', 'petits pois',
-  'artichaut', 'artichauts', 'brocoli', 'brocolis', 'chou', 'choux', 'fenouil',
-  'ail', 'poireau', 'poireaux', 'gombo', 'oignon', 'oignons', 'echalote', 'échalote', 'echalotes', 'échalotes',
-  'topinambour', 'topinambours', 'champignon', 'champignons', 'chou-fleur', 'choux-fleurs',
-  'fond d\'artichaut', 'coeur d\'artichaut', 'tomates sechees', 'tomates séchées', 'tomate sechee', 'tomate séchée',
-  // Fruits high FODMAP
-  'pomme', 'pommes', 'melon d\'eau', 'pasteque', 'pastèque', 'kaki', 'kakis', 'nectarine', 'nectarines',
-  'datte', 'dattes', 'figue', 'figues', 'pamplemousse', 'pamplemousses', 'abricot', 'abricots',
-  'cerise', 'cerises', 'poire', 'poires', 'mangue', 'mangues', 'mure', 'mûre', 'mures', 'mûres',
-  'litchi', 'litchis', 'peche', 'pêche', 'peches', 'pêches', 'prune', 'prunes', 'pruneau', 'pruneaux',
-  'cassis', 'avocat', 'avocats', 'raisin sec', 'raisins secs', 'fruits secs', 'fruit sec',
-  // Céréales
-  'ble', 'blé', 'seigle', 'pain', 'couscous', 'boulghour', 'boulgour', 'semoule de ble', 'semoule de blé',
-  'biscuit', 'biscuits', 'craquelin', 'craquelins',
-  // Produits laitiers (lactose)
-  'lait', 'lait de vache', 'lait de chevre', 'lait de chèvre', 'lait de brebis',
-  'creme glacee', 'crème glacée', 'glace', 'yaourt', 'yaourts', 'poudre de lait',
-  'cottage', 'mascarpone', 'ricotta', 'faisselle',
-  // Sucres et édulcorants
-  'miel', 'sirop de mais', 'sirop de maïs', 'fructose', 'sorbitol', 'mannitol', 'xylitol',
-  'maltitol', 'isomalt', 'edulcorant', 'édulcorant',
-  // Boissons
-  'jus de fruits', 'jus de pomme', 'jus de poire', 'vin liquoreux', 'porto', 'muscat',
-  // Noix
-  'noix de cajou', 'cajou', 'pistache', 'pistaches', 'amande', 'amandes', 'noisette', 'noisettes',
-  'houmous',
-  // Autres
-  'chicoree', 'chicorée', 'pissenlit', 'inuline'
-]);
+  'haricots de lima', 'haricot de lima', 'pois casse', 'pois casses', 'pois cassé', 'pois cassés',
+  'lentille', 'lentilles', 'flageolet', 'flageolets',
+  'feve de soja', 'feves de soja', 'fève de soja', 'fèves de soja', 'soja',
+  // Légumes (GOS)
+  'asperge', 'asperges', 'betterave', 'betteraves',
+  'pois mange-tout', 'pois mange tout', 'mange-tout',
+  'chou de bruxelles', 'choux de bruxelles', 'bruxelles',
+  'courge butternut', 'courges butternut', 'butternut',
+  'mais', 'maïs', 'mais sucre', 'maïs sucré',
+  'petit pois', 'petits pois',
+  // Noix GOS
+  'noix de cajou', 'noix de cajous', 'cajou', 'cajous',
+  'pistache', 'pistaches', 'amande', 'amandes', 'noisette', 'noisettes',
+  // Autres GOS
+  'sauce du commerce', 'sauces du commerce', 'sauce industrielle',
+  'the tres infuse', 'thé très infusé', 'thé fortement infusé',
+  'houmous', 'hummus',
 
-const FODMAP_LOW = new Set([
-  // Fruits low FODMAP
-  'banane', 'bananes', 'canneberge', 'canneberges', 'durian', 'melon', 'kiwi', 'kiwis',
-  'citron', 'citrons', 'lime', 'limes', 'citron vert', 'mandarine', 'mandarines',
-  'orange', 'oranges', 'fraise', 'fraises', 'framboise', 'framboises', 'myrtille', 'myrtilles',
-  'kumquat', 'kumquats', 'fruit de la passion', 'papaye', 'papayes', 'ananas', 'rhubarbe',
-  'clementine', 'clémentine', 'clementines', 'clémentines',
-  // Légumes low FODMAP
-  'pousses de bambou', 'bambou', 'coeur de palmier', 'coeurs de palmier', 'palmier',
-  'pousse de haricot', 'pousses de haricot', 'carotte', 'carottes', 'celeri rave', 'céleri rave',
-  'celeri-rave', 'céleri-rave', 'endive', 'endives', 'chou kale', 'kale', 'chou-rave', 'chou rave',
-  'chou chinois', 'gingembre', 'haricot vert', 'haricots verts', 'salade', 'salade verte', 'laitue',
-  'cresson', 'olive', 'olives', 'panais', 'potiron', 'patisson', 'pâtisson',
-  'courge spaghetti', 'epinard', 'epinards', 'épinard', 'épinards', 'radis', 'blette', 'blettes',
-  'navet', 'navets', 'tomate', 'tomates', 'tomate cerise', 'tomates cerises',
-  'courgette', 'courgettes', 'aubergine', 'aubergines', 'concombre', 'concombres', 'roquette',
-  // Herbes low FODMAP
-  'basilic', 'chili', 'coriandre', 'thym', 'menthe', 'origan', 'persil', 'romarin', 'sauge', 'laurier',
-  'ciboulette', 'estragon', 'aneth',
-  // Céréales / Féculents low FODMAP
-  'pain au levain', 'levain', 'flocon d\'avoine', 'flocons d\'avoine', 'avoine',
-  'farine de sarrasin', 'farine de millet', 'farine de quinoa', 'farine de sorgho', 'farine de tapioca',
-  'sarrasin', 'millet', 'quinoa', 'sorgho', 'tapioca', 'pates sans gluten', 'pâtes sans gluten',
-  'pates de riz', 'pâtes de riz', 'pates de mais', 'pâtes de maïs', 'pates de quinoa', 'pâtes de quinoa',
-  'pomme de terre', 'pommes de terre', 'patate douce', 'patates douces', 'riz', 'riz basmati', 'riz complet',
-  'polenta',
-  // Produits laitiers low FODMAP
-  'lait sans lactose', 'lait de riz', 'lait d\'amande', 'lait d\'avoine', 'lait de coco',
-  'creme de coco', 'crème de coco', 'beurre', 'creme fraiche', 'crème fraîche',
-  'cheddar', 'gouda', 'parmesan', 'feta', 'fromage de chevre', 'fromage de chèvre', 'chevre', 'chèvre',
-  'mozzarella', 'brie', 'camembert', 'yaourt sans lactose', 'sorbet',
-  // Protéines (toujours low FODMAP)
-  'viande', 'viandes', 'boeuf', 'porc', 'agneau', 'veau', 'poulet', 'dinde', 'canard',
-  'poisson', 'saumon', 'thon', 'cabillaud', 'sardine', 'sardines', 'oeuf', 'oeufs', 'œuf', 'œufs',
-  'tofu', 'tofu nature',
-  // Condiments / Huiles
-  'moutarde', 'huile', 'huile d\'olive', 'huile de tournesol', 'huile de colza',
-  'vinaigre', 'vinaigre de vin', 'vinaigre balsamique', 'vinaigre de riz',
-  'capres', 'câpres', 'cornichon', 'cornichons',
-  // Sucres low FODMAP (modéré)
-  'sucre', 'sucre blanc', 'sucre roux', 'sucre de canne', 'sirop d\'erable', 'sirop d\'érable',
-  'chocolat noir', 'cacao',
-  // Noix low FODMAP
-  'cacahuete', 'cacahuète', 'cacahuetes', 'cacahuètes', 'beurre de cacahuete', 'beurre de cacahuète',
-  'noix de pecan', 'noix de pécan', 'pecan', 'pécan',
+  // ====== Fructanes (FOS) ======
+  // Légumes
+  'artichaut', 'artichauts',
+  'brocoli', 'brocolis',
+  'chou', 'choux',
+  'fenouil',
+  'ail', 'gousse d\'ail', 'gousses d\'ail',
+  'poireau', 'poireaux',
+  'gombo', 'gombos',
+  'oignon', 'oignons', 'oignon rouge', 'oignon jaune', 'oignon blanc', 'oignon nouveau',
+  'echalote', 'échalote', 'echalotes', 'échalotes',
+  'topinambour', 'topinambours',
+  'champignon', 'champignons', 'champignon de paris', 'champignons de paris', 'cepe', 'cèpe', 'cepes', 'cèpes',
+  // Céréales (blé, seigle et dérivés en grande quantité)
+  'ble', 'blé',
+  'seigle',
+  'pain', 'pain blanc', 'pain complet', 'pain de mie', 'baguette', 'baguettes',
+  'craquelin', 'craquelins',
+  'biscuit', 'biscuits',
+  'couscous', 'semoule', 'semoule fine', 'semoule de ble', 'semoule de blé',
+  'pates', 'pâtes', 'pates alimentaires', 'pâtes alimentaires',
+  'spaghetti', 'spaghettis', 'tagliatelle', 'tagliatelles',
+  'penne', 'fusilli', 'macaroni', 'macaronis', 'farfalle',
+  'lasagne', 'lasagnes', 'gnocchi', 'gnocchis',
+  'boulghour', 'boulgour',
+  'brioche', 'brioches', 'croissant', 'croissants', 'viennoiserie', 'viennoiseries',
+  // Farines à base de blé/seigle
+  'farine', 'farine de ble', 'farine de blé', 'farine de seigle',
+  'farine t45', 'farine t55', 'farine t65', 'farine t80', 'farine t110', 'farine t150',
+  'farine d\'epeautre', 'farine d\'épeautre', 'epeautre', 'épeautre',
+  'orge',
+  // Fruits (fructanes)
+  'pomme', 'pommes',
+  'melon d\'eau',
+  'kaki', 'kakis',
+  'nectarine', 'nectarines',
+  'datte', 'dattes',
+  'figue', 'figues',
+  'pamplemousse', 'pamplemousses',
+  'abricot', 'abricots',
+  // Autres fructanes
+  'chicoree', 'chicorée',
+  'pissenlit',
+  'inuline',
+
+  // ====== Lactose ======
+  'lait', 'lait de vache', 'lait de chevre', 'lait de chèvre', 'lait de brebis',
+  'lait entier', 'lait demi-ecreme', 'lait demi-écrémé', 'lait ecreme', 'lait écrémé',
+  'creme glacee', 'crème glacée', 'glace',
+  'yaourt', 'yaourts',
+  'dessert lacte', 'dessert lacté', 'desserts a base de lait', 'desserts à base de lait',
+  'poudre de lait',
+  // Fromages à pâte molle non affinés
+  'cottage', 'cottage cheese', 'mascarpone', 'ricotta', 'faisselle',
+  'fromage blanc', 'fromage frais', 'petit suisse', 'petits suisses', 'kefir', 'kéfir',
+  'creme', 'crème', 'creme epaisse', 'crème épaisse', 'creme liquide', 'crème liquide',
+
+  // ====== Fructose en excès ======
+  // Fruits (Pomme/Poire déjà ci-dessus mais on les liste aussi explicitement)
+  'cerise', 'cerises',
+  'mangue', 'mangues',
+  'pasteque', 'pastèque',
+  'poire', 'poires',
+  'fruits en conserve', 'fruit en conserve',
+  'fruits seches', 'fruits séchés', 'fruit seche', 'fruit séché', 'fruit sec', 'fruits secs',
+  'raisin sec', 'raisins secs',
+  'jus de fruits', 'jus de fruit', 'jus de pomme', 'jus de poire',
+  // Légumes (fructose)
+  'fond d\'artichaut', 'fonds d\'artichaut', 'coeur d\'artichaut', 'coeurs d\'artichaut',
+  'tomate sechee', 'tomate séchée', 'tomates sechees', 'tomates séchées',
+  // Sucres et sirops
+  'fructose',
+  'sirop de mais', 'sirop de maïs', 'sirop de mais a haute teneur en fructose', 'sirop de glucose-fructose',
+  'miel',
+  'bonbon', 'bonbons',
+  // Alcools sucrés
+  'vin liquoreux', 'vins liquoreux', 'porto', 'rhum', 'muscat', 'pernod', 'sauternes',
+
+  // ====== Polyols ======
+  // Fruits (certains déjà ci-dessus comme pomme/poire)
+  'avocat', 'avocats',
+  'mure', 'mûre', 'mures', 'mûres',
+  'litchi', 'litchis',
+  'peche', 'pêche', 'peches', 'pêches',
+  'prune', 'prunes', 'pruneau', 'pruneaux',
+  'cassis',
+  'noix', 'eau de coco',
+  // Légumes polyols
+  'chou-fleur', 'choux-fleurs', 'chou fleur', 'choux fleurs',
+  'poivron', 'poivrons', 'poivron rouge', 'poivron vert', 'poivron jaune',
+  // Édulcorants polyols
+  'sorbitol', 'mannitol', 'isomalt', 'maltitol', 'xylitol',
+  'e420', 'e421', 'e953', 'e965', 'e967',
+  'chewing-gum', 'chewing gum', 'chewing-gums',
+  'sucette', 'sucettes',
+  'dessert leger a base de lait', 'dessert léger à base de lait',
+  'edulcorant', 'édulcorant', 'edulcorants', 'édulcorants',
 ]);
 
 // Stop words à ignorer dans le nom d'ingrédient
@@ -529,75 +569,104 @@ const FODMAP_STOP_WORDS = new Set([
   'et', 'ou', 'avec', 'sans', 'en', 'd\'', 'l\'', 'pour'
 ]);
 
+// Exceptions : ingrédients qui ressemblent à un high mais qui sont en réalité LOW
+// (matching prioritaire sur FODMAP_HIGH pour éviter les faux positifs)
+const FODMAP_EXCEPTIONS_LOW = new Set([
+  // Coco : la noix de coco N'EST PAS la "noix" polyol
+  'noix de coco', 'noix de coco rapee', 'noix de coco râpée', 'lait de coco', 'creme de coco', 'crème de coco',
+  'coco', 'huile de coco',
+  // Pecan : pas la "noix" polyol classique
+  'noix de pecan', 'noix de pécan', 'pecan', 'pécan',
+  // Macadamia : low FODMAP
+  'noix de macadamia', 'macadamia',
+  // Cacahuète n'est pas une "noix" botanique
+  'cacahuete', 'cacahuète', 'cacahuetes', 'cacahuètes',
+  'beurre de cacahuete', 'beurre de cacahuète',
+  // Pain au levain : low FODMAP malgré "pain"
+  'pain au levain', 'levain',
+  // Farines sans gluten
+  'farine de sarrasin', 'farine de millet', 'farine de quinoa', 'farine de sorgho',
+  'farine de tapioca', 'farine de mais', 'farine de maïs', 'farine de riz',
+  'sarrasin', 'millet', 'quinoa', 'sorgho', 'tapioca',
+  // Pâtes sans blé
+  'pates sans gluten', 'pâtes sans gluten', 'pates de riz', 'pâtes de riz',
+  'pates de mais', 'pâtes de maïs', 'pates de quinoa', 'pâtes de quinoa',
+  // Lait non lactés
+  'lait sans lactose', 'lait de riz', 'lait d\'amande', 'lait d\'avoine', 'lait de soja',
+  // Yaourts spéciaux
+  'yaourt sans lactose', 'yaourt vegetal', 'yaourt végétal',
+  // Sucres communs ≠ fructose/miel
+  'sucre', 'sucre blanc', 'sucre roux', 'sucre de canne', 'sucre vanille', 'sucre vanillé',
+  'sucre glace', 'sucre en poudre', 'sucre semoule', 'cassonade',
+  'sirop d\'erable', 'sirop d\'érable',
+  // Tomate cerise et tomates classiques (≠ tomates séchées)
+  'tomate', 'tomates', 'tomate cerise', 'tomates cerises',
+]);
+
 // Normalise un nom d'ingrédient pour le matching FODMAP
 function normalizeFodmapName(name) {
   return (name || '').toLowerCase()
+    .replace(/œ/g, 'oe').replace(/æ/g, 'ae') // ligatures explicites AVANT NFD
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // sans accents
-    .replace(/\([^)]*\)/g, ' ') // sans parenthèses
-    .replace(/[^a-z'\s-]/g, ' ') // garde lettres, espaces, ', -
+    .replace(/\([^)]*\)/g, ' ') // sans parenthèses (ex: "Lait (vache)" → "lait")
+    .replace(/[^a-z0-9'\s-]/g, ' ') // garde lettres, chiffres, espaces, ', -
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-// Détermine le statut FODMAP d'un ingrédient unique
-// Retourne 'high', 'low', ou 'unknown'
-function classifyIngredientFodmap(ingredientName) {
+// Détermine si UN ingrédient unique est high FODMAP.
+// Retourne true si l'ingrédient matche la liste FODMAP_HIGH, false sinon.
+// Les exceptions FODMAP_EXCEPTIONS_LOW priment (ex: "noix de coco" est low malgré "noix").
+function isIngredientHighFodmap(ingredientName) {
   const normalized = normalizeFodmapName(ingredientName);
-  if (!normalized) return 'unknown';
+  if (!normalized) return false;
 
-  // Match exact d'abord (plus précis : "tomate sechee" plutôt que "tomate")
-  if (FODMAP_HIGH.has(normalized)) return 'high';
-  if (FODMAP_LOW.has(normalized)) return 'low';
+  // 0. Vérifier d'abord les exceptions explicites LOW (priorité absolue)
+  // Match exact OU bigramme contenu dans l'exception
+  if (FODMAP_EXCEPTIONS_LOW.has(normalized)) return false;
+  // Bigrammes pour exceptions composées (ex: "noix de coco rapée fine")
+  const wordsAll = normalized.split(/\s+/);
+  for (let i = 0; i < wordsAll.length; i++) {
+    for (let j = i + 2; j <= Math.min(i + 4, wordsAll.length); j++) {
+      const ngram = wordsAll.slice(i, j).join(' ');
+      if (FODMAP_EXCEPTIONS_LOW.has(ngram)) return false;
+    }
+  }
 
-  // Match par mots : on prend le statut le plus "sécuritaire" (high prime sur low)
-  // Ex: "farine de blé" → "blé" → high
-  // Ex: "huile d'olive" → "huile" → low
-  const words = normalized.split(/\s+/).filter(w => w.length > 2 && !FODMAP_STOP_WORDS.has(w));
+  // 1. Match exact dans FODMAP_HIGH
+  if (FODMAP_HIGH.has(normalized)) return true;
 
-  let foundLow = false;
-  // Essayer des combinaisons de 2 mots adjacents d'abord (plus précis)
+  // 2. Match par bigrammes (2 mots adjacents)
+  const words = normalized.split(/\s+/).filter(w => w.length > 1 && !FODMAP_STOP_WORDS.has(w));
   for (let i = 0; i < words.length - 1; i++) {
     const bigram = words[i] + ' ' + words[i + 1];
-    if (FODMAP_HIGH.has(bigram)) return 'high';
-    if (FODMAP_LOW.has(bigram)) foundLow = true;
+    if (FODMAP_HIGH.has(bigram)) return true;
   }
 
-  // Puis mots individuels
+  // 3. Match par mot individuel
   for (const w of words) {
-    if (FODMAP_HIGH.has(w)) return 'high';
-    if (FODMAP_LOW.has(w)) foundLow = true;
+    if (w.length < 3) continue;
+    if (FODMAP_HIGH.has(w)) return true;
   }
 
-  return foundLow ? 'low' : 'unknown';
+  return false;
 }
 
-// Calcule les tags FODMAP suggérés pour une recette
-// Règles :
-// - Si AU MOINS UN ingrédient est 'high' → high-fodmap
-// - Sinon si TOUS les ingrédients connus sont 'low' (au moins 50% connus) → low-fodmap
-// - Sinon : rien (incertain)
+// Calcule les tags FODMAP d'une recette — LOGIQUE BINAIRE STRICTE
+// - Si AU MOINS UN ingrédient est dans FODMAP_HIGH → ['high-fodmap']
+// - Dans tous les autres cas → ['low-fodmap']
 function calculateFodmapTags(ingredients) {
-  if (!ingredients || ingredients.length === 0) return [];
-  let highCount = 0;
-  let lowCount = 0;
-  let unknownCount = 0;
-  const highIngredients = [];
-
+  if (!ingredients || ingredients.length === 0) return ['low-fodmap'];
   for (const ing of ingredients) {
-    const status = classifyIngredientFodmap(ing.name);
-    if (status === 'high') {
-      highCount++;
-      highIngredients.push(ing.name);
-    } else if (status === 'low') lowCount++;
-    else unknownCount++;
+    if (isIngredientHighFodmap(ing.name)) return ['high-fodmap'];
   }
+  return ['low-fodmap'];
+}
 
-  if (highCount > 0) return ['high-fodmap'];
-  // Pour low : il faut qu'au moins la moitié des ingrédients soient identifiés en low
-  // (pour éviter de tagger une recette de 10 ingrédients dont 8 inconnus)
-  const knownRatio = (highCount + lowCount) / ingredients.length;
-  if (lowCount > 0 && knownRatio >= 0.5) return ['low-fodmap'];
-  return [];
+// Wrapper rétrocompatible pour le code existant qui utilisait classifyIngredientFodmap.
+// Retourne 'high' si l'ingrédient est dans la liste, 'low' sinon.
+function classifyIngredientFodmap(ingredientName) {
+  return isIngredientHighFodmap(ingredientName) ? 'high' : 'low';
 }
 
 // ============================================
