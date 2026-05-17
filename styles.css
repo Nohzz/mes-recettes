@@ -6258,6 +6258,14 @@ body.keyboard-open .bottom-nav {
   color: var(--color-primary-dark);
   border-color: var(--color-primary-soft);
 }
+
+/* Chip régime spécifique : utilise la couleur du régime (DIET_TAGS.color)
+   pour distinguer visuellement chaque régime (vert pour végétarien, orange high-fodmap, etc.) */
+.recipe-meta-chip-diet {
+  border-color: var(--diet-color, var(--color-primary-soft));
+  background: color-mix(in srgb, var(--diet-color, #B5532A) 12%, white);
+}
+
 .recipe-meta-chip.is-filled:hover {
   background: var(--color-primary-pale);
 }
