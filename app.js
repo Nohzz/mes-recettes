@@ -1573,16 +1573,18 @@ function renderRecipeDetail(recipe) {
     factualChips.push(`<button class="recipe-meta-chip is-empty" onclick="editRecipeTags('${r.id}')">+ Tags</button>`);
   }
 
-  // Régimes alimentaires (chips compactes : juste les emojis si remplis)
+  // Régimes alimentaires : une chip par régime avec emoji + label complet
+  // (au lieu de regrouper tous les emojis sous une seule chip qui était cryptique)
   const dietTags = r.dietTags || [];
   if (dietTags.length > 0) {
-    const emojis = dietTags.map(id => {
+    for (const id of dietTags) {
       const t = DIET_TAGS.find(x => x.id === id);
-      return t ? `<span class="recipe-meta-diet-emoji" style="color:${t.color}" title="${escapeHtml(t.label)}">${t.emoji}</span>` : '';
-    }).join('');
-    factualChips.push(`<button class="recipe-meta-chip is-filled" onclick="openDietTagsEditor('${r.id}')">
-      ${emojis}
-    </button>`);
+      if (!t) continue;
+      factualChips.push(`<button class="recipe-meta-chip is-filled recipe-meta-chip-diet" style="--diet-color:${t.color}" onclick="openDietTagsEditor('${r.id}')" title="Toucher pour modifier les régimes">
+        <span class="recipe-meta-chip-icon">${t.emoji}</span>
+        <span class="recipe-meta-chip-text">${escapeHtml(t.label)}</span>
+      </button>`);
+    }
   } else {
     factualChips.push(`<button class="recipe-meta-chip is-empty" onclick="openDietTagsEditor('${r.id}')">+ Régime</button>`);
   }

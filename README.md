@@ -63,6 +63,7 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
 - **Compteurs dans les titres** : « Ingrédients (12) », « Étapes (8) » pour un aperçu visuel immédiat
 - **Meta-bar en 2 groupes** : factuel (tags, régimes, source) puis validation (cuisson, vérifié, changelog), séparés par un trait pointillé subtil
   - La chip « ☐ À vérifier » n'apparaît plus que pour les recettes extraites par IA (jamais sur une recette saisie manuellement)
+  - **Régimes** : une chip distincte par régime avec emoji + label complet, teintée de sa couleur native (« 🥗 Végétarien », « 🌾 Sans gluten », « 💚 Low FODMAP », etc.) — fini les emojis empilés cryptiques
 - **Chip cuisson avec code couleur de fraîcheur** : vert < 14 jours, neutre 14-60 j, gris > 60 j
 - **Bouton retour intelligent** : `history.back()` qui préserve la provenance (library / planning / shopping / search) plutôt que de toujours retomber sur la bibliothèque
 - **Libellé clair** : « ✓ J'ai cuisiné cette recette aujourd'hui » (au lieu du flou « J'ai fait cette recette »)
