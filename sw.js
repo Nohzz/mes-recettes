@@ -1,6 +1,10 @@
 // Service Worker — Mes Recettes PWA
 // v2.0 : stratégie network-first pour garantir les mises à jour
-const CACHE_VERSION = 'mes-recettes-v2-2026-05-01';
+//
+// ⚠️ BUMP À CHAQUE DÉPLOIEMENT : changer la string CACHE_VERSION ci-dessous force
+// l'invalidation du cache et garantit que les nouveaux fichiers (app.js, styles.css…)
+// sont récupérés. Format suggéré : mes-recettes-vX.Y-YYYY-MM-DD
+const CACHE_VERSION = 'mes-recettes-v3.5-2026-05-17';
 const APP_FILES = [
   './',
   './index.html',
