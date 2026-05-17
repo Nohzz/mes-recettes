@@ -2,6 +2,84 @@
 // MES RECETTES — App JS
 // ============================================
 
+// ============================================
+// OBFUSCATION DES SECRETS DANS LOCALSTORAGE
+// ============================================
+// Objectif : empêcher la lecture en clair des clés API et credentials Supabase via
+// l'onglet "Application → localStorage" des devtools ou un dump d'extension.
+// Ce n'est PAS une protection cryptographique forte (un attaquant qui peut exécuter
+// du JS dans l'origine peut déchiffrer). Mode "obfuscation visuelle" assumé.
+//
+// Schéma : valeurs préfixées par "enc1:" + base64( XOR(valeur, clé dérivée d'origin) )
+// Les valeurs sans préfixe sont considérées comme en clair (migration au boot).
+
+const _OBF_KEY = (() => {
+  const base = 'mr-x9-v1-2026-mes-recettes';
+  const seed = (typeof location !== 'undefined' ? location.origin : '') + '/' + base;
+  // Dériver 32 caractères pseudo-aléatoires depuis seed (LCG simple)
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < seed.length; i++) {
+    h = ((h ^ seed.charCodeAt(i)) * 16777619) >>> 0;
+  }
+  let mix = '';
+  for (let i = 0; i < 32; i++) {
+    h = (h * 1103515245 + 12345) >>> 0;
+    mix += String.fromCharCode(33 + (h % 94));
+  }
+  return mix;
+})();
+
+const _OBF_PREFIX = 'enc1:';
+
+function _obfuscate(value) {
+  if (!value) return '';
+  const str = String(value);
+  const out = [];
+  for (let i = 0; i < str.length; i++) {
+    out.push(String.fromCharCode(str.charCodeAt(i) ^ _OBF_KEY.charCodeAt(i % _OBF_KEY.length)));
+  }
+  try {
+    return _OBF_PREFIX + btoa(unescape(encodeURIComponent(out.join(''))));
+  } catch (e) {
+    return _OBF_PREFIX + btoa(out.join(''));
+  }
+}
+
+function _deobfuscate(stored) {
+  if (!stored) return '';
+  if (!stored.startsWith(_OBF_PREFIX)) return stored; // valeur en clair (legacy)
+  try {
+    let decoded;
+    try {
+      decoded = decodeURIComponent(escape(atob(stored.slice(_OBF_PREFIX.length))));
+    } catch (e) {
+      decoded = atob(stored.slice(_OBF_PREFIX.length));
+    }
+    const out = [];
+    for (let i = 0; i < decoded.length; i++) {
+      out.push(String.fromCharCode(decoded.charCodeAt(i) ^ _OBF_KEY.charCodeAt(i % _OBF_KEY.length)));
+    }
+    return out.join('');
+  } catch (e) {
+    console.warn('Déchiffrement échoué pour une valeur obfusquée, valeur ignorée');
+    return '';
+  }
+}
+
+// Wrappers pour les valeurs sensibles : lire/écrire en transparence avec obfuscation
+function getSecret(storageKey) {
+  const raw = localStorage.getItem(storageKey);
+  return raw ? _deobfuscate(raw) : '';
+}
+
+function setSecret(storageKey, value) {
+  if (value === null || value === undefined || value === '') {
+    localStorage.removeItem(storageKey);
+    return;
+  }
+  localStorage.setItem(storageKey, _obfuscate(value));
+}
+
 const STORAGE_KEYS = {
   recipes: 'mr_recipes',
   apiKey: 'mr_api_key',
@@ -23,7 +101,8 @@ const STORAGE_KEYS = {
   sortMode: 'mr_sort_mode', // 'recent' | 'name' | 'cooked'
   categoryOrder: 'mr_category_order',
   servingsPresets: 'mr_servings_presets',
-  planning: 'mr_planning'
+  planning: 'mr_planning',
+  planningPrefs: 'mr_planning_prefs'
 };
 
 const state = {
@@ -62,7 +141,16 @@ const state = {
     enableWebSearch: false,
     voiceMode: 'claude',
     sortMode: 'recent',
-    servingsPresets: [2, 4, 6, 8]
+    servingsPresets: [2, 4, 6, 8],
+    // Préférences de génération de menu IA (toutes activées par défaut)
+    planning: {
+      proteinDaily: true,        // Protéine à chaque repas (max 1 jour/semaine sans)
+      proteinSequencing: true,   // Pas 2x même type de protéine sur 2 jours consécutifs
+      nutritionQuotas: true,     // ≥2 poissons, ≤2 viandes rouges, ≥1 plat végétal par semaine
+      lightHeavyBalance: true,   // Équilibre lourd ↔ léger sur la journée
+      weekendVsWeek: true,       // Rapide en semaine, plus festif le weekend
+      batchCooking: false        // Maximiser les paires de slots consécutifs avec la même recette
+    }
   },
   // Cooking mode
   cookingMode: { active: false, currentStep: 0, recipeId: null }
@@ -76,11 +164,23 @@ function loadState() {
   try {
     const recipes = localStorage.getItem(STORAGE_KEYS.recipes);
     state.recipes = recipes ? JSON.parse(recipes) : [];
-    state.apiKey = localStorage.getItem(STORAGE_KEYS.apiKey) || '';
-    // Sync config
-    state.sync.url = localStorage.getItem(STORAGE_KEYS.syncUrl) || '';
-    state.sync.key = localStorage.getItem(STORAGE_KEYS.syncKey) || '';
-    state.sync.foyer = localStorage.getItem(STORAGE_KEYS.syncFoyer) || '';
+    // Secrets : lus via wrappers qui gèrent l'obfuscation (et migrent automatiquement les valeurs en clair)
+    state.apiKey = getSecret(STORAGE_KEYS.apiKey);
+    state.sync.url = getSecret(STORAGE_KEYS.syncUrl);
+    state.sync.key = getSecret(STORAGE_KEYS.syncKey);
+    state.sync.foyer = getSecret(STORAGE_KEYS.syncFoyer);
+    // Migration : si les valeurs étaient stockées en clair, les ré-écrire en obfusqué
+    [
+      [STORAGE_KEYS.apiKey, state.apiKey],
+      [STORAGE_KEYS.syncUrl, state.sync.url],
+      [STORAGE_KEYS.syncKey, state.sync.key],
+      [STORAGE_KEYS.syncFoyer, state.sync.foyer]
+    ].forEach(([k, v]) => {
+      if (v) {
+        const raw = localStorage.getItem(k);
+        if (raw && !raw.startsWith(_OBF_PREFIX)) setSecret(k, v);
+      }
+    });
     state.sync.enabled = localStorage.getItem(STORAGE_KEYS.syncEnabled) === '1';
     state.sync.lastSync = Number(localStorage.getItem(STORAGE_KEYS.lastSync)) || 0;
 
@@ -148,6 +248,14 @@ function loadState() {
     const presetsStr = localStorage.getItem(STORAGE_KEYS.servingsPresets);
     if (presetsStr) {
       try { state.prefs.servingsPresets = JSON.parse(presetsStr); } catch {}
+    }
+    // Préférences de génération de menu (merge avec les défauts pour gérer l'ajout futur de toggles)
+    const planningPrefsStr = localStorage.getItem(STORAGE_KEYS.planningPrefs);
+    if (planningPrefsStr) {
+      try {
+        const saved = JSON.parse(planningPrefsStr);
+        state.prefs.planning = { ...state.prefs.planning, ...saved };
+      } catch {}
     }
 
     // S'assurer que chaque recette a tous les champs des nouvelles features (migration douce)
@@ -257,6 +365,22 @@ function loadState() {
         try { localStorage.setItem(STORAGE_KEYS.recipes, JSON.stringify(state.recipes)); } catch {}
       }
     }
+
+    // Migration PROTÉINE : calcul auto pour toutes les recettes existantes (cache _proteinType)
+    // Sert à la génération de menu IA pour appliquer les règles nutritionnelles
+    if (typeof detectProteinType === 'function') {
+      const PROTEIN_VERSION = 'protein-v1';
+      const proteinMigrated = localStorage.getItem('mr_protein_version');
+      if (proteinMigrated !== PROTEIN_VERSION) {
+        state.recipes = state.recipes.map(r => {
+          if (!r.ingredients) return r;
+          const detection = detectProteinType(r.ingredients);
+          return { ...r, _proteinType: detection.type, _hasProtein: detection.hasProtein };
+        });
+        localStorage.setItem('mr_protein_version', PROTEIN_VERSION);
+        try { localStorage.setItem(STORAGE_KEYS.recipes, JSON.stringify(state.recipes)); } catch {}
+      }
+    }
   } catch (e) {
     console.error('Load state error:', e);
   }
@@ -308,15 +432,12 @@ function savePrefs() {
   localStorage.setItem(STORAGE_KEYS.voiceMode, state.prefs.voiceMode);
   localStorage.setItem(STORAGE_KEYS.sortMode, state.prefs.sortMode);
   localStorage.setItem(STORAGE_KEYS.servingsPresets, JSON.stringify(state.prefs.servingsPresets));
+  localStorage.setItem(STORAGE_KEYS.planningPrefs, JSON.stringify(state.prefs.planning || {}));
 }
 
 function saveApiKey(key) {
   state.apiKey = key;
-  if (key) {
-    localStorage.setItem(STORAGE_KEYS.apiKey, key);
-  } else {
-    localStorage.removeItem(STORAGE_KEYS.apiKey);
-  }
+  setSecret(STORAGE_KEYS.apiKey, key);
 }
 
 function saveSyncConfig(config) {
@@ -325,12 +446,9 @@ function saveSyncConfig(config) {
   state.sync.foyer = config.foyer || '';
   state.sync.enabled = !!(config.url && config.key && config.foyer);
 
-  if (state.sync.url) localStorage.setItem(STORAGE_KEYS.syncUrl, state.sync.url);
-  else localStorage.removeItem(STORAGE_KEYS.syncUrl);
-  if (state.sync.key) localStorage.setItem(STORAGE_KEYS.syncKey, state.sync.key);
-  else localStorage.removeItem(STORAGE_KEYS.syncKey);
-  if (state.sync.foyer) localStorage.setItem(STORAGE_KEYS.syncFoyer, state.sync.foyer);
-  else localStorage.removeItem(STORAGE_KEYS.syncFoyer);
+  setSecret(STORAGE_KEYS.syncUrl, state.sync.url);
+  setSecret(STORAGE_KEYS.syncKey, state.sync.key);
+  setSecret(STORAGE_KEYS.syncFoyer, state.sync.foyer);
   localStorage.setItem(STORAGE_KEYS.syncEnabled, state.sync.enabled ? '1' : '0');
 }
 
@@ -686,6 +804,24 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+// Helper : fait défiler une série de labels pendant une attente longue.
+// Évite l'angoisse de l'attente fixe ("Génération...") sur un appel IA de 5-20 sec.
+// Usage :
+//   const stop = startProgressiveLabel(label => btn.innerHTML = '<span class="spinner-small"></span> ' + label,
+//                                       ['Étape 1…', 'Étape 2…', 'Étape 3…']);
+//   try { await longCall(); } finally { stop(); }
+function startProgressiveLabel(setter, labels, intervalMs = 3500) {
+  if (!labels || labels.length === 0) return () => {};
+  let idx = 0;
+  setter(labels[0]);
+  const timer = setInterval(() => {
+    idx = Math.min(idx + 1, labels.length - 1);
+    setter(labels[idx]);
+    if (idx === labels.length - 1) clearInterval(timer);
+  }, intervalMs);
+  return () => clearInterval(timer);
+}
+
 function showToast(message, type = '') {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
@@ -898,6 +1034,12 @@ function _renderView(view, data) {
     if (['library', 'planning', 'shopping'].includes(previousView)) {
       state._viewScrolls[previousView] = mainContent.scrollTop;
     }
+  }
+
+  // Réinitialiser le contexte planning si l'utilisateur quitte le flow (vers library/shopping/chat ou retour planning)
+  // Le contexte reste actif tant qu'on est sur une fiche recette (mode current → candidate)
+  if (view !== 'recipe' && state._planningContext) {
+    state._planningContext = null;
   }
 
   state.currentView = view;
@@ -1563,6 +1705,39 @@ function renderRecipeDetail(recipe) {
             </button>`
           }
         </div>
+        ${(() => {
+          const ctx = state._planningContext;
+          if (!ctx) return '';
+          if (ctx.mode === 'current' && ctx.originalRecipeId === r.id) {
+            const slotLbl = (MEAL_SLOTS.find(s => s.id === ctx.slotId) || {}).label || ctx.slotId;
+            let dLbl = ctx.dateStr;
+            try {
+              const [y, m, day] = ctx.dateStr.split('-').map(Number);
+              const dObj = new Date(y, m - 1, day);
+              dLbl = dObj.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+            } catch (e) {}
+            return `
+              <div class="planning-context-bar">
+                <p class="planning-context-bar-info">📅 Planifiée pour <strong>${escapeHtml(dLbl)}</strong> · <strong>${escapeHtml(slotLbl)}</strong></p>
+                <div class="planning-context-bar-actions">
+                  <button class="btn-secondary" onclick="changePlanningRecipe()">🔄 Changer</button>
+                  <button class="btn-primary" onclick="confirmPlanningCurrent()">✓ Valider le choix</button>
+                </div>
+              </div>
+            `;
+          }
+          if (ctx.mode === 'candidate' && ctx.candidateRecipeId === r.id) {
+            return `
+              <div class="planning-context-bar planning-context-bar-candidate">
+                <p class="planning-context-bar-info">🔄 Remplacer la recette planifiée par celle-ci ?</p>
+                <div class="planning-context-bar-actions">
+                  <button class="btn-primary btn-block" onclick="confirmPlanningCandidate()">✓ Confirmer le changement</button>
+                </div>
+              </div>
+            `;
+          }
+          return '';
+        })()}
       </div>
     </div>
   `;
@@ -2640,36 +2815,57 @@ async function recalcAllRecipes() {
 }
 window.recalcAllRecipes = recalcAllRecipes;
 
-// Recalcul local des tags FODMAP de toutes les recettes (pas d'appel IA)
-async function recalcAllFodmap() {
+// Recalcul local des tags FODMAP et des mois de saisonnalité (pas d'appel IA)
+async function recalcAllFodmapAndSeasonality() {
   const count = state.recipes.length;
   if (!count) { await uiAlert('Aucune recette à recalculer.'); return; }
-  if (typeof calculateFodmapTags !== 'function') {
-    await uiAlert('Fonction de calcul FODMAP indisponible (data.js non chargé ?).');
+  const canFodmap = typeof calculateFodmapTags === 'function';
+  const canSeason = typeof calculateSeasonality === 'function';
+  if (!canFodmap && !canSeason) {
+    await uiAlert('Fonctions de calcul indisponibles (data.js non chargé ?).');
     return;
   }
   if (!(await uiConfirm(
-    `Recalculer les tags FODMAP de toutes les ${count} recettes ?\n\n• Local, instantané, gratuit (pas d'IA)\n• Remplace les tags low-fodmap / high-fodmap existants par ceux calculés à partir des ingrédients`,
+    `Recalculer FODMAP & saisonnalité pour les ${count} recettes ?\n\n• Local, instantané, gratuit (pas d'IA)\n• Tags low/high FODMAP recalculés depuis les ingrédients\n• Mois de saisonnalité recalculés depuis le calendrier Greenpeace`,
     { confirmLabel: 'Recalculer' }
   ))) return;
 
-  let high = 0, low = 0;
+  let high = 0, low = 0, monthsChanged = 0;
   state.recipes = state.recipes.map(r => {
     if (!r.ingredients) return r;
-    const currentDiets = Array.isArray(r.dietTags) ? r.dietTags.slice() : [];
-    const cleanedDiets = currentDiets.filter(t => t !== 'low-fodmap' && t !== 'high-fodmap' && t !== 'fodmap');
-    const autoFodmap = calculateFodmapTags(r.ingredients);
-    if (autoFodmap.includes('high-fodmap')) high++;
-    else if (autoFodmap.includes('low-fodmap')) low++;
-    return { ...r, dietTags: [...cleanedDiets, ...autoFodmap] };
+    let next = { ...r };
+
+    if (canFodmap) {
+      const currentDiets = Array.isArray(r.dietTags) ? r.dietTags.slice() : [];
+      const cleanedDiets = currentDiets.filter(t => t !== 'low-fodmap' && t !== 'high-fodmap' && t !== 'fodmap');
+      const autoFodmap = calculateFodmapTags(r.ingredients);
+      if (autoFodmap.includes('high-fodmap')) high++;
+      else if (autoFodmap.includes('low-fodmap')) low++;
+      next.dietTags = [...cleanedDiets, ...autoFodmap];
+    }
+
+    if (canSeason) {
+      const newMonths = calculateSeasonality(r.ingredients);
+      const oldMonths = Array.isArray(r.months) ? r.months : [];
+      if (JSON.stringify(oldMonths) !== JSON.stringify(newMonths)) monthsChanged++;
+      next.months = newMonths;
+    }
+
+    return next;
   });
   saveRecipes();
-  try { localStorage.setItem('mr_fodmap_version', 'fodmap-auto-v4'); } catch {}
+  try {
+    if (canFodmap) localStorage.setItem('mr_fodmap_version', 'fodmap-auto-v4');
+    if (canSeason) localStorage.setItem('mr_seasonality_version', 'greenpeace-2026');
+  } catch {}
   hideSettings();
   renderLibrary();
-  showToast(`FODMAP recalculés : ${high} high, ${low} low`, 'success');
+  const parts = [];
+  if (canFodmap) parts.push(`FODMAP ${high} high / ${low} low`);
+  if (canSeason) parts.push(`saisonnalité ${monthsChanged} mise${monthsChanged > 1 ? 's' : ''} à jour`);
+  showToast(parts.join(' · '), 'success');
 }
-window.recalcAllFodmap = recalcAllFodmap;
+window.recalcAllFodmapAndSeasonality = recalcAllFodmapAndSeasonality;
 
 // Mappe une action vers un emoji
 function changeLogIcon(action) {
@@ -5558,6 +5754,21 @@ function openValidationModal(recipe) {
     });
   });
 
+  // Drag-to-reorder pour ingrédients et étapes (long-press 400ms sur la poignée ⋮⋮)
+  const ingWrap = document.getElementById('val-ingredients');
+  if (ingWrap) {
+    setupDragReorder(ingWrap, '.validation-ingredient', '.validation-drag-handle');
+  }
+  const stepsWrap = document.getElementById('val-steps');
+  if (stepsWrap) {
+    setupDragReorder(stepsWrap, '.validation-step', '.validation-drag-handle', () => {
+      // Re-numéroter les étapes après chaque swap
+      stepsWrap.querySelectorAll('.validation-step .step-number').forEach((el, idx) => {
+        el.textContent = idx + 1;
+      });
+    });
+  }
+
   // Diet chips
   body.querySelectorAll('#val-diet-tags .validation-diet-chip').forEach(label => {
     label.addEventListener('click', (e) => {
@@ -5607,6 +5818,7 @@ window.abortPendingRecipesQueue = abortPendingRecipesQueue;
 function renderValidationIngredient(ing, i) {
   return `
     <div class="validation-ingredient" data-index="${i}">
+      <button class="validation-drag-handle" aria-label="Réorganiser (maintenir pour déplacer)" tabindex="-1">⋮⋮</button>
       <input type="text" class="validation-input" placeholder="Nom" value="${escapeHtml(ing.name)}" data-field="name">
       <input type="number" step="any" class="validation-input validation-amount" placeholder="Qté" value="${ing.amount == null ? '' : ing.amount}" data-field="amount">
       <input type="text" class="validation-input validation-unit" placeholder="Unité" value="${escapeHtml(ing.unit || '')}" data-field="unit">
@@ -5622,6 +5834,7 @@ function renderValidationIngredient(ing, i) {
 function renderValidationStep(step, i) {
   return `
     <div class="validation-step" data-index="${i}">
+      <button class="validation-drag-handle" aria-label="Réorganiser (maintenir pour déplacer)" tabindex="-1">⋮⋮</button>
       <div class="step-number">${i + 1}</div>
       <textarea class="validation-textarea" placeholder="Description de l'étape" data-field="text">${escapeHtml(step.text)}</textarea>
       <button class="validation-remove" onclick="removeValidationStep(${i})" aria-label="Supprimer">
@@ -5672,6 +5885,128 @@ window.addValidationIngredient = addValidationIngredient;
 window.removeValidationIngredient = removeValidationIngredient;
 window.addValidationStep = addValidationStep;
 window.removeValidationStep = removeValidationStep;
+
+// ============================================
+// DRAG-TO-REORDER (long-press + pointer events)
+// ============================================
+// Usage : setupDragReorder(container, '.item-selector', '.handle-selector', onReorder?)
+// - Long-press 400ms sur la poignée → l'item devient draggable
+// - Le drag est annulé si on bouge >8px avant la fin du long-press (= c'est un scroll)
+// - Vibration tactile à l'activation (si supportée)
+// - Détection en temps réel de la position cible via getBoundingClientRect
+// - Callback onReorder() appelé après chaque swap (utile pour re-numéroter les étapes)
+function setupDragReorder(container, itemSelector, handleSelector, onReorder) {
+  if (!container || container._dragSetupDone) return;
+  container._dragSetupDone = true;
+
+  let pressTimer = null;
+  let dragState = null;
+
+  container.addEventListener('pointerdown', e => {
+    const handle = e.target.closest(handleSelector);
+    if (!handle || !container.contains(handle)) return;
+    const item = handle.closest(itemSelector);
+    if (!item) return;
+    // N'intercepte que le bouton principal (pointer touch ou click gauche)
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      startDrag(item, handle, e);
+    }, 400);
+
+    const cancel = (e2) => {
+      if (e2 && (Math.abs(e2.clientX - startX) > 8 || Math.abs(e2.clientY - startY) > 8)) {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+        cleanup();
+      }
+    };
+    const cleanup = () => {
+      window.removeEventListener('pointermove', cancel);
+      window.removeEventListener('pointerup', cleanup);
+      window.removeEventListener('pointercancel', cleanup);
+      if (pressTimer) {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+      }
+    };
+    window.addEventListener('pointermove', cancel);
+    window.addEventListener('pointerup', cleanup, { once: true });
+    window.addEventListener('pointercancel', cleanup, { once: true });
+  });
+
+  function startDrag(item, handle, e) {
+    // Vibration tactile (mobile uniquement, ignoré ailleurs)
+    if (navigator.vibrate) {
+      try { navigator.vibrate(15); } catch (_) {}
+    }
+    dragState = {
+      item,
+      pointerId: e.pointerId,
+      lastY: e.clientY
+    };
+    item.classList.add('is-dragging');
+    document.body.classList.add('is-drag-reordering');
+
+    // Capture du pointer pour ne pas perdre l'événement si on sort de l'élément
+    try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+
+    handle.addEventListener('pointermove', onDragMove);
+    handle.addEventListener('pointerup', endDrag);
+    handle.addEventListener('pointercancel', endDrag);
+  }
+
+  function onDragMove(e) {
+    if (!dragState || e.pointerId !== dragState.pointerId) return;
+    e.preventDefault();
+    const item = dragState.item;
+    const pointerY = e.clientY;
+
+    // Détecter l'item voisin survolé en parcourant les siblings de même type
+    const siblings = Array.from(container.querySelectorAll(itemSelector))
+      .filter(s => s !== item);
+
+    for (const sibling of siblings) {
+      const rect = sibling.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      if (pointerY < midY) {
+        // Pointer au-dessus de la moitié de ce sibling → insérer notre item avant
+        const isBefore = item.compareDocumentPosition(sibling) & Node.DOCUMENT_POSITION_PRECEDING;
+        // Si on est déjà juste avant ce sibling, rien à faire
+        if (item.nextElementSibling !== sibling || isBefore) {
+          sibling.parentNode.insertBefore(item, sibling);
+          if (onReorder) onReorder();
+        }
+        return;
+      }
+    }
+    // Pointer en-dessous de tous → mettre à la fin
+    const last = siblings[siblings.length - 1];
+    if (last && item.nextElementSibling !== null) {
+      last.parentNode.appendChild(item);
+      if (onReorder) onReorder();
+    }
+  }
+
+  function endDrag(e) {
+    if (!dragState) return;
+    const item = dragState.item;
+    item.classList.remove('is-dragging');
+    document.body.classList.remove('is-drag-reordering');
+    const handle = item.querySelector(handleSelector);
+    if (handle) {
+      handle.removeEventListener('pointermove', onDragMove);
+      handle.removeEventListener('pointerup', endDrag);
+      handle.removeEventListener('pointercancel', endDrag);
+      try { handle.releasePointerCapture(dragState.pointerId); } catch (_) {}
+    }
+    dragState = null;
+  }
+}
 
 // Template HTML de l'écran d'accueil du chat (réutilisable pour le reset)
 const CHAT_WELCOME_HTML = `
@@ -5913,6 +6248,12 @@ function saveValidatedRecipe() {
     }
   }
 
+  // Recalcul du type de protéine (cache utilisé par la génération de menu IA)
+  let proteinCache = { type: null, hasProtein: false };
+  if (typeof detectProteinType === 'function') {
+    proteinCache = detectProteinType(ingredients);
+  }
+
   const editingId = state.editingRecipeId;
   const existing = editingId ? state.recipes.find(r => r.id === editingId) : null;
 
@@ -5930,6 +6271,8 @@ function saveValidatedRecipe() {
     dietTags,
     source,
     verifiedByHuman,
+    _proteinType: proteinCache.type,
+    _hasProtein: proteinCache.hasProtein,
     createdAt: existing?.createdAt || state.pendingRecipe?.createdAt || Date.now(),
     updatedAt: Date.now()
   };
@@ -6016,6 +6359,9 @@ function showSettings() {
   document.getElementById('settings-sync-url').value = state.sync.url || '';
   document.getElementById('settings-sync-key').value = state.sync.key || '';
   document.getElementById('settings-sync-foyer').value = state.sync.foyer || '';
+  // Badge ✓ Configurée si la clé API est déjà saisie
+  const apiBadge = document.getElementById('settings-api-key-badge');
+  if (apiBadge) apiBadge.hidden = !state.apiKey;
   // Web search toggle
   const wsCheckbox = document.getElementById('settings-web-search');
   if (wsCheckbox) wsCheckbox.checked = !!state.prefs.enableWebSearch;
@@ -6026,9 +6372,31 @@ function showSettings() {
   document.querySelectorAll('.theme-option').forEach(b => {
     b.classList.toggle('active', b.dataset.theme === state.prefs.theme);
   });
+  // Préférences planning : refléter les toggles persistants
+  const p = state.prefs.planning || {};
+  const planningInputs = [
+    ['settings-planning-protein-daily', 'proteinDaily', true],
+    ['settings-planning-protein-sequencing', 'proteinSequencing', true],
+    ['settings-planning-nutrition-quotas', 'nutritionQuotas', true],
+    ['settings-planning-light-heavy', 'lightHeavyBalance', true],
+    ['settings-planning-weekend', 'weekendVsWeek', true],
+    ['settings-planning-batch', 'batchCooking', false]
+  ];
+  planningInputs.forEach(([id, key, defaultVal]) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = p[key] === undefined ? defaultVal : !!p[key];
+  });
   document.getElementById('settings-modal').classList.remove('hidden');
   pushOverlay('settings');
 }
+
+// Mise à jour d'un toggle des préférences planning (depuis settings ou modal de génération)
+function setPlanningPref(key, value) {
+  if (!state.prefs.planning) state.prefs.planning = {};
+  state.prefs.planning[key] = !!value;
+  savePrefs();
+}
+window.setPlanningPref = setPlanningPref;
 
 function hideSettings(skipHistory) {
   const modal = document.getElementById('settings-modal');
@@ -6178,11 +6546,45 @@ function getSlotRecipes(entry) {
   return [];
 }
 
+// Détecte les batches dans le planning affiché.
+// Un batch = une même recette présente sur 2 slots ADJACENTS dans l'ordre chronologique
+// (ex: lundi soir + mardi midi). On ne considère que les slots midi/soir (le "autre" est ignoré).
+// Retourne un Map<slotKey, Set<recipeId>> indiquant quelles recettes de quel slot sont en batch.
+function detectPlanningBatches(days) {
+  const batched = new Map();
+  // Construire la séquence ordonnée des slots midi/soir sur la période visible
+  const sequence = [];
+  for (const d of days) {
+    const dateStr = formatPlanningDate(d);
+    for (const slotId of ['midi', 'soir']) {
+      const key = `${dateStr}-${slotId}`;
+      const entry = state.planning[key];
+      const ids = new Set(getSlotRecipes(entry).map(r => r.id));
+      sequence.push({ key, ids });
+    }
+  }
+  // Pour chaque paire consécutive (i, i+1), si une recette est présente dans les deux → batch
+  for (let i = 0; i < sequence.length - 1; i++) {
+    const a = sequence[i];
+    const b = sequence[i + 1];
+    for (const id of a.ids) {
+      if (b.ids.has(id)) {
+        if (!batched.has(a.key)) batched.set(a.key, new Set());
+        if (!batched.has(b.key)) batched.set(b.key, new Set());
+        batched.get(a.key).add(id);
+        batched.get(b.key).add(id);
+      }
+    }
+  }
+  return batched;
+}
+
 function renderPlanning() {
   const grid = document.getElementById('planning-grid');
   if (!grid) return;
   const days = getPlanningDays();
   const today = formatPlanningDate(new Date());
+  const batches = detectPlanningBatches(days);
 
   // Header : période + 2 boutons segmentés 1 semaine / 2 semaines
   const period = document.getElementById('planning-period');
@@ -6238,6 +6640,7 @@ function renderPlanning() {
           </div>`;
         } else {
           // Slot rempli avec une ou plusieurs recettes
+          const batchedHere = batches.get(key) || new Set();
           const items = recipes.map((rr, idx) => {
             const recipe = state.recipes.find(rcp => rcp.id === rr.id);
             if (!recipe) {
@@ -6246,18 +6649,21 @@ function renderPlanning() {
                 <button class="planning-slot-mini-remove" onclick="event.stopPropagation(); removeRecipeFromSlot('${dateStr}', '${slot.id}', '${rr.id}')" aria-label="Retirer">×</button>
               </div>`;
             }
-            return `<div class="planning-slot-recipe">
+            const isBatch = batchedHere.has(rr.id);
+            // Clic sur la recette → ouvre la fiche détaillée en contexte planning (boutons Changer / Valider)
+            return `<div class="planning-slot-recipe ${isBatch ? 'is-batch' : ''}" onclick="openPlanningRecipeDetail('${dateStr}', '${slot.id}', '${rr.id}')">
               <span class="planning-slot-emoji">${recipe.photo ? `<img src="${recipe.photo}" alt="" loading="lazy">` : (recipe.emoji || '🍽️')}</span>
               <span class="planning-slot-title">${escapeHtml(recipe.title)}</span>
+              ${isBatch ? '<span class="planning-slot-batch-badge" title="Batch cooking : à préparer en une seule fois avec l\'autre slot identique">🍱</span>' : ''}
               <span class="planning-slot-servings">${rr.servings || recipe.baseServings} pers.</span>
               <button class="planning-slot-mini-remove" onclick="event.stopPropagation(); removeRecipeFromSlot('${dateStr}', '${slot.id}', '${rr.id}')" aria-label="Retirer">×</button>
             </div>`;
           }).join('');
 
-          html += `<div class="planning-slot is-filled" onclick="openPlanningSlot('${dateStr}', '${slot.id}')">
+          html += `<div class="planning-slot is-filled">
             <div class="planning-slot-label">${slot.emoji} ${slot.label}${recipes.length > 1 ? ` <span class="planning-slot-count">×${recipes.length}</span>` : ''}</div>
             <div class="planning-slot-recipes-list">${items}</div>
-            <div class="planning-slot-add-more">+ Ajouter une recette</div>
+            <div class="planning-slot-add-more" onclick="openPlanningSlot('${dateStr}', '${slot.id}')">+ Ajouter une recette</div>
           </div>`;
         }
       }
@@ -6293,7 +6699,8 @@ const _planningPickerFilters = {
   sort: 'alpha'      // 'alpha' | 'recent' | 'favorites'
 };
 
-function openPlanningSlot(dateStr, slotId) {
+function openPlanningSlot(dateStr, slotId, opts) {
+  const replaceRecipeId = (opts && opts.replaceRecipeId) || null;
   // Construire la barre de filtres
   const catChips = `
     <button class="picker-filter-chip ${_planningPickerFilters.category === 'all' ? 'active' : ''}" data-filter-cat="all">Toutes</button>
@@ -6373,6 +6780,14 @@ function openPlanningSlot(dateStr, slotId) {
   modal.classList.remove('hidden');
   modal.dataset.dateStr = dateStr;
   modal.dataset.slotId = slotId;
+  if (replaceRecipeId) {
+    modal.dataset.replaceRecipeId = replaceRecipeId;
+    // Indication visuelle dans l'en-tête
+    const h2 = modal.querySelector('.modal-header h2');
+    if (h2) h2.textContent = 'Choisir la recette de remplacement';
+  } else {
+    delete modal.dataset.replaceRecipeId;
+  }
 
   // Bindings filtres
   modal.querySelectorAll('[data-filter-cat]').forEach(btn => {
@@ -6512,6 +6927,13 @@ function pickRecipeForPlanning(recipeId) {
   const recipe = state.recipes.find(r => r.id === recipeId);
   if (!recipe) return;
 
+  // Mode remplacement : on ne touche pas encore au planning, on passe par la fiche candidate
+  // pour que l'utilisateur confirme depuis le détail de la recette choisie.
+  if (modal.dataset.replaceRecipeId) {
+    openPlanningCandidateDetail(recipeId);
+    return;
+  }
+
   // Interception : si on est en édition d'une proposition de menu IA
   if (state._menuPreviewIntercept && state._menuPreviewEditingIdx != null) {
     const idx = state._menuPreviewEditingIdx;
@@ -6600,6 +7022,92 @@ function removeRecipeFromSlot(dateStr, slotId, recipeId) {
   renderPlanning();
 }
 window.removeRecipeFromSlot = removeRecipeFromSlot;
+
+// Remplace une recette précise d'un slot par une autre (préserve les portions et la position dans la liste)
+function replaceRecipeInSlot(dateStr, slotId, oldRecipeId, newRecipeId) {
+  const key = `${dateStr}-${slotId}`;
+  const entry = state.planning[key];
+  if (!entry) return;
+  const current = getSlotRecipes(entry);
+  const idx = current.findIndex(r => r.id === oldRecipeId);
+  if (idx < 0) return;
+  // Évite les doublons si la nouvelle recette est déjà dans le slot ailleurs
+  const dupIdx = current.findIndex((r, i) => i !== idx && r.id === newRecipeId);
+  if (dupIdx >= 0) {
+    showToast('Cette recette est déjà dans ce repas', 'info');
+    return false;
+  }
+  current[idx] = { ...current[idx], id: newRecipeId };
+  state.planning[key] = {
+    ...entry,
+    recipeIds: current,
+    recipeId: null,
+    deletedAt: null,
+    updatedAt: Date.now()
+  };
+  savePlanning();
+  syncPlanningEntry(key);
+  renderPlanning();
+  return true;
+}
+window.replaceRecipeInSlot = replaceRecipeInSlot;
+
+// === Flow "voir/changer une recette du planning" ===
+
+// Clic sur une recette d'un slot du planning → ouvre la fiche en mode "current"
+function openPlanningRecipeDetail(dateStr, slotId, recipeId) {
+  state._planningContext = {
+    mode: 'current',
+    dateStr,
+    slotId,
+    originalRecipeId: recipeId
+  };
+  openRecipe(recipeId);
+}
+window.openPlanningRecipeDetail = openPlanningRecipeDetail;
+
+// Bouton "Changer de recette" sur la fiche du slot → ouvre le picker en mode remplacement
+function changePlanningRecipe() {
+  const ctx = state._planningContext;
+  if (!ctx || ctx.mode !== 'current') return;
+  openPlanningSlot(ctx.dateStr, ctx.slotId, { replaceRecipeId: ctx.originalRecipeId });
+}
+window.changePlanningRecipe = changePlanningRecipe;
+
+// Bouton "Valider le choix" sur la fiche du slot (équivaut à un retour planning)
+function confirmPlanningCurrent() {
+  state._planningContext = null;
+  navigateTo('planning');
+}
+window.confirmPlanningCurrent = confirmPlanningCurrent;
+
+// Clic sur une recette candidate dans le picker (mode remplacement) → ouvre sa fiche en mode "candidate"
+function openPlanningCandidateDetail(recipeId) {
+  const ctx = state._planningContext;
+  if (!ctx) return;
+  // Fermer le picker sans repasser par l'historique : on va naviguer vers une fiche
+  closePlanningSlotPicker(true);
+  state._planningContext = {
+    ...ctx,
+    mode: 'candidate',
+    candidateRecipeId: recipeId
+  };
+  openRecipe(recipeId);
+}
+window.openPlanningCandidateDetail = openPlanningCandidateDetail;
+
+// Bouton "Confirmer" sur la fiche candidate → remplace la recette dans le slot
+function confirmPlanningCandidate() {
+  const ctx = state._planningContext;
+  if (!ctx || ctx.mode !== 'candidate') return;
+  const ok = replaceRecipeInSlot(ctx.dateStr, ctx.slotId, ctx.originalRecipeId, ctx.candidateRecipeId);
+  if (ok === false) return; // doublon : on reste sur la fiche pour laisser l'user reculer
+  const recipe = state.recipes.find(r => r.id === ctx.candidateRecipeId);
+  if (recipe) showToast(`${recipe.title} remplace l'ancienne ✓`, 'success');
+  state._planningContext = null;
+  navigateTo('planning');
+}
+window.confirmPlanningCandidate = confirmPlanningCandidate;
 
 // Vide tout un slot (compat avec ancien removeFromPlanning)
 function removeFromPlanning(dateStr, slotId) {
@@ -6698,12 +7206,34 @@ window.changePlanningWeek = changePlanningWeek;
 
 function openPlanningMenuGenerator() {
   // Modal qui demande les paramètres puis appelle Claude
-  const dietOptions = DIET_TAGS.filter(t => !['low-fodmap', 'high-fodmap'].includes(t.id)) // FODMAP auto-calculé
-    .map(t => `<label class="diet-tag-option" style="--diet-color: ${t.color}">
-      <input type="checkbox" data-diet-id="${t.id}">
-      <span class="diet-tag-emoji">${t.emoji}</span>
-      <span class="diet-tag-label">${escapeHtml(t.label)}</span>
-    </label>`).join('');
+  const dietOptions = DIET_TAGS
+    .map(t => {
+      const isFodmap = t.id === 'low-fodmap' || t.id === 'high-fodmap';
+      return `<label class="diet-tag-option ${isFodmap ? 'is-auto' : ''}" style="--diet-color: ${t.color}">
+        <input type="checkbox" data-diet-id="${t.id}">
+        <span class="diet-tag-emoji">${t.emoji}</span>
+        <span class="diet-tag-label">${escapeHtml(t.label)}${isFodmap ? ' <small>(auto)</small>' : ''}</span>
+      </label>`;
+    }).join('');
+
+  // Préférences d'optimisation (lecture depuis state.prefs.planning, partagées avec la section Paramètres)
+  const p = state.prefs.planning || {};
+  const optimOptions = [
+    { key: 'proteinDaily',       label: '🥩 Protéine à chaque repas',                    hint: '(max 1 jour/semaine sans)', defaultVal: true },
+    { key: 'proteinSequencing',  label: '🔄 Pas 2× même protéine 2 jours d\'affilée',     hint: '',                          defaultVal: true },
+    { key: 'nutritionQuotas',    label: '⚖️ Quotas nutrition hebdo',                      hint: '(≥2 poissons, ≤2 viandes rouges, ≥1 plat végétal)', defaultVal: true },
+    { key: 'lightHeavyBalance',  label: '☯️ Équilibre lourd ↔ léger sur la journée',     hint: '',                          defaultVal: true },
+    { key: 'weekendVsWeek',      label: '🏖️ Rapide en semaine, festif le weekend',       hint: '',                          defaultVal: true },
+    { key: 'batchCooking',       label: '🍱 Batch cooking',                                hint: '(même recette sur 2 slots consécutifs pour cuisiner une seule fois)', defaultVal: false }
+  ].map(o => {
+    const isChecked = p[o.key] === undefined ? o.defaultVal : !!p[o.key];
+    return `
+      <label class="settings-toggle planning-menu-gen-optim-toggle">
+        <input type="checkbox" data-planning-pref="${o.key}" ${isChecked ? 'checked' : ''}>
+        <span>${o.label}${o.hint ? ` <small>${o.hint}</small>` : ''}</span>
+      </label>
+    `;
+  }).join('');
 
   const html = `
     <div class="modal-header">
@@ -6717,8 +7247,8 @@ function openPlanningMenuGenerator() {
 
       <label class="planning-menu-gen-label">Durée</label>
       <div class="planning-menu-gen-segmented">
-        <button class="seg-option active" data-duration="3">3 jours</button>
-        <button class="seg-option" data-duration="7">1 semaine</button>
+        <button class="seg-option" data-duration="3">3 jours</button>
+        <button class="seg-option active" data-duration="7">1 semaine</button>
         <button class="seg-option" data-duration="14">2 semaines</button>
       </div>
 
@@ -6736,11 +7266,22 @@ function openPlanningMenuGenerator() {
       </div>
 
       <label class="planning-menu-gen-label">Contraintes (optionnel)</label>
-      <textarea id="planning-menu-gen-prompt" placeholder="Ex: pas de gluten, des plats rapides en semaine, plus festif le weekend..." rows="3"></textarea>
+      <textarea id="planning-menu-gen-prompt" placeholder="Ex: pas de gluten, plus festif le weekend, éviter les plats lourds..." rows="3" maxlength="500"></textarea>
+      <div class="planning-menu-gen-counter" id="planning-menu-gen-counter">0 / 500</div>
+
+      <div class="planning-menu-gen-collapse">
+        <button class="planning-menu-gen-toggle" onclick="document.getElementById('planning-menu-gen-optim').classList.toggle('hidden')">
+          ⚡ Préférences d'optimisation ▼
+        </button>
+        <div id="planning-menu-gen-optim" class="planning-menu-gen-optim hidden" style="margin-top:8px">
+          ${optimOptions}
+          <p class="settings-hint" style="margin-top:6px">Ces préférences sont aussi modifiables dans <strong>Paramètres → Génération de menu IA</strong>.</p>
+        </div>
+      </div>
 
       <div class="planning-menu-gen-collapse">
         <button class="planning-menu-gen-toggle" onclick="document.getElementById('planning-menu-gen-diets').classList.toggle('hidden')">
-          Régimes alimentaires à respecter ▼
+          🥗 Régimes alimentaires à respecter ▼
         </button>
         <div id="planning-menu-gen-diets" class="diet-tags-grid hidden" style="margin-top:8px">
           ${dietOptions}
@@ -6784,6 +7325,27 @@ function openPlanningMenuGenerator() {
       e.target.closest('.diet-tag-option').classList.toggle('checked', e.target.checked);
     });
   });
+
+  // Préférences d'optimisation : persistance immédiate à chaque changement
+  modal.querySelectorAll('[data-planning-pref]').forEach(input => {
+    input.addEventListener('change', e => {
+      const key = e.target.dataset.planningPref;
+      if (key) setPlanningPref(key, e.target.checked);
+    });
+  });
+
+  // Compteur de caractères en temps réel sur le textarea de contraintes
+  const promptTextarea = document.getElementById('planning-menu-gen-prompt');
+  const counter = document.getElementById('planning-menu-gen-counter');
+  if (promptTextarea && counter) {
+    const updateCounter = () => {
+      const len = promptTextarea.value.length;
+      counter.textContent = `${len} / 500`;
+      counter.classList.toggle('is-near-limit', len > 400);
+    };
+    promptTextarea.addEventListener('input', updateCounter);
+    updateCounter();
+  }
 
   pushOverlay('planning-menu-gen');
 }
@@ -6863,10 +7425,19 @@ async function runPlanningMenuGenerator() {
   }
 
   // Construire un résumé des recettes disponibles pour l'IA
+  // On ajoute proteinType (cache _proteinType) et timeBucket pour permettre les règles nutritionnelles
   const recipeBrief = candidates.map(r => {
     const cookCount = (r.cookedHistory || []).length;
     const inSeason = !r.months || r.months.length === 0 || r.months.includes(currentMonth);
     const totalTime = (r.prepTime || 0) + (r.cookTime || 0);
+    // Calcul du proteinType à la volée si manquant (recette sauvegardée avant la migration)
+    let proteinType = r._proteinType;
+    if (proteinType === undefined && typeof detectProteinType === 'function') {
+      const d = detectProteinType(r.ingredients || []);
+      proteinType = d.type;
+    }
+    // Bucket de temps : rapide ≤30, moyen 30-60, long >60
+    const timeBucket = !totalTime ? 'unknown' : (totalTime <= 30 ? 'rapide' : (totalTime <= 60 ? 'moyen' : 'long'));
     return {
       id: r.id,
       title: r.title,
@@ -6874,42 +7445,104 @@ async function runPlanningMenuGenerator() {
       tags: r.tags || [],
       dietTags: r.dietTags || [],
       totalTime: totalTime || null,
+      timeBucket,
       inSeason,
-      cookCount
+      cookCount,
+      proteinType: proteinType || 'aucune'
     };
   });
 
+  // Construction du prompt : sections conditionnelles selon les préférences utilisateur
+  const pp = state.prefs.planning || {};
+  const batchActive = pp.batchCooking === true;
+  const ruleLines = [];
+  // En mode batch, on assouplit la règle de variété (1 batch = 1 recette comptée 2x consécutivement)
+  if (batchActive) {
+    ruleLines.push('• Variété : la même recette peut être répétée UNIQUEMENT dans le cadre d\'un batch (2 slots consécutifs). Sinon, ne jamais répéter sur la période.');
+  } else {
+    ruleLines.push('• Variété : ne pas répéter une recette plus de 2 fois sur la période (1 fois si durée ≤ 7 jours).');
+  }
+  ruleLines.push('• Saisonnalité : privilégier fortement les recettes avec inSeason=true.');
+  ruleLines.push('• Roulement : favoriser les recettes avec cookCount bas (peu cuisinées récemment).');
+  if (pp.proteinDaily !== false) {
+    ruleLines.push('• PROTÉINE : chaque repas doit avoir proteinType ≠ "aucune". Tolérance MAX : 1 JOUR ENTIER (midi + soir) sans protéine sur 7 jours.');
+  }
+  if (pp.proteinSequencing !== false) {
+    const batchNote = batchActive ? ' (sauf à l\'intérieur d\'un batch qui répète volontairement la recette)' : '';
+    ruleLines.push(`• SÉQUENCEMENT PROTÉINE : ne pas placer 2× le même proteinType sur 2 repas consécutifs ni 2 jours consécutifs${batchNote}. Alterner les types (rouge → blanche → poisson → végétal…).`);
+  }
+  if (pp.nutritionQuotas !== false) {
+    ruleLines.push('• QUOTAS HEBDO (pour 7 jours, ajuste au prorata) :');
+    ruleLines.push('   - Minimum 2 repas avec proteinType="poisson"');
+    ruleLines.push('   - Maximum 2 repas avec proteinType="viande-rouge"');
+    ruleLines.push('   - Minimum 1 repas avec proteinType="legumineuse" ou "tofu" (plat 100% végétal)');
+  }
+  if (pp.lightHeavyBalance !== false) {
+    ruleLines.push('• ÉQUILIBRE JOURNÉE : si midi est "long" (timeBucket=long) ou viande-rouge, alors soir = "rapide" et plus léger (poisson, légumineuse, ou œuf). Vice-versa.');
+  }
+  if (pp.weekendVsWeek !== false) {
+    ruleLines.push('• RYTHME SEMAINE/WEEKEND : du lundi au vendredi midi, privilégier timeBucket="rapide" (≤30min). Le samedi et dimanche, autoriser/privilégier les plats plus longs ou festifs.');
+  }
+  if (batchActive) {
+    ruleLines.push('• 🍱 BATCH COOKING (PRIORITÉ HAUTE) : maximiser le nombre de batches. Un batch = la MÊME recipeId placée sur 2 slots CONSÉCUTIFS dans la liste numérotée des repas (slot N et N+1).');
+    ruleLines.push('   - Objectif : viser 2 à 4 batches sur 7 jours (soit 4 à 8 slots concernés sur 14).');
+    ruleLines.push('   - Préférer batcher les recettes avec timeBucket="long" ou "moyen" (amortir le temps de cuisine).');
+    ruleLines.push('   - Privilégier les enchaînements "soir → midi du lendemain" (restes faciles à conserver une nuit).');
+    ruleLines.push('   - Un batch compte comme UNE seule recette pour la règle de variété : tu peux la placer 2 fois consécutivement.');
+    ruleLines.push('   - Indique dans "reason" lorsque c\'est un batch (ex: "Batch avec slot précédent").');
+  }
+  if (userPrompt) {
+    ruleLines.push(`• CONTRAINTES UTILISATEUR (priorité absolue) : ${userPrompt}`);
+  }
+
   const submitBtn = document.getElementById('planning-menu-gen-submit');
   const originalLabel = submitBtn.innerHTML;
-  submitBtn.innerHTML = '<span class="spinner-small"></span> Génération...';
   submitBtn.disabled = true;
+  // Messages progressifs pour rendre l'attente moins anxiogène (l'appel peut prendre 10-20 sec)
+  const stopProgress = startProgressiveLabel(
+    label => { submitBtn.innerHTML = `<span class="spinner-small"></span> ${label}`; },
+    [
+      'Analyse de vos recettes…',
+      'Application des règles nutritionnelles…',
+      'Construction du planning…',
+      'Optimisation des choix…',
+      'Finalisation…'
+    ]
+  );
 
   try {
-    const prompt = `Tu es un chef qui aide à planifier des repas équilibrés.
-J'ai besoin que tu sélectionnes ${targetSlots.length} recettes parmi ma bibliothèque pour remplir mon planning.
+    const prompt = `Tu es un chef nutritionniste qui aide à planifier des repas équilibrés et variés.
+Mission : sélectionner ${targetSlots.length} recettes parmi ma bibliothèque pour remplir mon planning.
 
-CRITÈRES À RESPECTER:
-- Variété : ne pas répéter une recette plus de 2 fois sur la période
-- Équilibre : alterner viandes/poissons/végétarien, plats lourds/légers
-- Saisonnalité : privilégier les recettes "inSeason: true"
-- Roulement : privilégier les recettes peu cuisinées récemment (cookCount bas)
-- Contraintes utilisateur: ${userPrompt || '(aucune)'}
+RÈGLES À RESPECTER (par ordre d'importance) :
+${ruleLines.join('\n')}
 
-Repas demandés (dans l'ordre) :
-${targetSlots.map((s, i) => `${i + 1}. ${s.dateStr} - ${s.slot}`).join('\n')}
+PROCÉDURE :
+1. Étudie d'abord toutes les contraintes ci-dessus avant de proposer quoi que ce soit.
+2. Construis une distribution équilibrée AVANT de choisir les recettes (combien de poisson, de viande rouge, de plats végétaux, etc.).
+3. Choisis les recettes en respectant les contraintes ET la distribution prévue.
+4. Vérifie en relisant ta proposition que TOUTES les règles sont respectées. Si une règle est violée, ajuste.
 
-Recettes disponibles dans la bibliothèque (id, title, category, tags, dietTags, totalTime, inSeason, cookCount):
+Repas demandés (dans l'ordre, slot 1 = premier élément du tableau de réponse) :
+${targetSlots.map((s, i) => {
+  const [y, m, day] = s.dateStr.split('-').map(Number);
+  const dObj = new Date(y, m - 1, day);
+  const dow = dObj.toLocaleDateString('fr-FR', { weekday: 'long' });
+  return `${i + 1}. ${s.dateStr} (${dow}) - ${s.slot}`;
+}).join('\n')}
+
+Recettes disponibles (champs : id, title, category, tags, dietTags, totalTime, timeBucket, inSeason, cookCount, proteinType) :
 ${JSON.stringify(recipeBrief, null, 1)}
 
-RÉPONSE ATTENDUE : un JSON STRICT entre balises <menu>...</menu>, format:
+RÉPONSE ATTENDUE : un JSON STRICT entre balises <menu>...</menu>, format :
 <menu>
 [
-  { "slot": 1, "recipeId": "abc", "reason": "Plat de saison, équilibré" },
-  { "slot": 2, "recipeId": "def", "reason": "Léger pour le soir" }
+  { "slot": 1, "recipeId": "abc", "reason": "Poisson de saison, léger pour le soir" },
+  { "slot": 2, "recipeId": "def", "reason": "Plat végétal pour équilibrer" }
 ]
 </menu>
 
-L'array doit avoir exactement ${targetSlots.length} éléments. Chaque "recipeId" doit exister dans les recettes disponibles. "reason" est une phrase TRÈS courte (max 8 mots).`;
+L'array doit avoir exactement ${targetSlots.length} éléments. Chaque "recipeId" doit exister dans les recettes disponibles. "reason" est une phrase TRÈS courte (max 10 mots) qui justifie le choix par rapport aux règles.`;
 
     const response = await callClaudeAPI([{ role: 'user', content: prompt }], { maxTokens: 4000 });
 
@@ -6938,12 +7571,14 @@ L'array doit avoir exactement ${targetSlots.length} éléments. Chaque "recipeId
     if (proposal.length === 0) throw new Error("Aucune recette valide proposée");
 
     // Fermer la modal de génération, ouvrir la modal de validation
+    stopProgress();
     closePlanningMenuGenerator(true);
     openPlanningMenuPreview(proposal);
 
   } catch (e) {
     console.error('Génération menu erreur:', e);
     showToast('Erreur: ' + e.message, 'error');
+    stopProgress();
     submitBtn.innerHTML = originalLabel;
     submitBtn.disabled = false;
   }
@@ -7279,6 +7914,9 @@ async function bindEvents() {
   document.getElementById('settings-save-key').addEventListener('click', () => {
     const k = document.getElementById('settings-api-key').value.trim();
     saveApiKey(k);
+    // Confirmation visuelle inline : badge ✓ apparaît immédiatement à côté du label
+    const apiBadge = document.getElementById('settings-api-key-badge');
+    if (apiBadge) apiBadge.hidden = !k;
     showToast(k ? 'Clé API enregistrée' : 'Clé API supprimée', 'success');
     hideSettings();
   });
@@ -7382,7 +8020,53 @@ async function bindEvents() {
 
   const recalcFodmapBtn = document.getElementById('settings-recalc-fodmap');
   if (recalcFodmapBtn) {
-    recalcFodmapBtn.addEventListener('click', recalcAllFodmap);
+    recalcFodmapBtn.addEventListener('click', recalcAllFodmapAndSeasonality);
+  }
+
+  // Préférences génération de menu : un listener par toggle, persistance automatique
+  [
+    ['settings-planning-protein-daily', 'proteinDaily'],
+    ['settings-planning-protein-sequencing', 'proteinSequencing'],
+    ['settings-planning-nutrition-quotas', 'nutritionQuotas'],
+    ['settings-planning-light-heavy', 'lightHeavyBalance'],
+    ['settings-planning-weekend', 'weekendVsWeek'],
+    ['settings-planning-batch', 'batchCooking']
+  ].forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => setPlanningPref(key, el.checked));
+  });
+
+  // Boutons 👁️ pour afficher/masquer temporairement les champs sensibles
+  document.querySelectorAll('.settings-reveal-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.dataset.revealTarget;
+      const input = document.getElementById(targetId);
+      if (!input) return;
+      const isRevealed = input.type === 'text';
+      input.type = isRevealed ? 'password' : 'text';
+      btn.textContent = isRevealed ? '👁️' : '🙈';
+      btn.classList.toggle('is-revealed', !isRevealed);
+      btn.setAttribute('aria-label', isRevealed ? 'Afficher' : 'Masquer');
+    });
+  });
+
+  // Animation des group titles stické : intensifier l'ombre quand le titre est figé en haut du scroll
+  const settingsBody = document.querySelector('#settings-modal .modal-body');
+  if (settingsBody) {
+    const titles = settingsBody.querySelectorAll('.settings-group-title');
+    let raf = null;
+    const updateStuckState = () => {
+      const rootTop = settingsBody.getBoundingClientRect().top;
+      titles.forEach(title => {
+        const top = title.getBoundingClientRect().top;
+        title.classList.toggle('is-stuck', Math.abs(top - rootTop) < 2);
+      });
+      raf = null;
+    };
+    settingsBody.addEventListener('scroll', () => {
+      if (raf) return;
+      raf = requestAnimationFrame(updateStuckState);
+    }, { passive: true });
   }
 
   // Validation modal

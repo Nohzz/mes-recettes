@@ -184,11 +184,21 @@ Ces données restent **locales à chaque appareil** (privées) :
 
 ## 🔒 Sécurité
 
+### Côté serveur (Supabase)
 - La clé "anon" Supabase est publique par design (elle est dans le code de l'app)
 - Le code foyer agit comme un identifiant + mot de passe partagé. Choisissez quelque chose de pas devinable (ajoutez des caractères aléatoires si vous voulez être sûr)
 - Toutes les communications passent en HTTPS chiffré
 - Vos recettes ne contiennent généralement rien de sensible — si quelqu'un devine votre code foyer, il pourra lire/modifier vos recettes mais c'est tout
 - La clé API Claude **n'est PAS synchronisée** : chaque appareil garde la sienne (vous pouvez utiliser la même ou des clés différentes)
+
+### Côté local (sur votre téléphone)
+- Depuis la **v3.4**, les credentials Supabase (URL, clé anon, code foyer) **et la clé API Claude** sont **obfusqués** dans le `localStorage` de votre navigateur
+- Format : préfixe `enc1:` + chaîne XOR/base64 dérivée de l'origine du site
+- **Effet visible** : si vous ouvrez les devtools (F12) → onglet Application → Local Storage, vous voyez maintenant `enc1:Ajd...` au lieu de `eyJhbGciOi...` en clair
+- **Ce que ça protège** : la lecture en clair par un humain qui ouvre devtools, ou par une extension navigateur qui dumperait localStorage
+- **Ce que ça ne protège PAS** : un attaquant qui peut exécuter du JavaScript dans l'origine de l'app (XSS) peut toujours déchiffrer. C'est un compromis assumé entre sécurité et zéro friction UX
+- **Migration automatique** : au premier démarrage après la mise à jour, vos credentials précédemment en clair sont automatiquement ré-écrits en obfusqué. Aucune action de votre part requise
+- Pour révéler temporairement un champ à l'écran (utile pour copier vers un autre appareil), un bouton 👁️ apparaît à côté de chaque champ sensible dans Paramètres → Synchronisation
 
 ## 🛠️ Si quelque chose ne marche pas
 

@@ -144,7 +144,49 @@
         <!-- Résumé des filtres actifs -->
         <div id="active-filters-summary" class="active-filters-summary hidden"></div>
 
-        <div id="recipes-grid" class="recipes-grid"></div>
+        <div id="recipes-grid" class="recipes-grid">
+          <!-- Skeleton placeholders : visibles uniquement au tout premier chargement avant que renderLibrary() écrive le vrai contenu. Disparaissent automatiquement dès que la library est rendue. -->
+          <div class="skeleton-section">
+            <div class="skeleton-section-header">
+              <div class="skeleton-block skeleton-emoji"></div>
+              <div class="skeleton-block skeleton-section-name"></div>
+            </div>
+            <div class="skeleton-section-cards">
+              <div class="skeleton-card">
+                <div class="skeleton-block skeleton-card-visual"></div>
+                <div class="skeleton-card-content">
+                  <div class="skeleton-block skeleton-card-title"></div>
+                  <div class="skeleton-block skeleton-card-meta"></div>
+                  <div class="skeleton-block skeleton-card-tag"></div>
+                </div>
+              </div>
+              <div class="skeleton-card">
+                <div class="skeleton-block skeleton-card-visual"></div>
+                <div class="skeleton-card-content">
+                  <div class="skeleton-block skeleton-card-title" style="width:55%"></div>
+                  <div class="skeleton-block skeleton-card-meta"></div>
+                  <div class="skeleton-block skeleton-card-tag"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="skeleton-section">
+            <div class="skeleton-section-header">
+              <div class="skeleton-block skeleton-emoji"></div>
+              <div class="skeleton-block skeleton-section-name" style="width:90px"></div>
+            </div>
+            <div class="skeleton-section-cards">
+              <div class="skeleton-card">
+                <div class="skeleton-block skeleton-card-visual"></div>
+                <div class="skeleton-card-content">
+                  <div class="skeleton-block skeleton-card-title" style="width:70%"></div>
+                  <div class="skeleton-block skeleton-card-meta"></div>
+                  <div class="skeleton-block skeleton-card-tag"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <div id="empty-library" class="empty-state hidden">
           <div class="empty-blob"></div>
@@ -204,7 +246,7 @@
               <path d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </button>
-          <textarea id="chat-input" placeholder="Coller un lien ou décrire..." rows="1"></textarea>
+          <textarea id="chat-input" placeholder="Coller un lien (Marmiton, Instagram, YouTube…) ou décrire une recette" rows="1"></textarea>
           <button id="chat-send-btn" class="chat-send-btn" aria-label="Envoyer">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -325,60 +367,175 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
         </button>
       </div>
-      <div class="modal-body">
-        <div class="settings-section">
-          <label class="settings-label">Apparence</label>
-          <div class="settings-theme-row">
-            <button class="theme-option" data-theme="light">☀️ Clair</button>
-            <button class="theme-option" data-theme="dark">🌙 Sombre</button>
-            <button class="theme-option" data-theme="auto">⚙ Auto</button>
+      <div class="modal-body settings-body-v2">
+
+        <!-- 🔒 Sécurité -->
+        <h3 class="settings-group-title">🔒 Sécurité</h3>
+        <div class="settings-group">
+          <div class="settings-row settings-row-info">
+            <div class="settings-row-text">
+              <p class="settings-row-title">Vos clés API et identifiants Supabase sont obfusqués dans le stockage local.</p>
+              <p class="settings-row-hint">Cela les masque d'un regard sur l'onglet « Application » des devtools et d'extensions qui dumperaient localStorage. Ce n'est <strong>pas une protection forte</strong> : un attaquant qui exécute du JS dans la PWA peut toujours les lire.</p>
+            </div>
           </div>
         </div>
-        <div class="settings-section">
-          <label class="settings-label">Clé API Claude</label>
-          <input type="password" id="settings-api-key" placeholder="sk-ant-api03-..." class="api-setup-input">
-          <button id="settings-save-key" class="btn-primary btn-block">Enregistrer</button>
-          <label class="settings-toggle">
-            <input type="checkbox" id="settings-web-search">
-            <span>🌐 Activer Web Search (visite des liens) <span class="settings-cost">💎 +0,01€ / recherche</span></span>
-          </label>
+
+        <!-- 🎨 Apparence -->
+        <h3 class="settings-group-title">🎨 Apparence</h3>
+        <div class="settings-group">
+          <div class="settings-row settings-row-block">
+            <div class="settings-theme-row">
+              <button class="theme-option" data-theme="light">☀️ Clair</button>
+              <button class="theme-option" data-theme="dark">🌙 Sombre</button>
+              <button class="theme-option" data-theme="auto">⚙ Auto</button>
+            </div>
+          </div>
         </div>
-        <div class="settings-section">
-          <label class="settings-label">Synchronisation entre appareils</label>
-          <p class="settings-desc">Partagez vos recettes entre plusieurs téléphones via Supabase. Saisissez les mêmes valeurs sur chaque appareil pour synchroniser.</p>
-          <input type="text" id="settings-sync-url" placeholder="URL Supabase (https://xxxxx.supabase.co)" class="api-setup-input" autocapitalize="off" spellcheck="false">
-          <input type="password" id="settings-sync-key" placeholder="Clé publique anon (eyJhbGciOi...)" class="api-setup-input" autocapitalize="off" spellcheck="false">
-          <input type="text" id="settings-sync-foyer" placeholder="Code foyer (ex: famille-dupont-2026)" class="api-setup-input" autocapitalize="off" spellcheck="false">
-          <button id="settings-save-sync" class="btn-primary btn-block">Activer la sync</button>
-          <button id="settings-sync-now" class="btn-secondary btn-block">Synchroniser maintenant</button>
-          <button id="settings-sync-disable" class="btn-link">Désactiver la synchronisation</button>
+
+        <!-- 🪄 IA & génération -->
+        <h3 class="settings-group-title">🪄 IA & génération</h3>
+        <div class="settings-group">
+          <div class="settings-row settings-row-block">
+            <label class="settings-row-label" for="settings-api-key">
+              Clé API Claude
+              <span class="settings-saved-badge" id="settings-api-key-badge" hidden>✓ Configurée</span>
+            </label>
+            <div class="settings-input-wrap">
+              <input type="password" id="settings-api-key" placeholder="sk-ant-api03-..." class="api-setup-input" autocapitalize="off" spellcheck="false">
+              <button type="button" class="settings-reveal-btn" data-reveal-target="settings-api-key" aria-label="Afficher la clé">👁️</button>
+            </div>
+            <button id="settings-save-key" class="btn-primary btn-block">Enregistrer la clé</button>
+          </div>
+          <div class="settings-row">
+            <label class="settings-toggle">
+              <input type="checkbox" id="settings-web-search">
+              <span>🌐 Activer Web Search <small class="settings-cost">💎 +0,01€ / recherche</small></span>
+            </label>
+          </div>
+          <div class="settings-row settings-row-block">
+            <button id="settings-recalc-all" class="btn-secondary btn-block">🪄 Recalculer toutes les recettes</button>
+            <p class="settings-hint">Demande à l'IA de réanalyser quel ingrédient est utilisé à chaque étape. Coût ~1 centime / recette.</p>
+          </div>
+          <div class="settings-row settings-row-block">
+            <button id="settings-recalc-fodmap" class="btn-secondary btn-block">🌾 Recalculer FODMAP & saisonnalité</button>
+            <p class="settings-hint">Recalcule les tags FODMAP et les mois de saisonnalité depuis les ingrédients. Local, gratuit, instantané.</p>
+          </div>
         </div>
-        <div class="settings-section">
-          <label class="settings-label">📦 Garde-manger</label>
-          <p class="settings-desc">Durée par défaut avant qu'un ingrédient redevienne visible dans les courses :</p>
-          <select id="settings-pantry-days" class="settings-select">
-            <option value="3">3 jours</option>
-            <option value="7">7 jours (1 semaine)</option>
-            <option value="14">14 jours (2 semaines)</option>
-            <option value="30">30 jours (1 mois)</option>
-            <option value="60">60 jours (2 mois)</option>
-          </select>
+
+        <!-- 🍽️ Planning -->
+        <h3 class="settings-group-title">🍽️ Génération de menu IA</h3>
+        <div class="settings-group">
+          <div class="settings-row settings-row-info">
+            <p class="settings-row-hint">Règles appliquées par défaut quand l'IA génère un planning pour vous.</p>
+          </div>
+          <div class="settings-row">
+            <label class="settings-toggle">
+              <input type="checkbox" id="settings-planning-protein-daily">
+              <span>🥩 Protéine à chaque repas <small>(max 1 jour/semaine sans)</small></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <label class="settings-toggle">
+              <input type="checkbox" id="settings-planning-protein-sequencing">
+              <span>🔄 Pas 2× la même protéine sur 2 jours consécutifs</span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <label class="settings-toggle">
+              <input type="checkbox" id="settings-planning-nutrition-quotas">
+              <span>⚖️ Quotas nutrition hebdo <small>(≥2 poissons, ≤2 viandes rouges, ≥1 plat végétal)</small></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <label class="settings-toggle">
+              <input type="checkbox" id="settings-planning-light-heavy">
+              <span>☯️ Équilibre lourd ↔ léger sur la journée</span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <label class="settings-toggle">
+              <input type="checkbox" id="settings-planning-weekend">
+              <span>🏖️ Rapide en semaine, festif le weekend</span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <label class="settings-toggle">
+              <input type="checkbox" id="settings-planning-batch">
+              <span>🍱 Batch cooking <small>(2 slots consécutifs avec la même recette)</small></span>
+            </label>
+          </div>
         </div>
-        <div class="settings-section">
-          <label class="settings-label">Outils IA</label>
-          <button id="settings-recalc-all" class="btn-secondary btn-block">🪄 Recalculer toutes les recettes</button>
-          <p class="settings-hint">Demande à l'IA de réanalyser quel ingrédient est utilisé à chaque étape de toutes vos recettes. Coût ~1 centime par recette.</p>
-          <button id="settings-recalc-fodmap" class="btn-secondary btn-block">🌾 Recalculer les FODMAP</button>
-          <p class="settings-hint">Recalcule les tags low/high FODMAP à partir des ingrédients. Local, instantané, gratuit.</p>
+
+        <!-- ☁️ Synchronisation -->
+        <h3 class="settings-group-title">☁️ Synchronisation</h3>
+        <div class="settings-group">
+          <div class="settings-row settings-row-info">
+            <p class="settings-row-hint">Partagez vos recettes entre plusieurs téléphones via Supabase. Saisissez les mêmes valeurs sur chaque appareil.</p>
+          </div>
+          <div class="settings-row settings-row-block">
+            <label class="settings-row-label" for="settings-sync-url">URL Supabase</label>
+            <div class="settings-input-wrap">
+              <input type="password" id="settings-sync-url" placeholder="https://xxxxx.supabase.co" class="api-setup-input" autocapitalize="off" spellcheck="false">
+              <button type="button" class="settings-reveal-btn" data-reveal-target="settings-sync-url" aria-label="Afficher l'URL">👁️</button>
+            </div>
+          </div>
+          <div class="settings-row settings-row-block">
+            <label class="settings-row-label" for="settings-sync-key">Clé publique anon</label>
+            <div class="settings-input-wrap">
+              <input type="password" id="settings-sync-key" placeholder="eyJhbGciOi..." class="api-setup-input" autocapitalize="off" spellcheck="false">
+              <button type="button" class="settings-reveal-btn" data-reveal-target="settings-sync-key" aria-label="Afficher la clé">👁️</button>
+            </div>
+          </div>
+          <div class="settings-row settings-row-block">
+            <label class="settings-row-label" for="settings-sync-foyer">Code foyer</label>
+            <div class="settings-input-wrap">
+              <input type="password" id="settings-sync-foyer" placeholder="famille-dupont-2026" class="api-setup-input" autocapitalize="off" spellcheck="false">
+              <button type="button" class="settings-reveal-btn" data-reveal-target="settings-sync-foyer" aria-label="Afficher le code">👁️</button>
+            </div>
+          </div>
+          <div class="settings-row settings-row-block">
+            <button id="settings-save-sync" class="btn-primary btn-block">Activer la sync</button>
+            <button id="settings-sync-now" class="btn-secondary btn-block">Synchroniser maintenant</button>
+            <button id="settings-sync-disable" class="btn-link">Désactiver la synchronisation</button>
+          </div>
         </div>
-        <div class="settings-section">
-          <label class="settings-label">Données</label>
-          <button id="settings-export" class="btn-secondary btn-block">Exporter mes recettes (JSON)</button>
-          <button id="settings-import" class="btn-secondary btn-block">Importer des recettes</button>
-          <input type="file" id="settings-import-input" accept=".json" class="hidden">
-          <button id="settings-force-update" class="btn-secondary btn-block">🔄 Vérifier les mises à jour</button>
-          <button id="settings-clear" class="btn-danger btn-block">Tout supprimer</button>
+
+        <!-- 📦 Garde-manger -->
+        <h3 class="settings-group-title">📦 Garde-manger</h3>
+        <div class="settings-group">
+          <div class="settings-row settings-row-block">
+            <label class="settings-row-label" for="settings-pantry-days">Durée par défaut avant qu'un ingrédient redevienne visible dans les courses</label>
+            <select id="settings-pantry-days" class="settings-select">
+              <option value="3">3 jours</option>
+              <option value="7">7 jours (1 semaine)</option>
+              <option value="14">14 jours (2 semaines)</option>
+              <option value="30">30 jours (1 mois)</option>
+              <option value="60">60 jours (2 mois)</option>
+            </select>
+          </div>
         </div>
+
+        <!-- 💾 Données -->
+        <h3 class="settings-group-title">💾 Données</h3>
+        <div class="settings-group">
+          <div class="settings-row settings-row-block">
+            <button id="settings-export" class="btn-secondary btn-block">📤 Exporter mes recettes (JSON)</button>
+            <button id="settings-import" class="btn-secondary btn-block">📥 Importer des recettes</button>
+            <input type="file" id="settings-import-input" accept=".json" class="hidden">
+            <button id="settings-force-update" class="btn-secondary btn-block">🔄 Vérifier les mises à jour</button>
+          </div>
+        </div>
+
+        <!-- ⚠️ Zone dangereuse -->
+        <h3 class="settings-group-title settings-group-title-danger">⚠️ Zone dangereuse</h3>
+        <div class="settings-group settings-group-danger">
+          <div class="settings-row settings-row-block">
+            <p class="settings-hint">Cette action supprime <strong>toutes</strong> vos recettes, listes, planning et préférences. Irréversible.</p>
+            <button id="settings-clear" class="btn-danger btn-block">Tout supprimer</button>
+          </div>
+        </div>
+
+        <!-- ℹ️ À propos -->
         <div class="settings-section settings-about">
           <p><strong>Mes Recettes</strong> · v2.0</p>
           <p class="settings-credit" id="settings-build">Build du 01/05/2026 · PWA · IA Claude</p>

@@ -1,0 +1,32 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Éditeurs
+.vscode/
+.idea/
+*.swp
+*~
+
+# Claude Code
+.claude/
+CLAUDE.local.md
+
+# Logs et temporaires
+*.log
+*.tmp
+/tmp/
+
+# Livrables
+recettes-app.zip
+*.zip
+
+# Secrets / config locale
+.env
+.env.local
+*.key
+
+# Node (au cas où un outil ponctuel en crée — le projet reste sans build)
+node_modules/
+npm-debug.log

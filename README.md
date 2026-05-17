@@ -26,9 +26,11 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
   - Photo du chat automatiquement rattachée à la recette créée
 - **Notes personnelles** (astuces, variantes, retours d'expérience)
 - **Tags personnalisés**
-- **Régimes alimentaires** : Vegan, Végétarien, Sans gluten, Sans lactose, Sans sucre, Keto, Halal, Casher
-- **Tags FODMAP automatiques** : Low/High FODMAP calculés depuis la liste d'ingrédients (~200 entrées), recalculés à chaque sauvegarde et au démarrage pour les recettes existantes
+- **Régimes alimentaires** : 5 régimes essentiels par défaut — Végétarien, Sans gluten, Sans lactose, Low FODMAP, High FODMAP (liste extensible via `DIET_TAGS` dans `data.js`)
+- **Tags FODMAP automatiques** : Low/High FODMAP calculés depuis la liste d'ingrédients (~200 entrées), recalculés à chaque sauvegarde et au démarrage pour les recettes existantes. Logique binaire stricte : une recette est soit Low, soit High (plus de `unknown`)
+- **Détection automatique de la protéine principale** : chaque recette se voit attribuer un `proteinType` (viande-rouge, viande-blanche, poisson, œuf, fromage, légumineuse, tofu, ou aucune). Utilisé par la génération de menu IA pour appliquer des règles nutritionnelles intelligentes
 - **Tag « Vérifié humain »** : checkbox pour distinguer les recettes que vous avez relues/validées après extraction IA. Chip vert sur la fiche, filtrable depuis la bibliothèque
+- **Drag-to-reorder mobile** : long-press 0.4s sur la poignée ⋮⋮ d'un ingrédient ou d'une étape pour le déplacer dans la modal de validation
 
 ### 👨‍🍳 Cuisine en action
 - **Mode cuisine plein écran** étape par étape avec anti-veille (écran reste allumé)
@@ -54,12 +56,21 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
 - **Vue 1 ou 2 semaines** au choix (toggle segmenté avec navigation flèches adaptée)
 - **3 slots par jour** : ☀️ Midi, 🌙 Soir, 🥐 Autre (petit-déj/goûter/apéro...)
 - **Multi-recettes par slot** : plusieurs plats peuvent partager un repas
-- **Picker avec filtres ciblés** :
-  - Tri alphabétique par défaut, recherche
-  - **Régime** : seulement Végétarien + Low FODMAP + High FODMAP (épuré pour le quotidien)
-  - Filtre catégorie (replié par défaut)
-  - « De saison uniquement »
-- **Génération de menu IA** : l'IA propose un menu équilibré (durée 3/7/14j, midi/soir/midi+soir, contraintes texte libre + régimes)
+- **Titres complets visibles** sur jusqu'à 3 lignes dans la cellule (plus d'ellipsis frustrante)
+- **Clic sur une recette = fiche détaillée** dans le contexte planning, avec 2 boutons :
+  - 🔄 **Changer** : ouvre le picker pour remplacer cette recette précise
+  - ✓ **Valider le choix** : revient au planning
+- **Flux de remplacement à 2 étapes** : dans le picker, cliquer sur une candidate ouvre sa fiche complète. Un bouton **Confirmer le changement** finalise le swap en préservant les portions et la position dans le slot
+- **Picker avec filtres ciblés** : tri alphabétique, recherche, régime, catégorie (replié), « De saison uniquement »
+- **Génération de menu IA très avancée** : prompt structuré qui applique 6 règles configurables (toutes activables/désactivables) :
+  - 🥩 **Protéine à chaque repas** (max 1 jour/semaine sans)
+  - 🔄 **Pas 2× la même protéine sur 2 jours consécutifs**
+  - ⚖️ **Quotas nutrition hebdo** : ≥2 poissons, ≤2 viandes rouges, ≥1 plat 100% végétal
+  - ☯️ **Équilibre lourd ↔ léger** sur la journée
+  - 🏖️ **Rapide en semaine, festif le weekend**
+  - 🍱 **Batch cooking** : maximise les paires de slots consécutifs avec la même recette (badge automatique sur les slots concernés)
+- **Préférences persistantes** : les 6 toggles sont accessibles **à la fois dans Paramètres → 📅 Génération de menu IA** et dans la modal de génération (collapse « ⚡ Préférences d'optimisation »), synchronisés en temps réel
+- **Feedback de progression** : l'IA affiche des messages narratifs (« Analyse de vos recettes… », « Application des règles nutritionnelles… », « Optimisation des choix… ») pendant l'appel pour rendre l'attente moins anxiogène
 - **Validation pas-à-pas** : aperçu des recettes proposées, possibilité de remplacer chaque repas avant validation
 
 ### 🛒 Liste de courses
@@ -80,23 +91,38 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
 - **Dialogs à la charte** : plus de popups natives `nohzz.github.io indique...` du navigateur
 - **Bouton retour OS** : navigation native Android/iOS respectée
 - **Responsive** : optimisé mobile, tablette et desktop
+- **Skeleton placeholders** : la bibliothèque affiche des cartes-fantômes animées (shimmer) pendant le tout premier chargement, plus jamais d'écran blanc/vide
+- **Toasts différenciés** : ✓ pour succès (terracotta), ⚠️ pour erreur (rouge), ℹ️ pour info (gris). Apparition cohérente partout dans l'app
 - **Backup automatique** mensuel + export/import JSON
+
+### ⚙️ Paramètres repensés
+- **Style mobile-first façon iOS** : sections regroupées en cartes blanches arrondies (🔒 Sécurité, 🎨 Apparence, 🪄 IA & génération, 🍽️ Génération de menu IA, ☁️ Synchronisation, 📦 Garde-manger, 💾 Données, ⚠️ Zone dangereuse)
+- **Titres de sections sticky** : restent figés en haut pendant le scroll pour aider l'orientation, avec ombre dynamique au sticking
+- **Champs sensibles masqués par défaut** : clé API et identifiants Supabase en `type="password"`, bouton 👁️ pour révéler temporairement
+- **Badge ✓ Configurée** : confirmation visuelle persistante à côté du label « Clé API Claude » quand une clé est saisie
+- **Compteur de caractères** sur le textarea de contraintes de la génération IA (max 500), passe en terracotta gras à 80%
+- **Zone dangereuse séparée** : le bouton « Tout supprimer » est isolé visuellement avec bordure rouge
+
+### 🔒 Sécurité locale
+- **Obfuscation des secrets dans `localStorage`** : la clé API Anthropic et les identifiants Supabase (URL, clé anon, code foyer) sont stockés avec un XOR + base64 dérivé de `location.origin`. Préfixés par `enc1:`.
+- **Objectif** : empêcher la lecture en clair via l'onglet Application → Local Storage des devtools ou un dump d'extension navigateur. **Ce n'est pas une protection cryptographique forte** : un attaquant qui peut exécuter du JS dans l'origine peut toujours déchiffrer.
+- **Migration transparente** : au prochain démarrage, les valeurs précédemment en clair sont automatiquement ré-écrites en obfusqué. Aucune action utilisateur requise.
 
 ### ☁️ Sync entre appareils (optionnel)
 - Via Supabase gratuit — voir [SYNC-GUIDE.md](./SYNC-GUIDE.md)
 - **Sync recettes** (full document)
 - **Sync planning** (cell-level, last-write-wins)
 - Foyer partagé : recettes et planning communs entre conjoint·e·s
-- **Données privées** : stockées localement par défaut, sur votre Supabase si sync activée
+- **Données privées** : stockées localement par défaut, sur votre Supabase si sync activée. Les credentials Supabase eux-mêmes sont obfusqués localement (voir Sécurité locale ci-dessus)
 
 ## 📁 Structure du projet
 
 ```
 recettes-app/
 ├── index.html          # Structure HTML
-├── styles.css          # Design system terracotta (~5000 lignes)
-├── data.js             # Catégories, FODMAP, saisonnalité, conversions
-├── app.js              # Logique applicative (~6500 lignes)
+├── styles.css          # Design system terracotta (~6300 lignes)
+├── data.js             # Catégories, FODMAP, saisonnalité, conversions, protéines
+├── app.js              # Logique applicative (~8000 lignes)
 ├── manifest.json       # Configuration PWA
 ├── sw.js               # Service Worker (offline + auto-update)
 └── icons/              # Icônes app (192, 512, maskable, etc.)
@@ -197,9 +223,11 @@ L'app n'a aucune dépendance NPM. Modifiez les fichiers sources directement.
 
 - **Ajouter un ingrédient à la saisonnalité** → `data.js`, objet `SEASONALITY`
 - **Ajouter à la base FODMAP** → `data.js`, sets `FODMAP_LOW` ou `FODMAP_HIGH`
+- **Ajouter à la base protéines** → `data.js`, objet `PROTEIN_KEYWORDS` (utilisé par la génération de menu IA)
 - **Ajouter une catégorie de produit** → `data.js`, tableau `PRODUCT_CATEGORIES`
 - **Modifier le prompt système** → `app.js`, constante `SYSTEM_PROMPT`
-- **Changer le modèle Claude** → `app.js`, paramètre `model` dans `callClaudeAPI()`
+- **Modifier le prompt de génération de menu** → `app.js`, fonction `runPlanningMenuGenerator()` (sections `ruleLines`)
+- **Changer le modèle Claude** → `app.js`, paramètre `model` dans `callClaudeAPI()` (actuellement `claude-sonnet-4-6`)
 - **Ingrédients exclus des courses** → `data.js`, tableau `SHOPPING_EXCLUDE`
 - **Conversions d'unités** → `data.js`, objet `UNIT_CONVERSIONS`
 - **Régimes alimentaires** → `data.js`, tableau `DIET_TAGS`
@@ -218,4 +246,6 @@ Code librement réutilisable.
 
 ---
 
-**v3.2** — Source obligatoire + Vérification humaine + Ingrédients-étapes précis + FODMAP auto + Photo Caméra/Galerie + Recalcul IA — Bon appétit ! 🍅
+**v3.4** — Génération de menu IA musclée (détection protéine + 6 règles configurables + batch cooking) · Clic recette planning → fiche détail avec changement guidé · Paramètres refondus mobile-first iOS · Obfuscation locale des secrets · Drag-to-reorder ingrédients/étapes · Feedback IA progressif · Skeleton placeholders · Toasts différenciés — Bon appétit ! 🍅
+
+**v3.2** — Source obligatoire + Vérification humaine + Ingrédients-étapes précis + FODMAP auto + Photo Caméra/Galerie + Recalcul IA
