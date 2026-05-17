@@ -76,6 +76,7 @@
     <header class="app-header">
       <div class="app-header-content">
         <h1 id="page-title" class="app-title">Bibliothèque</h1>
+        <span id="offline-badge" class="offline-badge hidden" aria-label="Hors ligne">📡 Hors ligne</span>
         <div class="app-header-actions">
           <button id="sync-indicator" class="sync-indicator hidden" aria-label="Statut de sync">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="sync-icon-default">
@@ -519,6 +520,11 @@
         <h3 class="settings-group-title">💾 Données</h3>
         <div class="settings-group">
           <div class="settings-row settings-row-block">
+            <div id="settings-storage-stats" class="settings-storage-stats">Calcul de l'espace utilisé…</div>
+            <button id="settings-free-space" class="btn-secondary btn-block">🗜️ Libérer de l'espace (re-compresser les photos)</button>
+            <p class="settings-hint">Re-traite les grosses photos en 480px / qualité 55%. Aucune perte de recette, juste les images sont allégées.</p>
+          </div>
+          <div class="settings-row settings-row-block">
             <button id="settings-export" class="btn-secondary btn-block">📤 Exporter mes recettes (JSON)</button>
             <button id="settings-import" class="btn-secondary btn-block">📥 Importer des recettes</button>
             <input type="file" id="settings-import-input" accept=".json" class="hidden">
@@ -652,7 +658,12 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js').catch(err => console.log('SW registration failed:', err));
+        navigator.serviceWorker.register('sw.js').then(reg => {
+          // Force la vérification d'une nouvelle version du SW au boot, et toutes les heures.
+          // Évite que l'utilisateur soit bloqué sur une version stale du cache pendant >24h.
+          reg.update().catch(() => {});
+          setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
+        }).catch(err => console.log('SW registration failed:', err));
       });
     }
   </script>

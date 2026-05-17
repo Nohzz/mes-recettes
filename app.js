@@ -160,10 +160,39 @@ const state = {
 // STORAGE
 // ============================================
 
+// Filtre les recettes corrompues (sans id ou sans title) au chargement.
+// Évite que l'app crashe ou affiche des cards vides à cause de données invalides.
+function _validateRecipesSchema(rawList) {
+  if (!Array.isArray(rawList)) return { valid: [], dropped: 0 };
+  const valid = [];
+  let dropped = 0;
+  for (const r of rawList) {
+    if (!r || typeof r !== 'object') { dropped++; continue; }
+    if (!r.id || typeof r.id !== 'string') { dropped++; continue; }
+    if (!r.title || typeof r.title !== 'string' || !r.title.trim()) { dropped++; continue; }
+    // S'assurer que les arrays critiques sont des arrays (pas undefined)
+    if (!Array.isArray(r.ingredients)) r.ingredients = [];
+    if (!Array.isArray(r.steps)) r.steps = [];
+    valid.push(r);
+  }
+  return { valid, dropped };
+}
+
 function loadState() {
   try {
     const recipes = localStorage.getItem(STORAGE_KEYS.recipes);
-    state.recipes = recipes ? JSON.parse(recipes) : [];
+    const rawRecipes = recipes ? JSON.parse(recipes) : [];
+    const { valid, dropped } = _validateRecipesSchema(rawRecipes);
+    state.recipes = valid;
+    if (dropped > 0) {
+      console.warn(`[loadState] ${dropped} recette(s) ignorée(s) car structure invalide (id ou titre manquant)`);
+      // Toast différé pour ne pas être affiché avant que showToast soit prêt
+      setTimeout(() => {
+        if (typeof showToast === 'function') {
+          showToast(`${dropped} recette${dropped > 1 ? 's' : ''} corrompue${dropped > 1 ? 's' : ''} ignorée${dropped > 1 ? 's' : ''}`, 'error');
+        }
+      }, 2000);
+    }
     // Secrets : lus via wrappers qui gèrent l'obfuscation (et migrent automatiquement les valeurs en clair)
     state.apiKey = getSecret(STORAGE_KEYS.apiKey);
     state.sync.url = getSecret(STORAGE_KEYS.syncUrl);
@@ -390,8 +419,38 @@ function getActiveShoppingList() {
   return state.shoppingLists.find(l => l.id === state.activeShoppingListId);
 }
 
+// ============================================
+// SAFE SAVE — Gestion du quota localStorage
+// ============================================
+// Wrapper unique pour toutes les écritures lourdes : capture QuotaExceededError,
+// affiche un toast clair et empêche les pertes de données silencieuses.
+// Garde aussi une trace anti-spam pour ne pas répéter le toast à chaque tentative.
+let _quotaErrorShownAt = 0;
+function safeSave(storageKey, value, label) {
+  try {
+    localStorage.setItem(storageKey, typeof value === 'string' ? value : JSON.stringify(value));
+    return true;
+  } catch (e) {
+    // QuotaExceededError dans tous les navigateurs (code 22 ou DOM_EXCEPTION_QUOTA_EXCEEDED_ERR)
+    const isQuota = e && (e.code === 22 || e.code === 1014 || /quota/i.test(e.name || '') || /quota/i.test(e.message || ''));
+    if (isQuota) {
+      console.error(`[safeSave] Quota localStorage saturé en écrivant "${label || storageKey}"`, e);
+      // Anti-spam : un toast max toutes les 30 secondes
+      if (Date.now() - _quotaErrorShownAt > 30000) {
+        _quotaErrorShownAt = Date.now();
+        if (typeof showToast === 'function') {
+          showToast('⚠️ Stockage plein. Paramètres → 💾 Données → Libérer l\'espace', 'error');
+        }
+      }
+    } else {
+      console.error(`[safeSave] Échec écriture "${label || storageKey}"`, e);
+    }
+    return false;
+  }
+}
+
 function saveRecipes() {
-  localStorage.setItem(STORAGE_KEYS.recipes, JSON.stringify(state.recipes));
+  safeSave(STORAGE_KEYS.recipes, state.recipes, 'recettes');
 }
 
 function saveShopping() {
@@ -399,23 +458,38 @@ function saveShopping() {
   const active = getActiveShoppingList();
   if (active) {
     active.items = state.shopping;
-    localStorage.setItem(STORAGE_KEYS.shoppingLists, JSON.stringify(state.shoppingLists));
+    safeSave(STORAGE_KEYS.shoppingLists, state.shoppingLists, 'listes de courses');
   }
 }
 
 function saveShoppingLists() {
-  localStorage.setItem(STORAGE_KEYS.shoppingLists, JSON.stringify(state.shoppingLists));
+  safeSave(STORAGE_KEYS.shoppingLists, state.shoppingLists, 'listes de courses');
   localStorage.setItem(STORAGE_KEYS.activeShoppingList, state.activeShoppingListId);
 }
 
 function savePantry() {
-  localStorage.setItem(STORAGE_KEYS.pantry, JSON.stringify(state.pantry));
+  safeSave(STORAGE_KEYS.pantry, state.pantry, 'garde-manger');
 }
 
+// savePlanning() debounced : si on drag plusieurs slots rapidement, on n'écrit qu'une fois.
+let _savePlanningTimer = null;
 function savePlanning() {
-  localStorage.setItem(STORAGE_KEYS.planning, JSON.stringify(state.planning));
   // Note : la sync Supabase du planning se fait via syncPlanningEntry() pour les
   // modifs immédiates, et via performSync() pour la fusion complète au démarrage.
+  if (_savePlanningTimer) clearTimeout(_savePlanningTimer);
+  _savePlanningTimer = setTimeout(() => {
+    _savePlanningTimer = null;
+    safeSave(STORAGE_KEYS.planning, state.planning, 'planning');
+  }, 200);
+}
+
+// Variante immédiate (utilisée par les actions critiques avant fermeture/navigation)
+function savePlanningImmediate() {
+  if (_savePlanningTimer) {
+    clearTimeout(_savePlanningTimer);
+    _savePlanningTimer = null;
+  }
+  safeSave(STORAGE_KEYS.planning, state.planning, 'planning');
 }
 
 // Format YYYY-MM-DD pour les clés du planning
@@ -3136,7 +3210,7 @@ async function attachRecipePhoto(id) {
       showToast('Traitement de la photo...', '');
       // Compression : 720px qualité 70% — ~2× plus léger que 1024×80% pour une qualité
       // visuelle équivalente sur smartphone. Important : localStorage limité ~5-10 MB.
-      const dataUrl = await processImageToDataUrl(file, 720, 0.7);
+      const dataUrl = await processImageToDataUrl(file, PHOTO_MAX_WIDTH, PHOTO_QUALITY);
       recipe.photo = dataUrl;
       updateRecipeAndSync(recipe, 'photo ajoutée');
       if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
@@ -3146,7 +3220,11 @@ async function attachRecipePhoto(id) {
       showToast('Photo ajoutée ✓', 'success');
     } catch (e) {
       console.error(e);
-      showToast('Erreur lors de l\'ajout de la photo', 'error');
+      // Si l'erreur vient de _validatePhotoFileSize, on a un message clair à afficher
+      const msg = e && e.message && (e.message.includes('Mo') || e.message.includes('image'))
+        ? e.message
+        : 'Erreur lors de l\'ajout de la photo';
+      showToast(msg, 'error');
     }
   });
   input.click();
@@ -3290,7 +3368,39 @@ async function editRecipeTags(id) {
 window.editRecipeTags = editRecipeTags;
 
 // Convertit un fichier image en data URL (avec resize)
+// ============================================
+// CONSTANTES DE LIMITES (anti-magic-numbers)
+// ============================================
+// Photo : la compression cible 720px / qualité 70%, mais avant compression on rejette
+// les fichiers > 15 Mo (vidéo confondue avec photo, RAW non compressé, etc.)
+const PHOTO_MAX_FILE_SIZE_MB = 15;
+const PHOTO_MAX_WIDTH = 720;          // dimension max après compression (px)
+const PHOTO_QUALITY = 0.7;            // qualité JPEG après compression (0-1)
+const PHOTO_QUALITY_AGGRESSIVE = 0.55; // qualité utilisée par "Libérer l'espace" (re-compression masse)
+const PHOTO_MAX_WIDTH_AGGRESSIVE = 480; // dim. cible pour re-compression masse
+
+// Chat IA : on garde au max les N derniers messages pour borner mémoire et coût API
+const CHAT_HISTORY_MAX = 50;
+
+// File d'attente des recettes en validation après extraction IA multi-recettes
+const PENDING_RECIPES_QUEUE_MAX = 10;
+
+// LocalStorage quota approximatif des navigateurs mobiles (informatif, pas un hard cap)
+const LOCAL_STORAGE_QUOTA_MB = 5;
+
+function _validatePhotoFileSize(file) {
+  if (!file) throw new Error('Aucun fichier fourni');
+  if (!file.type || !file.type.startsWith('image/')) {
+    throw new Error(`Fichier non reconnu comme image (type: ${file.type || 'inconnu'})`);
+  }
+  const sizeMB = file.size / (1024 * 1024);
+  if (sizeMB > PHOTO_MAX_FILE_SIZE_MB) {
+    throw new Error(`Photo trop lourde (${sizeMB.toFixed(1)} Mo). Maximum : ${PHOTO_MAX_FILE_SIZE_MB} Mo.`);
+  }
+}
+
 async function processImageToDataUrl(file, maxSize, quality) {
+  _validatePhotoFileSize(file);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = e => {
@@ -5585,25 +5695,36 @@ async function sendChat() {
     const { text: cleanText, recipes } = extractAllRecipesFromResponse(responseText);
 
     state.chatHistory.push({ role: 'assistant', content: responseText });
+    // Tronque l'historique à CHAT_HISTORY_MAX messages pour éviter une croissance illimitée
+    // (impact mémoire et coûts API qui dépendent de la taille du contexte envoyé).
+    if (state.chatHistory.length > CHAT_HISTORY_MAX) {
+      state.chatHistory = state.chatHistory.slice(-CHAT_HISTORY_MAX);
+    }
 
     if (cleanText) {
       addChatMessage('assistant', cleanText);
     }
 
     if (recipes.length > 1) {
-      // Mode multi-recettes : on en stocke plusieurs en file et on les valide une par une
-      state.pendingRecipesQueue = recipes.map((r, idx) => {
+      // Mode multi-recettes : on en stocke plusieurs en file et on les valide une par une.
+      // Cap à PENDING_RECIPES_QUEUE_MAX pour éviter un déluge ingérable et borner la mémoire.
+      const wasCapped = recipes.length > PENDING_RECIPES_QUEUE_MAX;
+      const recipesToProcess = wasCapped ? recipes.slice(0, PENDING_RECIPES_QUEUE_MAX) : recipes;
+      state.pendingRecipesQueue = recipesToProcess.map((r, idx) => {
         r.months = calculateSeasonality(r.ingredients);
         r.id = uid();
         r.createdAt = Date.now();
         // Rattacher la photo correspondante si même nombre de photos et de recettes
-        if (uploadedPhotos.length === recipes.length && uploadedPhotos[idx]) {
+        if (uploadedPhotos.length === recipesToProcess.length && uploadedPhotos[idx]) {
           const att = uploadedPhotos[idx];
           r.photo = `data:${att.media_type};base64,${att.data}`;
         }
         return r;
       });
-      addChatMessage('assistant', `📋 J'ai extrait ${recipes.length} recettes. Je vais te les présenter une par une pour validation.`);
+      const introMsg = wasCapped
+        ? `📋 J'ai extrait ${recipes.length} recettes. Pour ne pas te submerger, je vais te présenter les ${PENDING_RECIPES_QUEUE_MAX} premières — relance-moi pour le reste après.`
+        : `📋 J'ai extrait ${recipes.length} recettes. Je vais te les présenter une par une pour validation.`;
+      addChatMessage('assistant', introMsg);
       setTimeout(() => {
         const next = state.pendingRecipesQueue.shift();
         state.pendingRecipe = next;
@@ -6487,6 +6608,120 @@ async function closeValidationModal(skipHistory) {
 // SETTINGS
 // ============================================
 
+// ============================================
+// STORAGE STATS + LIBÉRATION D'ESPACE
+// ============================================
+// Calcule la taille approximative de toutes les clés localStorage de l'app
+// et identifie les photos lourdes pour proposer une re-compression.
+function _computeStorageStats() {
+  let totalBytes = 0;
+  let photoBytes = 0;
+  let photoCount = 0;
+  let largePhotoCount = 0;
+  const LARGE_THRESHOLD = 100 * 1024; // 100 KB en data URL
+  for (const key of Object.keys(localStorage)) {
+    if (!key.startsWith('mr_')) continue;
+    const val = localStorage.getItem(key) || '';
+    totalBytes += val.length;
+  }
+  for (const r of state.recipes) {
+    if (r.photo && typeof r.photo === 'string') {
+      photoBytes += r.photo.length;
+      photoCount++;
+      if (r.photo.length > LARGE_THRESHOLD) largePhotoCount++;
+    }
+  }
+  return {
+    totalKB: Math.round(totalBytes / 1024),
+    photoKB: Math.round(photoBytes / 1024),
+    photoCount,
+    largePhotoCount,
+    recipeCount: state.recipes.length
+  };
+}
+
+function _updateStorageStatsDisplay() {
+  const el = document.getElementById('settings-storage-stats');
+  if (!el) return;
+  const s = _computeStorageStats();
+  const totalMB = (s.totalKB / 1024).toFixed(2);
+  const photoPct = s.totalKB > 0 ? Math.round((s.photoKB / s.totalKB) * 100) : 0;
+  el.innerHTML = `
+    <div class="storage-stat-line"><strong>${totalMB} Mo</strong> utilisés (sur ~${LOCAL_STORAGE_QUOTA_MB} Mo disponibles)</div>
+    <div class="storage-stat-line storage-stat-sub">${s.recipeCount} recette${s.recipeCount > 1 ? 's' : ''} · ${s.photoCount} photo${s.photoCount > 1 ? 's' : ''} (${photoPct}% du stockage)</div>
+    ${s.largePhotoCount > 0 ? `<div class="storage-stat-line storage-stat-warn">⚠️ ${s.largePhotoCount} photo${s.largePhotoCount > 1 ? 's' : ''} > 100 Ko — re-compression recommandée</div>` : ''}
+  `;
+}
+
+async function freeStorageSpace() {
+  const stats = _computeStorageStats();
+  if (stats.largePhotoCount === 0) {
+    await uiAlert('Aucune photo lourde détectée. Rien à compresser.');
+    return;
+  }
+  const confirmed = await uiConfirm(
+    `Re-compresser ${stats.largePhotoCount} photo${stats.largePhotoCount > 1 ? 's' : ''} > 100 Ko en ${PHOTO_MAX_WIDTH_AGGRESSIVE}px / qualité ${Math.round(PHOTO_QUALITY_AGGRESSIVE * 100)}% ?\n\nCela peut prendre quelques secondes. Aucune recette n'est supprimée.`,
+    { confirmLabel: 'Compresser', danger: false }
+  );
+  if (!confirmed) return;
+
+  const btn = document.getElementById('settings-free-space');
+  const originalLabel = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-small"></span> Compression…'; }
+
+  const LARGE_THRESHOLD = 100 * 1024;
+  let processed = 0;
+  let bytesSaved = 0;
+  for (const r of state.recipes) {
+    if (!r.photo || typeof r.photo !== 'string') continue;
+    if (r.photo.length <= LARGE_THRESHOLD) continue;
+    const oldSize = r.photo.length;
+    try {
+      const newDataUrl = await _recompressDataUrl(r.photo, PHOTO_MAX_WIDTH_AGGRESSIVE, PHOTO_QUALITY_AGGRESSIVE);
+      if (newDataUrl && newDataUrl.length < oldSize) {
+        r.photo = newDataUrl;
+        bytesSaved += (oldSize - newDataUrl.length);
+        processed++;
+      }
+    } catch (e) {
+      console.warn('Recompression échouée pour', r.title, e);
+    }
+  }
+  saveRecipes();
+  if (btn) { btn.disabled = false; btn.innerHTML = originalLabel; }
+  _updateStorageStatsDisplay();
+  const savedKB = Math.round(bytesSaved / 1024);
+  showToast(`${processed} photo${processed > 1 ? 's' : ''} recompressée${processed > 1 ? 's' : ''} · ${savedKB} Ko libérés ✓`, 'success');
+}
+window.freeStorageSpace = freeStorageSpace;
+
+// Recompresse une data URL existante en passant par un canvas
+async function _recompressDataUrl(dataUrl, maxSize, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxSize || height > maxSize) {
+        if (width > height) {
+          height = Math.round(height * maxSize / width);
+          width = maxSize;
+        } else {
+          width = Math.round(width * maxSize / height);
+          height = maxSize;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => reject(new Error('Image non décodable'));
+    img.src = dataUrl;
+  });
+}
+
 function showSettings() {
   document.getElementById('settings-api-key').value = state.apiKey || '';
   document.getElementById('settings-sync-url').value = state.sync.url || '';
@@ -6519,6 +6754,9 @@ function showSettings() {
     const el = document.getElementById(id);
     if (el) el.checked = p[key] === undefined ? defaultVal : !!p[key];
   });
+  // Stats de stockage (taille totale + photos lourdes)
+  _updateStorageStatsDisplay();
+
   document.getElementById('settings-modal').classList.remove('hidden');
   pushOverlay('settings');
 }
@@ -8146,6 +8384,11 @@ async function bindEvents() {
     forceUpdateBtn.addEventListener('click', forceUpdate);
   }
 
+  const freeSpaceBtn = document.getElementById('settings-free-space');
+  if (freeSpaceBtn) {
+    freeSpaceBtn.addEventListener('click', freeStorageSpace);
+  }
+
   const recalcAllBtn = document.getElementById('settings-recalc-all');
   if (recalcAllBtn) {
     recalcAllBtn.addEventListener('click', recalcAllRecipes);
@@ -8231,6 +8474,7 @@ async function bindEvents() {
 
 // Resize image to keep API payloads reasonable
 async function processImage(file) {
+  _validatePhotoFileSize(file);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = e => {
@@ -8268,10 +8512,104 @@ async function processImage(file) {
 // INIT
 // ============================================
 
+// ============================================
+// PULL-TO-REFRESH (vue Bibliothèque)
+// ============================================
+// L'UI #pull-refresh-indicator existe déjà dans le HTML. On la branche aux pointer events
+// sur la vue Bibliothèque : si l'utilisateur tire vers le bas depuis scrollTop=0,
+// l'indicateur apparaît progressivement. Au-delà d'un seuil (80px), le relâchement
+// déclenche un refresh (performSync si actif, sinon re-render).
+function _initPullToRefresh() {
+  const main = document.getElementById('main-content');
+  const indicator = document.getElementById('pull-refresh-indicator');
+  if (!main || !indicator) return;
+
+  const TRIGGER_PX = 80;
+  const MAX_PX = 120;
+  let startY = 0;
+  let pulling = false;
+  let pullDistance = 0;
+  let refreshing = false;
+
+  main.addEventListener('touchstart', (e) => {
+    if (refreshing) return;
+    // Pull-to-refresh actif uniquement sur la vue Bibliothèque et tout en haut du scroll
+    if (state.currentView !== 'library') return;
+    if (main.scrollTop > 0) return;
+    startY = e.touches[0].clientY;
+    pulling = true;
+    pullDistance = 0;
+  }, { passive: true });
+
+  main.addEventListener('touchmove', (e) => {
+    if (!pulling || refreshing) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy <= 0) { pulling = false; indicator.style.transform = ''; indicator.classList.add('hidden'); return; }
+    pullDistance = Math.min(dy * 0.5, MAX_PX); // amortissement
+    indicator.classList.remove('hidden');
+    indicator.style.transform = `translateY(${pullDistance}px)`;
+    indicator.classList.toggle('is-ready', pullDistance >= TRIGGER_PX);
+  }, { passive: true });
+
+  const endHandler = async () => {
+    if (!pulling || refreshing) return;
+    pulling = false;
+    if (pullDistance >= TRIGGER_PX) {
+      refreshing = true;
+      indicator.classList.add('is-refreshing');
+      try {
+        if (state.sync.enabled) {
+          await performSync(false);
+        } else {
+          renderLibrary();
+          showToast('Bibliothèque actualisée ✓', 'success');
+        }
+      } catch (e) {
+        console.error('Pull-to-refresh erreur', e);
+      } finally {
+        refreshing = false;
+        indicator.classList.remove('is-refreshing', 'is-ready');
+        indicator.style.transform = '';
+        indicator.classList.add('hidden');
+      }
+    } else {
+      indicator.style.transform = '';
+      indicator.classList.remove('is-ready');
+      indicator.classList.add('hidden');
+    }
+  };
+  main.addEventListener('touchend', endHandler);
+  main.addEventListener('touchcancel', endHandler);
+}
+
+// Badge "Hors ligne" : visible quand navigator.onLine === false
+function _initOfflineIndicator() {
+  const badge = document.getElementById('offline-badge');
+  if (!badge) return;
+  const update = () => {
+    const isOffline = !navigator.onLine;
+    badge.classList.toggle('hidden', !isOffline);
+  };
+  window.addEventListener('online', update);
+  window.addEventListener('offline', update);
+  update();
+}
+
 function init() {
   loadState();
+  // Compteur stockage console (utile pour debug : repérer un quota qui grimpe)
+  try {
+    const stats = _computeStorageStats();
+    console.info(
+      `[Mes Recettes] %c${stats.recipeCount} recettes %c· %c${stats.totalKB} Ko stockés %c(${stats.photoCount} photos, ${stats.photoKB} Ko)`,
+      'font-weight:700;color:#B5532A', 'color:inherit',
+      'font-weight:700;color:#B5532A', 'color:inherit'
+    );
+  } catch (e) { /* silent */ }
   applyTheme(); // doit être appelé tôt pour éviter le flash
   initHistory(); // initialise l'historique pour le bouton retour
+  _initOfflineIndicator();
+  _initPullToRefresh();
   initKeyboardHandling(); // ajuste la barre chat avec le clavier virtuel
   bindEvents();
   _loadTimerState(); // restaurer un éventuel minuteur actif
