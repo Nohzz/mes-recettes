@@ -1487,7 +1487,8 @@ a {
   margin-top: -16px;
   position: relative;
   z-index: 3;
-  padding: 20px 16px 16px;
+  /* padding-bottom généreux pour ne pas être masqué par la sticky bar fixée (~100px max) */
+  padding: 20px 16px 110px;
 }
 
 .recipe-detail-title {
@@ -1503,6 +1504,150 @@ a {
   font-size: 14px;
   margin: 0 0 12px 0;
   cursor: pointer;
+}
+
+/* ============================================
+   MENU KEBAB ⋮ sur le hero de la fiche recette
+   Range les actions secondaires (Modifier, Supprimer) hors du flux principal
+   ============================================ */
+.recipe-kebab-menu {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: kebabFadeIn 0.2s ease-out;
+}
+
+.recipe-kebab-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.recipe-kebab-panel {
+  position: relative;
+  width: 100%;
+  max-width: var(--max-w);
+  background: var(--color-surface);
+  border-top-left-radius: var(--radius-xl);
+  border-top-right-radius: var(--radius-xl);
+  padding: 12px 8px calc(12px + var(--safe-bottom));
+  box-shadow: 0 -8px 24px -4px rgba(0, 0, 0, 0.2);
+  animation: kebabSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.recipe-kebab-header {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-gray-500);
+  padding: 8px 16px 4px;
+}
+
+.recipe-kebab-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--color-gray-800);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition);
+}
+
+.recipe-kebab-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+.recipe-kebab-item-text small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-gray-600);
+  line-height: 1.3;
+}
+
+/* Mini kebab à côté d'un titre de section (Étapes…) */
+.recipe-section-kebab {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  padding: 6px;
+  border-radius: 8px;
+  color: var(--color-gray-500);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition), color var(--transition);
+}
+.recipe-section-kebab svg {
+  width: 18px;
+  height: 18px;
+}
+.recipe-section-kebab:active,
+.recipe-section-kebab:hover {
+  background: var(--color-primary-cream);
+  color: var(--color-primary);
+}
+
+.recipe-kebab-item:active {
+  background: var(--color-primary-cream);
+}
+
+.recipe-kebab-item.is-danger {
+  color: var(--color-red-pop, #dc2626);
+}
+
+.recipe-kebab-item.is-danger:active {
+  background: #fee2e2;
+}
+
+.recipe-kebab-icon {
+  font-size: 20px;
+  width: 24px;
+  display: flex;
+  justify-content: center;
+}
+
+@keyframes kebabFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes kebabSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* Crayon ✏️ discret pour signaler les éléments éditables (titre + description) */
+.recipe-edit-pencil {
+  display: inline-block;
+  font-size: 0.6em;
+  margin-left: 8px;
+  opacity: 0.3;
+  vertical-align: middle;
+  transition: opacity var(--transition), transform var(--transition);
+  filter: grayscale(0.4);
+}
+
+.is-editable:hover .recipe-edit-pencil,
+.is-editable:active .recipe-edit-pencil {
+  opacity: 0.85;
+  filter: none;
+  transform: scale(1.1);
 }
 
 .recipe-detail-description-empty {
@@ -1570,6 +1715,47 @@ a {
 .servings-hint {
   font-size: 11px;
   color: var(--color-gray-600);
+}
+
+/* ============================================
+   BLOC PORTIONS COMPACT
+   Fusion de l'ancienne servings-card + servings-presets en un seul bloc
+   pour réduire le scroll vertical entre hero et ingrédients.
+   ============================================ */
+.servings-block {
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.servings-block-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.servings-block-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--color-gray-800);
+}
+
+.servings-block-presets {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.servings-block-presets .servings-preset {
+  flex: 1;
+  min-width: 0;
 }
 
 .servings-controls {
@@ -1694,8 +1880,8 @@ a {
 }
 
 .step-number {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   background: var(--color-primary);
   color: var(--color-surface);
@@ -1703,9 +1889,11 @@ a {
   align-items: center;
   justify-content: center;
   font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 13px;
+  font-weight: 800;
+  font-size: 14px;
   flex-shrink: 0;
+  /* Ombre douce terracotta pour jalonner la lecture sans agressivité */
+  box-shadow: 0 2px 6px -2px rgba(181, 83, 42, 0.4);
 }
 
 .step-content {
@@ -3128,18 +3316,54 @@ body.is-drag-reordering textarea {
   position: absolute;
   bottom: 12px;
   right: 12px;
-  width: 40px;
   height: 40px;
-  border-radius: 50%;
+  border-radius: 999px;
   background: white;
   color: var(--color-gray-800);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  gap: 6px;
+  padding: 0 14px 0 12px;
+  font-size: 13px;
+  font-family: var(--font-display);
+  font-weight: 700;
   z-index: 2;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.18);
   cursor: pointer;
+  border: none;
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+
+.recipe-photo-add-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.recipe-photo-add-label {
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+/* Quand une photo est déjà présente : retour à un bouton cercle compact */
+.recipe-photo-add.has-photo {
+  width: 40px;
+  padding: 0;
+  gap: 0;
+}
+
+.recipe-photo-add:not(.has-photo) {
+  /* Petite pulsation pour attirer l'œil quand la fiche n'a pas encore de photo */
+  animation: photoAddPulse 2.8s ease-in-out 1s infinite;
+}
+
+@keyframes photoAddPulse {
+  0%, 60%, 100% { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18); }
+  30% { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18), 0 0 0 8px rgba(255, 201, 148, 0.35); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recipe-photo-add:not(.has-photo) { animation: none; }
 }
 
 /* --- Durée prep/cuisson --- */
@@ -3252,8 +3476,76 @@ body.is-drag-reordering textarea {
   transition: all var(--transition);
 }
 .btn-cook { background: var(--color-primary-pale); }
+.btn-cook-full { width: 100%; }
 .btn-cook:active, .btn-cooking-mode:active {
   transform: scale(0.97);
+}
+
+/* ============================================
+   STICKY ACTION BAR (bas de la fiche recette)
+   Position FIXED juste au-dessus de la bottom-nav pour rester toujours visible
+   pendant la consultation. 3 modes :
+   - normal : Mode cuisine + Courses
+   - planning-current : Changer + Valider
+   - planning-candidate : Confirmer
+   Largeur limitée par max-width du conteneur .view pour rester centrée sur tablette/desktop.
+   ============================================ */
+.recipe-detail-sticky {
+  position: fixed;
+  bottom: calc(var(--nav-h) + var(--safe-bottom));
+  left: 0;
+  right: 0;
+  max-width: var(--max-w);
+  margin: 0 auto;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-gray-100, rgba(0,0,0,0.06));
+  padding: 10px 14px;
+  z-index: 50;
+  box-shadow: 0 -4px 16px -6px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recipe-detail-sticky.is-planning-current {
+  background: var(--color-primary-cream);
+  border-top: 2px solid var(--color-primary-soft);
+}
+
+.recipe-detail-sticky.is-planning-candidate {
+  background: linear-gradient(135deg, var(--color-primary-pale), var(--color-accent));
+  border-top: 2px solid var(--color-primary);
+}
+
+.recipe-detail-sticky-info {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-primary-dark);
+  margin: 0;
+  text-align: center;
+}
+
+.recipe-detail-sticky-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.recipe-detail-sticky-actions .btn-primary,
+.recipe-detail-sticky-actions .btn-secondary {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  padding: 12px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.recipe-detail-sticky-shopping .btn-icon {
+  width: 18px;
+  height: 18px;
 }
 
 /* --- Servings presets --- */
@@ -5318,7 +5610,22 @@ body.keyboard-open .bottom-nav {
   font-size: 12px;
   color: var(--color-primary-dark);
   text-align: center;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 14px;
 }
+
+/* Pills "X chez vous" + "Y à acheter" sous la liste d'ingrédients */
+.ingredients-hint-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.ingredients-hint-pantry { color: var(--color-primary-dark); }
+.ingredients-hint-buy { color: var(--color-gray-700, #525252); }
 
 /* Settings : select */
 .settings-select {
@@ -5561,10 +5868,23 @@ body.keyboard-open .bottom-nav {
    ============================================ */
 .recipe-meta-bar {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
   margin: 12px 16px;
+}
+
+/* Groupes : factuel (tags/régimes/source) puis validation (cuisson/vérifié/log) */
+.recipe-meta-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   align-items: center;
+}
+
+.recipe-meta-group-status {
+  padding-top: 4px;
+  border-top: 1px dashed var(--color-gray-200, rgba(0, 0, 0, 0.08));
+  opacity: 0.92;
 }
 
 .recipe-meta-chip {
@@ -6282,4 +6602,20 @@ body.keyboard-open .bottom-nav {
 }
 .recipe-meta-chip.is-verified:hover {
   background: #d1fae5;
+}
+
+/* Chips "Cuisson" — code couleur de fraîcheur
+   .is-cooked-medium n'a pas de règle : conserve le style par défaut .is-filled (cream/terracotta) */
+.recipe-meta-chip.is-cooked-recent {
+  background: #ecfdf5;
+  border-color: #86efac;
+  color: #047857;
+}
+.recipe-meta-chip.is-cooked-recent:hover {
+  background: #d1fae5;
+}
+.recipe-meta-chip.is-cooked-old {
+  background: var(--color-gray-100, #f4f4f5);
+  border-color: var(--color-gray-200, #e4e4e7);
+  color: var(--color-gray-600, #525252);
 }

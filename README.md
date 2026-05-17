@@ -39,18 +39,33 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
   - **Référence pure** (« Une fois le brocoli cuit » → n'affiche rien, déjà utilisé)
   - **Quantités partielles** : si un ingrédient est divisé (ex: 100g pour la pâte + 30g pour le moule), chaque étape affiche sa portion + note explicative
 - **Bouton 🪄 « Recalculer ingrédients-étapes »** :
-  - Individuel sur chaque fiche (~1 centime)
+  - Accessible via le menu kebab ⋮ à côté du titre « Étapes »
   - Global dans Paramètres → Outils IA (toutes les recettes en une fois)
-  - Sauvegarde automatique de l'ancien état + bouton « ↶ Restaurer l'ancien »
+  - Sauvegarde automatique de l'ancien état + bouton « ↶ Restaurer l'ancien » dans le même menu
 - **Minuteurs intégrés aux étapes** : détection automatique des durées dans le texte ("Cuire 30 min", "Reposer 1h30", "1/2 heure"...), tap sur ⏱️ pour lancer
   - Overlay flottant avec affichage `MM:SS`, pause/reprendre/arrêter
   - Alarme à zéro : bips sonores + notification système + vibration
   - Résiste à un refresh ou changement d'app
-- **Historique « Faite le X »** : suivi de vos recettes les plus cuisinées, dates passées éditables
-- **Portions ajustables** avec quantités recalculées (presets 2/4/6/8)
-- **Indicateur garde-manger** : ingrédients déjà chez vous barrés et marqués 📦
+- **Historique « Faite le X »** : suivi de vos recettes les plus cuisinées, dates passées éditables. Toast contextuel encourageant à chaque cuisson (🎉 1ère fois, 🔥 5×, ⭐ 10×…)
+- **Portions ajustables** avec quantités recalculées (presets 2/4/6/8) — bloc compact unifié
+- **Indicateur garde-manger** : ingrédients déjà chez vous barrés et marqués 📦. Sous la liste : double pill `📦 X chez vous` + `🛒 Y à acheter`
 - **Partage** de recette (lien natif iOS/Android ou copier-coller)
 - **Historique des modifications** (changeLog) : qui a modifié quoi et quand, badge nouvelles modifs
+
+### 🍽️ Fiche recette (UX/UI refondue v3.5)
+- **Sticky action bar** en bas de la fiche : « Mode cuisine » + « Ajouter aux courses » toujours à portée de pouce, sans scroller
+  - Mode planning : se transforme en « 🔄 Changer / ✓ Valider » ou « ✓ Confirmer le changement » selon le contexte
+- **Hero compact** : 3 boutons visibles (★ Favori, 📤 Partager, ⋮ Plus) — kebab range « Modifier (formulaire complet) » et « 🗑️ Supprimer » pour éviter les appuis accidentels
+- **Photo avec call-to-action** : pillule « 📷 Ajouter une photo » qui pulse doucement quand la fiche n'a pas encore d'image
+- **Icônes ✏️ discrètes** sur le titre et la description pour signaler les zones éditables (plus visibles au tap)
+- **Bloc Portions compact** : fusion `[−/X/+] + presets 2/4/6/8` en une seule carte (au lieu de 2 blocs séparés)
+- **Numérotation des étapes** : ronds terracotta 30px avec ombre douce pour mieux jalonner la lecture
+- **Compteurs dans les titres** : « Ingrédients (12) », « Étapes (8) » pour un aperçu visuel immédiat
+- **Meta-bar en 2 groupes** : factuel (tags, régimes, source) puis validation (cuisson, vérifié, changelog), séparés par un trait pointillé subtil
+  - La chip « ☐ À vérifier » n'apparaît plus que pour les recettes extraites par IA (jamais sur une recette saisie manuellement)
+- **Chip cuisson avec code couleur de fraîcheur** : vert < 14 jours, neutre 14-60 j, gris > 60 j
+- **Bouton retour intelligent** : `history.back()` qui préserve la provenance (library / planning / shopping / search) plutôt que de toujours retomber sur la bibliothèque
+- **Libellé clair** : « ✓ J'ai cuisiné cette recette aujourd'hui » (au lieu du flou « J'ai fait cette recette »)
 
 ### 🗓 Planning des repas
 - **Vue 1 ou 2 semaines** au choix (toggle segmenté avec navigation flèches adaptée)
@@ -246,6 +261,8 @@ Code librement réutilisable.
 
 ---
 
-**v3.4** — Génération de menu IA musclée (détection protéine + 6 règles configurables + batch cooking) · Clic recette planning → fiche détail avec changement guidé · Paramètres refondus mobile-first iOS · Obfuscation locale des secrets · Drag-to-reorder ingrédients/étapes · Feedback IA progressif · Skeleton placeholders · Toasts différenciés — Bon appétit ! 🍅
+**v3.5** — Fiche recette refondue : sticky action bar (Mode cuisine + Courses) · Hero compact avec kebab Modifier/Supprimer · Photo pulse pour CTA · Crayon ✏️ d'édition inline · Bloc portions unifié · Meta-bar en 2 groupes (factuel/validation) · Chip cuisson par fraîcheur · Toasts cuisson contextuels (🎉 1ère fois, 🔥 5×, ⭐ 10×) · Pill « X à acheter » · Numérotation étapes en pop · Compteurs (N) dans les titres · Bouton retour intelligent — Bon appétit ! 🍅
+
+**v3.4** — Génération de menu IA musclée (détection protéine + 6 règles configurables + batch cooking) · Clic recette planning → fiche détail avec changement guidé · Paramètres refondus mobile-first iOS · Obfuscation locale des secrets · Drag-to-reorder ingrédients/étapes · Feedback IA progressif · Skeleton placeholders · Toasts différenciés
 
 **v3.2** — Source obligatoire + Vérification humaine + Ingrédients-étapes précis + FODMAP auto + Photo Caméra/Galerie + Recalcul IA
