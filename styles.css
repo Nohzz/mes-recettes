@@ -2345,6 +2345,19 @@ a {
   text-overflow: ellipsis;
 }
 
+.shopping-recipe-emoji.is-clickable,
+.shopping-recipe-name.is-clickable {
+  cursor: pointer;
+}
+
+.shopping-recipe-name.is-clickable:hover {
+  color: var(--color-primary);
+}
+
+.shopping-recipe-emoji.is-clickable:active {
+  transform: scale(0.95);
+}
+
 .shopping-recipe-servings {
   display: flex;
   align-items: center;

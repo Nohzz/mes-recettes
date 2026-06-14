@@ -5016,9 +5016,9 @@ function renderShopping() {
     if (!r) return '';
     return `
       <div class="shopping-recipe-row">
-        <div class="shopping-recipe-emoji">${r.photo ? `<img src="${r.photo}" alt="" loading="lazy">` : (r.emoji || '🍽️')}</div>
+        <div class="shopping-recipe-emoji is-clickable" onclick="openRecipe('${r.id}')" role="button" tabindex="0" aria-label="Ouvrir la recette">${r.photo ? `<img src="${r.photo}" alt="" loading="lazy">` : (r.emoji || '🍽️')}</div>
         <div class="shopping-recipe-info">
-          <div class="shopping-recipe-name">${escapeHtml(r.title)}</div>
+          <div class="shopping-recipe-name is-clickable" onclick="openRecipe('${r.id}')" role="button" tabindex="0">${escapeHtml(r.title)}</div>
           <div class="shopping-recipe-servings">
             <button class="shopping-recipe-servings-btn" onclick="updateShoppingServings('${r.id}', -1)" ${item.servings <= 1 ? 'disabled' : ''}>−</button>
             <span class="shopping-recipe-servings-value">${item.servings} pers.</span>
