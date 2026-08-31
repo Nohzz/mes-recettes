@@ -2415,18 +2415,54 @@ a {
 .shopping-list-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 12px;
 }
 
 .shopping-list-header h3 {
   font-size: 17px;
+  flex: 1;
+  margin: 0;
 }
 
 .shopping-count {
   font-size: 12px;
   color: var(--color-gray-600);
   font-weight: 600;
+}
+
+.shopping-cleanup-btn {
+  background: var(--color-primary-cream);
+  border: 1px solid var(--color-primary-pale);
+  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.shopping-cleanup-btn:hover {
+  background: var(--color-primary-pale);
+  transform: scale(1.05);
+}
+
+.shopping-cleanup-btn:active {
+  transform: scale(0.95);
+}
+
+.shopping-cleanup-btn:disabled,
+.shopping-cleanup-btn.is-loading {
+  opacity: 0.5;
+  cursor: wait;
+  animation: shopping-cleanup-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes shopping-cleanup-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
 }
 
 .shopping-category {

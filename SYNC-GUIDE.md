@@ -77,12 +77,33 @@ CREATE POLICY "Public access" ON planning
   FOR ALL
   USING (true)
   WITH CHECK (true);
+
+-- Table des listes de courses synchronisées
+-- (une ligne par liste, avec ses articles et ses cases cochées)
+CREATE TABLE shopping_lists (
+  id TEXT PRIMARY KEY,
+  foyer TEXT NOT NULL,
+  name TEXT NOT NULL,
+  items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  checked JSONB NOT NULL DEFAULT '[]'::jsonb,
+  deleted_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX shopping_lists_foyer_idx ON shopping_lists(foyer);
+
+ALTER TABLE shopping_lists ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Public access" ON shopping_lists
+  FOR ALL
+  USING (true)
+  WITH CHECK (true);
 ```
 
 4. Cliquez **Run** (ou `Ctrl+Enter`)
 5. Vous devez voir "Success. No rows returned." en bas
 
-> **Déjà configuré sans la table `planning` ?** Pas besoin de tout refaire — exécutez juste les commandes à partir de `CREATE TABLE planning` dans une nouvelle query. La sync des recettes continuera comme avant.
+> **Déjà configuré sans la table `planning` ou `shopping_lists` ?** Pas besoin de tout refaire — exécutez juste les commandes des tables manquantes dans une nouvelle query. La sync des recettes continuera comme avant.
 
 > ⚠️ **Limitation actuelle de la sync planning** : si vous mettez **plusieurs recettes dans un même créneau** (ex: entrée + plat le midi), seule **la première** est synchronisée. L'app fonctionne quand même normalement sur chaque appareil, mais les recettes supplémentaires ne sont pas partagées avec l'autre téléphone. Pour 99 % des usages, ce n'est pas un problème car on planifie rarement plusieurs plats par créneau. Une évolution future permettra de tout synchroniser.
 
@@ -159,6 +180,7 @@ C'est ici que la magie opère :
 
 - **Recettes** : intégralité de chaque recette (titre, ingrédients, étapes, photo, tags, source, régimes, vérification humaine, historique de cuisson, changelog, notes personnelles, etc.) — tout est encapsulé dans le champ JSON `data`, donc **les nouvelles fonctionnalités ajoutées plus tard sont automatiquement synchronisées sans modification de schéma**
 - **Planning** : les cellules (jour × créneau midi/soir/autre) avec la recette assignée et les portions
+- **Listes de courses** : toutes vos listes multiples avec leurs recettes, leurs quantités et **leurs cases cochées** (utile pour se répartir les courses en couple : ce qu'un appareil coche apparaît coché sur l'autre)
 
 ### Ce qui n'est PAS synchronisé
 
@@ -166,9 +188,10 @@ Ces données restent **locales à chaque appareil** (privées) :
 - La clé API Claude
 - Les préférences d'affichage (mode sombre, durée par défaut du garde-manger)
 - L'historique du chat avec l'IA
-- La liste de courses (active sur chaque appareil)
 - Le garde-manger (ce que vous avez chez vous)
 - Le minuteur en cours
+- La liste de courses **active** (chaque appareil choisit indépendamment laquelle il affiche, les listes elles-mêmes sont partagées)
+- Les alias appris via « Nettoyer avec l'IA » (propres à chaque appareil pour l'instant)
 
 ### Comportement
 
@@ -227,6 +250,9 @@ DELETE FROM recipes WHERE foyer = 'votre-code-foyer-ici';
 
 -- Supprimer aussi le planning
 DELETE FROM planning WHERE foyer = 'votre-code-foyer-ici';
+
+-- Et les listes de courses
+DELETE FROM shopping_lists WHERE foyer = 'votre-code-foyer-ici';
 ```
 
 ### "Je veux remettre à zéro seulement le planning"
@@ -234,11 +260,17 @@ DELETE FROM planning WHERE foyer = 'votre-code-foyer-ici';
 DELETE FROM planning WHERE foyer = 'votre-code-foyer-ici';
 ```
 
+### "Je veux remettre à zéro seulement les listes de courses"
+```sql
+DELETE FROM shopping_lists WHERE foyer = 'votre-code-foyer-ici';
+```
+
 ## 📊 Suivre l'usage
 
 Sur Supabase → **Table Editor** :
 - **`recipes`** : toutes vos recettes synchronisées en temps réel
 - **`planning`** : les cellules de votre planning (1 ligne par jour × créneau)
+- **`shopping_lists`** : vos listes de courses (1 ligne par liste, avec `items` et `checked` en JSONB)
 
 Pratique pour vérifier que la sync marche.
 

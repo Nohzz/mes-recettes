@@ -102,7 +102,8 @@ const STORAGE_KEYS = {
   categoryOrder: 'mr_category_order',
   servingsPresets: 'mr_servings_presets',
   planning: 'mr_planning',
-  planningPrefs: 'mr_planning_prefs'
+  planningPrefs: 'mr_planning_prefs',
+  ingredientSynonyms: 'mr_ingredient_synonyms'
 };
 
 const state = {
@@ -142,6 +143,8 @@ const state = {
     voiceMode: 'claude',
     sortMode: 'recent',
     servingsPresets: [2, 4, 6, 8],
+    // Alias appris via « Nettoyer la liste avec l'IA » : { "alias": "nom canonique" }
+    ingredientSynonyms: {},
     // Préférences de génération de menu IA (toutes activées par défaut)
     planning: {
       proteinDaily: true,        // Protéine à chaque repas (max 1 jour/semaine sans)
@@ -233,8 +236,16 @@ function loadState() {
     if (!state.shoppingLists.find(l => l.id === state.activeShoppingListId)) {
       state.activeShoppingListId = state.shoppingLists[0]?.id || 'default';
     }
+    // Migration : chaque liste doit avoir checked (array) et updatedAt (pour la sync)
+    for (const list of state.shoppingLists) {
+      if (!Array.isArray(list.checked)) list.checked = [];
+      if (typeof list.updatedAt !== 'number') list.updatedAt = list.createdAt || Date.now();
+    }
     // Pour rétrocompat, alias shopping = liste active
-    state.shopping = getActiveShoppingList()?.items || [];
+    const _activeList = getActiveShoppingList();
+    state.shopping = _activeList?.items || [];
+    // Hydrate le Set de cases cochées depuis la liste active (avant : perdu au refresh)
+    state.shoppingChecked = new Set(_activeList?.checked || []);
 
     // Garde-manger
     const pantry = localStorage.getItem(STORAGE_KEYS.pantry);
@@ -284,6 +295,13 @@ function loadState() {
       try {
         const saved = JSON.parse(planningPrefsStr);
         state.prefs.planning = { ...state.prefs.planning, ...saved };
+      } catch {}
+    }
+    const synonymsStr = localStorage.getItem(STORAGE_KEYS.ingredientSynonyms);
+    if (synonymsStr) {
+      try {
+        const saved = JSON.parse(synonymsStr);
+        if (saved && typeof saved === 'object') state.prefs.ingredientSynonyms = saved;
       } catch {}
     }
 
@@ -454,11 +472,14 @@ function saveRecipes() {
 }
 
 function saveShopping() {
-  // Sauve la liste active dans shoppingLists
+  // Sauve la liste active (items + cases cochées) dans shoppingLists et pousse la sync
   const active = getActiveShoppingList();
   if (active) {
     active.items = state.shopping;
+    active.checked = [...state.shoppingChecked];
+    active.updatedAt = Date.now();
     safeSave(STORAGE_KEYS.shoppingLists, state.shoppingLists, 'listes de courses');
+    syncShoppingList(active.id);
   }
 }
 
@@ -507,6 +528,7 @@ function savePrefs() {
   localStorage.setItem(STORAGE_KEYS.sortMode, state.prefs.sortMode);
   localStorage.setItem(STORAGE_KEYS.servingsPresets, JSON.stringify(state.prefs.servingsPresets));
   localStorage.setItem(STORAGE_KEYS.planningPrefs, JSON.stringify(state.prefs.planning || {}));
+  localStorage.setItem(STORAGE_KEYS.ingredientSynonyms, JSON.stringify(state.prefs.ingredientSynonyms || {}));
 }
 
 function saveApiKey(key) {
@@ -541,6 +563,7 @@ function saveSyncConfig(config) {
 
 const SYNC_TABLE = 'recipes';
 const SYNC_PLANNING_TABLE = 'planning';
+const SYNC_SHOPPING_TABLE = 'shopping_lists';
 
 function setSyncStatus(status) {
   state.sync.status = status;
@@ -675,6 +698,60 @@ async function flushPlanningSync() {
     for (const row of rows) {
       const entry = state.planning[row.slot_key];
       if (entry) _pendingPlanningSync.set(row.slot_key, entry);
+    }
+  }
+}
+
+// ===== Sync des LISTES DE COURSES =====
+
+async function syncShoppingPull() {
+  const path = `${SYNC_SHOPPING_TABLE}?foyer=eq.${encodeURIComponent(state.sync.foyer)}&select=*`;
+  return await supabaseRequest('GET', path);
+}
+
+// Debounce : plusieurs modifs rapides (checked, ajout recette…) → 1 push
+const _pendingShoppingSync = new Map();
+let _shoppingSyncTimer = null;
+
+function syncShoppingList(listId) {
+  if (!state.sync.enabled || !navigator.onLine) return;
+  const list = state.shoppingLists.find(l => l.id === listId);
+  if (!list) return;
+  _pendingShoppingSync.set(listId, list);
+  if (_shoppingSyncTimer) clearTimeout(_shoppingSyncTimer);
+  _shoppingSyncTimer = setTimeout(flushShoppingSync, 800);
+}
+
+async function flushShoppingSync() {
+  if (_pendingShoppingSync.size === 0) return;
+  if (!state.sync.enabled || !navigator.onLine) {
+    _pendingShoppingSync.clear();
+    return;
+  }
+  const rows = [];
+  for (const [id, list] of _pendingShoppingSync.entries()) {
+    if (!list) continue;
+    rows.push({
+      id: list.id,
+      foyer: state.sync.foyer,
+      name: list.name || '',
+      items: list.items || [],
+      checked: list.checked || [],
+      updated_at: new Date(list.updatedAt || Date.now()).toISOString(),
+      deleted_at: list.deletedAt ? new Date(list.deletedAt).toISOString() : null
+    });
+  }
+  _pendingShoppingSync.clear();
+  if (rows.length === 0) return;
+  try {
+    await supabaseRequest('POST', SYNC_SHOPPING_TABLE, rows, {
+      'Prefer': 'resolution=merge-duplicates,return=minimal'
+    });
+  } catch (e) {
+    console.warn('Sync shopping push échouée:', e);
+    for (const row of rows) {
+      const list = state.shoppingLists.find(l => l.id === row.id);
+      if (list) _pendingShoppingSync.set(list.id, list);
     }
   }
 }
@@ -814,9 +891,89 @@ async function performSync(silent) {
       // Si la table planning n'existe pas encore côté Supabase, on continue sans bloquer la sync des recettes
     }
 
-    // Save local
+    // ===== Sync des LISTES DE COURSES (last-modified-wins par liste) =====
+    let shoppingChangedFromRemote = false;
+    try {
+      const remoteShopping = await syncShoppingPull() || [];
+      const remoteShoppingById = {};
+      for (const row of remoteShopping) remoteShoppingById[row.id] = row;
+
+      // Remote → local
+      for (const id in remoteShoppingById) {
+        const row = remoteShoppingById[id];
+        const remoteUpdated = new Date(row.updated_at).getTime();
+        const local = state.shoppingLists.find(l => l.id === id);
+
+        if (row.deleted_at) {
+          if (local) {
+            state.shoppingLists = state.shoppingLists.filter(l => l.id !== id);
+            shoppingChangedFromRemote = true;
+          }
+          continue;
+        }
+
+        if (!local) {
+          state.shoppingLists.push({
+            id: row.id,
+            name: row.name || 'Ma liste',
+            items: Array.isArray(row.items) ? row.items : [],
+            checked: Array.isArray(row.checked) ? row.checked : [],
+            createdAt: remoteUpdated,
+            updatedAt: remoteUpdated
+          });
+          shoppingChangedFromRemote = true;
+        } else {
+          const localUpdated = local.updatedAt || 0;
+          if (remoteUpdated > localUpdated) {
+            local.name = row.name || local.name;
+            local.items = Array.isArray(row.items) ? row.items : [];
+            local.checked = Array.isArray(row.checked) ? row.checked : [];
+            local.updatedAt = remoteUpdated;
+            local.deletedAt = null;
+            shoppingChangedFromRemote = true;
+          }
+        }
+      }
+
+      // Local → remote (listes inconnues du serveur ou plus récentes localement)
+      const shoppingToPush = [];
+      for (const l of state.shoppingLists) {
+        const remote = remoteShoppingById[l.id];
+        const localUpdated = l.updatedAt || l.createdAt || 0;
+        if (!remote || new Date(remote.updated_at).getTime() < localUpdated) {
+          shoppingToPush.push({
+            id: l.id,
+            foyer: state.sync.foyer,
+            name: l.name || '',
+            items: l.items || [],
+            checked: l.checked || [],
+            updated_at: new Date(localUpdated || Date.now()).toISOString(),
+            deleted_at: null
+          });
+        }
+      }
+      if (shoppingToPush.length > 0) {
+        await supabaseRequest('POST', SYNC_SHOPPING_TABLE, shoppingToPush, {
+          'Prefer': 'resolution=merge-duplicates,return=minimal'
+        });
+      }
+
+      // Ré-align liste active + Set de checked si la liste courante a été modifiée à distance
+      if (!state.shoppingLists.find(l => l.id === state.activeShoppingListId)) {
+        state.activeShoppingListId = state.shoppingLists[0]?.id || 'default';
+      }
+      const active = getActiveShoppingList();
+      if (active) {
+        state.shopping = active.items;
+        state.shoppingChecked = new Set(active.checked || []);
+      }
+      saveShoppingLists();
+    } catch (shopErr) {
+      console.warn('Sync shopping erreur (non bloquant):', shopErr);
+    }
+
+    // Save local (le bloc shopping ci-dessus a déjà appelé saveShoppingLists)
     saveRecipes();
-    saveShopping();
     state.sync.lastSync = Date.now();
     localStorage.setItem(STORAGE_KEYS.lastSync, String(state.sync.lastSync));
 
@@ -830,7 +987,7 @@ async function performSync(silent) {
 
     // Re-render current view
     if (state.currentView === 'library') renderLibrary();
-    if (state.currentView === 'shopping') renderShopping();
+    if (state.currentView === 'shopping' || shoppingChangedFromRemote) renderShopping();
     if (state.currentView === 'planning' || planningChangedFromRemote) renderPlanning();
     updateShoppingBadge();
 
@@ -3811,22 +3968,43 @@ async function clearSource(id) {
 window.clearSource = clearSource;
 
 // ============================================
-// MODE CUISINE (pas-à-pas plein écran, anti-veille)
+// ANTI-VEILLE (Wake Lock global, actif toute l'app)
 // ============================================
 
 let _wakeLock = null;
+
+async function acquireWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  if (_wakeLock) return;
+  try {
+    _wakeLock = await navigator.wakeLock.request('screen');
+    _wakeLock.addEventListener('release', () => { _wakeLock = null; });
+  } catch (e) {
+    // Peut échouer si l'onglet n'est pas visible, permission refusée, etc.
+    console.warn('Wake lock indisponible:', e && e.message);
+  }
+}
+
+async function releaseWakeLock() {
+  if (!_wakeLock) return;
+  try { await _wakeLock.release(); } catch {}
+  _wakeLock = null;
+}
+
+// L'OS relâche le lock quand la page perd le focus : on le ré-acquiert au retour
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') acquireWakeLock();
+});
+
+// ============================================
+// MODE CUISINE (pas-à-pas plein écran)
+// ============================================
 
 async function enterCookingMode(id) {
   const recipe = state.recipes.find(r => r.id === id);
   if (!recipe) return;
   state.cookingMode = { active: true, currentStep: 0, recipeId: id };
   pushOverlay('cooking');
-  // Anti-veille
-  try {
-    if ('wakeLock' in navigator) {
-      _wakeLock = await navigator.wakeLock.request('screen');
-    }
-  } catch (e) { console.warn('Wake lock denied:', e); }
   renderCookingMode();
 }
 window.enterCookingMode = enterCookingMode;
@@ -3842,10 +4020,6 @@ window.exitCookingMode = exitCookingMode;
 async function _exitCookingModeNoHistory() {
   state.cookingMode.active = false;
   document.getElementById('cooking-mode').classList.add('hidden');
-  if (_wakeLock) {
-    try { await _wakeLock.release(); } catch {}
-    _wakeLock = null;
-  }
 }
 
 function cookingNextStep() {
@@ -4158,24 +4332,27 @@ function createShoppingList(name) {
     id: uid(),
     name: name || 'Nouvelle liste',
     items: [],
-    createdAt: Date.now()
+    checked: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now()
   };
   state.shoppingLists.push(list);
   state.activeShoppingListId = list.id;
   state.shopping = list.items;
-  state.shoppingChecked.clear();
+  state.shoppingChecked = new Set();
   saveShoppingLists();
+  syncShoppingList(list.id);
   return list;
 }
 
 function switchShoppingList(id) {
   const list = state.shoppingLists.find(l => l.id === id);
   if (!list) return;
-  // Sauve la liste courante avant de switch
+  // Sauve la liste courante (items + checked) avant de switch
   saveShopping();
   state.activeShoppingListId = id;
   state.shopping = list.items;
-  state.shoppingChecked.clear();
+  state.shoppingChecked = new Set(list.checked || []);
   saveShoppingLists();
   renderShopping();
   updateShoppingBadge();
@@ -4188,10 +4365,18 @@ async function deleteShoppingList(id) {
     return;
   }
   if (!(await uiConfirm('Supprimer cette liste ?', { confirmLabel: 'Supprimer', danger: true }))) return;
+  const list = state.shoppingLists.find(l => l.id === id);
+  if (list) {
+    // Tombstone : marque comme supprimée pour propager la suppression via sync
+    list.deletedAt = Date.now();
+    list.updatedAt = Date.now();
+    syncShoppingList(id);
+  }
   state.shoppingLists = state.shoppingLists.filter(l => l.id !== id);
   if (state.activeShoppingListId === id) {
     state.activeShoppingListId = state.shoppingLists[0].id;
     state.shopping = state.shoppingLists[0].items;
+    state.shoppingChecked = new Set(state.shoppingLists[0].checked || []);
   }
   saveShoppingLists();
   renderShopping();
@@ -4205,7 +4390,9 @@ async function renameShoppingList(id) {
   const newName = await uiPrompt('Nom de la liste :', list.name);
   if (!newName || !newName.trim()) return;
   list.name = newName.trim();
+  list.updatedAt = Date.now();
   saveShoppingLists();
+  syncShoppingList(id);
   renderShopping();
 }
 window.renameShoppingList = renameShoppingList;
@@ -4944,7 +5131,10 @@ function aggregateShoppingItems() {
       // Garde-manger
       if (isInPantry(ing.name)) continue;
 
-      const normalizedName = normalizeIngredientName(ing.name);
+      // Alias appris via IA (« concentré tomate » → « concentré de tomate ») avant normalisation
+      const syns = (state.prefs && state.prefs.ingredientSynonyms) || {};
+      const canonName = syns[ing.name.toLowerCase().trim()] || ing.name;
+      const normalizedName = normalizeIngredientName(canonName);
       if (!normalizedName) continue;
 
       // Conversion d'unités : on essaie de convertir vers la base (ml ou g)
@@ -4957,9 +5147,9 @@ function aggregateShoppingItems() {
         : normalizedName + '|' + (ing.unit || '').toLowerCase().trim();
 
       if (!aggregated[key]) {
-        const displayName = ing.name.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+        const displayName = canonName.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
         aggregated[key] = {
-          name: displayName || ing.name,
+          name: displayName || canonName,
           unit: ing.unit || '',
           amount: 0,
           baseAmount: 0, // pour items convertibles
@@ -4993,6 +5183,92 @@ function aggregateShoppingItems() {
     return item;
   });
 }
+
+// Nettoie la liste avec l'IA : envoie les noms uniques à Claude, récupère un mapping
+// de synonymes et le persiste dans state.prefs.ingredientSynonyms pour toutes les listes à venir.
+async function cleanShoppingWithAI() {
+  if (!state.apiKey) {
+    await uiAlert("Configure d'abord ta clé API Claude dans les paramètres.");
+    return;
+  }
+  const items = aggregateShoppingItems();
+  if (items.length < 2) {
+    showToast('Liste trop courte pour être nettoyée');
+    return;
+  }
+  const confirmed = await uiConfirm(
+    `Analyser ${items.length} articles avec l'IA pour repérer les doublons ?\n\n` +
+    `Les variétés (« tomate cerise » ≠ « tomate ») et les couleurs (« poivron rouge » ≠ « poivron vert ») restent séparées.\n\n` +
+    `Cet appel utilise ta clé API Claude.`,
+    { confirmLabel: 'Nettoyer', cancelLabel: 'Annuler' }
+  );
+  if (!confirmed) return;
+
+  const names = [...new Set(items.map(it => it.name))];
+  const userMsg = `Voici les articles d'une liste de courses en français. Regroupe UNIQUEMENT ceux qui désignent le même produit à acheter (variantes de pluriel, orthographe, synonymes évidents comme "concentré tomate" et "concentré de tomate").
+
+GARDE STRICTEMENT distincts :
+- les variétés d'un même produit (tomate cerise ≠ tomate ; pomme de terre nouvelle ≠ pomme de terre)
+- les couleurs (poivron rouge ≠ poivron vert ; oignon jaune ≠ oignon rouge)
+- les préparations d'achat (fromage râpé ≠ fromage bloc ; bœuf haché ≠ bœuf)
+
+Articles à analyser :
+${names.map((n, i) => `${i+1}. ${n}`).join('\n')}
+
+Réponds UNIQUEMENT avec un JSON entre <groupes></groupes>, au format :
+[
+  { "canonical": "nom canonique préféré", "aliases": ["autre nom 1", "autre nom 2"] }
+]
+
+N'inclus QUE les groupes de 2 articles ou plus. N'invente pas d'articles absents de la liste.`;
+
+  const btn = document.getElementById('shopping-cleanup-btn');
+  if (btn) { btn.disabled = true; btn.classList.add('is-loading'); }
+  showToast('Analyse en cours…');
+  try {
+    const response = await callClaudeAPI([{ role: 'user', content: userMsg }], { maxTokens: 2000 });
+    const match = response.match(/<groupes>([\s\S]*?)<\/groupes>/);
+    if (!match) {
+      await uiAlert("L'IA n'a pas renvoyé de résultat exploitable. Rien n'a été modifié.");
+      return;
+    }
+    const groups = JSON.parse(match[1].trim().replace(/^```json\s*/i, '').replace(/```$/, ''));
+    if (!Array.isArray(groups) || groups.length === 0) {
+      showToast('Aucun doublon détecté', 'success');
+      return;
+    }
+    state.prefs.ingredientSynonyms = state.prefs.ingredientSynonyms || {};
+    const known = new Set(names.map(n => n.toLowerCase().trim()));
+    let count = 0;
+    for (const g of groups) {
+      if (!g || typeof g.canonical !== 'string' || !Array.isArray(g.aliases)) continue;
+      const canonical = g.canonical.trim();
+      if (!canonical) continue;
+      for (const alias of g.aliases) {
+        if (typeof alias !== 'string') continue;
+        const aKey = alias.toLowerCase().trim();
+        if (!aKey || aKey === canonical.toLowerCase()) continue;
+        // Ne stocke que des alias qui viennent bien de la liste (évite les hallucinations)
+        if (!known.has(aKey)) continue;
+        state.prefs.ingredientSynonyms[aKey] = canonical;
+        count++;
+      }
+    }
+    savePrefs();
+    renderShopping();
+    if (count === 0) {
+      showToast('Aucun doublon détecté', 'success');
+    } else {
+      showToast(`${count} alias enregistré${count > 1 ? 's' : ''}`, 'success');
+    }
+  } catch (e) {
+    console.error(e);
+    await uiAlert('Erreur : ' + (e && e.message ? e.message : e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.classList.remove('is-loading'); }
+  }
+}
+window.cleanShoppingWithAI = cleanShoppingWithAI;
 
 function renderShopping() {
   const empty = document.getElementById('shopping-empty');
@@ -5139,6 +5415,8 @@ function toggleShoppingItem(key) {
   } else {
     state.shoppingChecked.add(key);
   }
+  // Persiste et synchronise les cases cochées (avant : perdues au refresh)
+  saveShopping();
   renderShopping();
 }
 
@@ -8915,6 +9193,7 @@ function init() {
   initKeyboardHandling(); // ajuste la barre chat avec le clavier virtuel
   bindEvents();
   _loadTimerState(); // restaurer un éventuel minuteur actif
+  acquireWakeLock(); // anti-veille global (l'écran reste allumé tant que l'app est ouverte)
 
   // Splash
   setTimeout(() => {

@@ -315,34 +315,111 @@ const SHOPPING_EXCLUDE = [
   'eau plate'
 ];
 
-// Normalise un nom d'ingrédient pour les comparaisons :
-// - lowercase
-// - retire le contenu entre parenthèses
-// - retire les espaces multiples
-// - trim
-function normalizeIngredientName(name) {
-  if (!name) return '';
-  return String(name)
+// Retire ligatures (œ, æ) puis accents et met en minuscules.
+// Attention : `normalize('NFD')` ne décompose pas œ/æ, il faut les remplacer avant.
+function _stripAccentsAndLigatures(s) {
+  return String(s || '')
+    .replace(/œ/g, 'oe').replace(/Œ/g, 'oe')
+    .replace(/æ/g, 'ae').replace(/Æ/g, 'ae')
     .toLowerCase()
-    .replace(/\([^)]*\)/g, '') // retire (...)
-    .replace(/\s+/g, ' ')
-    .trim();
+    .normalize('NFD').replace(/[̀-ͯ]/g, '');
 }
 
-// Vérifie si un ingrédient doit être exclu de la liste de courses
+// Mots-parasites retirés lors de la fusion des ingrédients dans la liste de courses.
+// On garde délibérément :
+//   - les couleurs (rouge, jaune, vert, noir) : discriminantes de variété
+//   - les tailles (gros, petit) : « petits pois » ≠ « pois », « gros sel » ≠ « sel »
+//   - les préparations d'achat (haché, râpé, entier) : différentes en rayon
+//   - les prépositions (de, du, à, la) : « pomme de terre », « cœur de bœuf »
+//   - « nouveau/nouvelle » : « pomme de terre nouvelle » est une variété distincte
+// On retire :
+//   - qualités génériques (bio, frais, mûr)
+//   - états à la maison (cru, cuit, doux)
+//   - préparations faites à la maison (coupé, tranché, épluché, pelé, émincé, écrasé, mixé…)
+//   - formes de découpe (cubes, morceaux, rondelles, dés, lamelles, bâtonnets, julienne)
+//   - « en » quand il précède ces découpes
+// Toutes les formes flexionnelles sont listées sans accents (comparaison après _stripAccentsAndLigatures).
+const INGREDIENT_STOPWORDS = new Set([
+  // Qualité/origine
+  'bio', 'frais', 'fraiche', 'fraiches',
+  // Maturité
+  'mur', 'mure', 'murs', 'mures',
+  // État
+  'cru', 'crue', 'crus', 'crues',
+  'cuit', 'cuite', 'cuits', 'cuites',
+  // Douceur
+  'doux', 'douce', 'douces',
+  // Préparations réalisées à la maison
+  'epluche', 'epluchee', 'epluches', 'epluchees',
+  'coupe', 'coupee', 'coupes', 'coupees',
+  'tranche', 'tranchee', 'tranches', 'tranchees',
+  'pele', 'pelee', 'peles', 'pelees',
+  'emince', 'emincee', 'eminces', 'emincees',
+  'ecrase', 'ecrasee', 'ecrases', 'ecrasees',
+  'mixe', 'mixee', 'mixes', 'mixees',
+  'ecale', 'ecalee', 'ecales', 'ecalees',
+  'lave', 'lavee', 'laves', 'lavees',
+  'egoutte', 'egouttee', 'egouttes', 'egouttees',
+  'blanchie', 'blanchi', 'blanchis', 'blanchies',
+  // Formes de découpe
+  'cube', 'cubes', 'morceau', 'morceaux', 'rondelle', 'rondelles',
+  'des', 'lamelle', 'lamelles', 'batonnet', 'batonnets', 'julienne',
+  // Préposition qui les introduit
+  'en',
+]);
+
+// Mots invariables au pluriel ou déjà singuliers en -s / -x : le stemming ne doit pas les tronquer.
+const INGREDIENT_INVARIANT = new Set([
+  // Noms invariants
+  'riz', 'pois', 'gaz', 'nez', 'os', 'ananas', 'anis', 'jus', 'temps', 'corps',
+  // Adjectifs français invariables (« gros sel », « sucre roux », « pain gras »…)
+  'gros', 'gras', 'bas', 'epais', 'roux', 'faux', 'vieux', 'jaloux',
+]);
+
+// Singularise un mot français (heuristique simple).
+function _singularizeToken(tok) {
+  if (!tok || tok.length < 4) return tok;
+  if (INGREDIENT_INVARIANT.has(tok)) return tok;
+  // "eaux" → "eau" (chapeaux → chapeau)
+  if (tok.endsWith('eaux')) return tok.slice(0, -1);
+  // "aux" → "al" (journaux → journal, chevaux → cheval)
+  if (tok.endsWith('aux') && tok.length > 4) return tok.slice(0, -3) + 'al';
+  if (tok.endsWith('s') || tok.endsWith('x')) return tok.slice(0, -1);
+  return tok;
+}
+
+// Normalise un nom d'ingrédient pour les comparaisons et la fusion dans la liste de courses.
+// Le résultat est une clé stable : deux noms qui désignent le même produit produisent
+// la même chaîne. Voir INGREDIENT_STOPWORDS pour la liste des attributs filtrés.
+// Ex : "Tomates cerises bio" → "tomate cerise" ; "Œufs frais" → "oeuf" ;
+//      "pommes de terre nouvelles" → "pomme de terre nouvelle".
+function normalizeIngredientName(name) {
+  if (!name) return '';
+  let s = _stripAccentsAndLigatures(name);
+  // Retire les parenthèses (« tomate (mûre) ») et tout ce qui suit une virgule (« tomate, épluchée »)
+  s = s.replace(/\([^)]*\)/g, ' ').split(',')[0];
+  // Neutralise apostrophes et ponctuation restante
+  s = s.replace(/['’]/g, ' ').replace(/[^a-z0-9\s]/g, ' ');
+  const tokens = s.split(/\s+/).filter(Boolean);
+  const kept = tokens
+    .filter(t => !INGREDIENT_STOPWORDS.has(t))
+    .map(_singularizeToken)
+    .filter(Boolean);
+  return kept.join(' ').trim();
+}
+
+// Vérifie si un ingrédient doit être exclu de la liste de courses (sel, poivre, eau…)
 function isShoppingExcluded(name) {
   const normalized = normalizeIngredientName(name);
   if (!normalized) return false;
-  // Match exact ou avec préfixe "de l'" / "du" / "de la"
   for (const excluded of SHOPPING_EXCLUDE) {
-    if (normalized === excluded) return true;
-    // Variantes simples : "un peu de sel", "1 pincée de sel", etc.
-    // si l'ingrédient se termine par un de ces mots et qu'il n'y a rien de plus précis
-    if (normalized.endsWith(' ' + excluded) && normalized.split(' ').length <= 4) {
-      // Pour éviter de matcher "sel rose de l'Himalaya" comme "sel"
-      // on regarde si c'est juste un qualifieur de quantité
-      const before = normalized.slice(0, normalized.length - excluded.length).trim();
-      if (/^(un peu de|une pinc[eé]e de|une pinc[eé]e d'|du|de la|de l')$/i.test(before)) {
+    const excludedNorm = normalizeIngredientName(excluded);
+    if (!excludedNorm) continue;
+    if (normalized === excludedNorm) return true;
+    // Variantes du type « un peu de sel », « une pincée de sel »
+    if (normalized.endsWith(' ' + excludedNorm) && normalized.split(' ').length <= 5) {
+      const before = normalized.slice(0, normalized.length - excludedNorm.length).trim();
+      if (/^(un peu d[e']?|une pincee d[e']?|du|de la|de l)$/i.test(before)) {
         return true;
       }
     }
