@@ -245,7 +245,10 @@ L'app n'a aucune dépendance NPM. Modifiez les fichiers sources directement.
 - **Modifier le prompt de génération de menu** → `app.js`, fonction `runPlanningMenuGenerator()` (sections `ruleLines`)
 - **Changer le modèle Claude** → `app.js`, paramètre `model` dans `callClaudeAPI()` (actuellement `claude-sonnet-4-6`)
 - **Ingrédients exclus des courses** → `data.js`, tableau `SHOPPING_EXCLUDE`
-- **Conversions d'unités** → `data.js`, objet `UNIT_CONVERSIONS`
+- **Unités reconnues** → `data.js`, `SHOPPING_MASS_UNITS`, `SHOPPING_VOLUME_UNITS`, `SHOPPING_SPOONS`, `SHOPPING_NAMED_UNITS`
+- **Équivalences par produit dans la liste de courses** (poids d'une pièce, jus d'un citron, 1 tête d'ail = 10 gousses…) → `data.js`, tableau `SHOPPING_PRODUCT_UNITS`
+- **Préfixes de mesure retirés du nom** (« gousses d'ail » → ail) → `data.js`, tableau `SHOPPING_MEASURE_PREFIXES`
+- **Variantes fusionnées / gardées à part** → `data.js`, `SHOPPING_VARIETY_ALIASES` (citron jaune = citron) et `SHOPPING_DISTINCT_STATES` (tomates pelées ≠ tomates)
 - **Régimes alimentaires** → `data.js`, tableau `DIET_TAGS`
 
 ## 🆘 Mises à jour
