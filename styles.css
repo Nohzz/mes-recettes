@@ -2343,6 +2343,37 @@ a {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shopping-recipe-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Numéro de recette, repris à côté de chaque ingrédient de la liste */
+.shopping-ref {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-pale);
+  color: var(--color-primary-dark);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  line-height: 1;
+}
+
+[data-theme="dark"] .shopping-ref {
+  color: var(--color-primary-soft);
 }
 
 .shopping-recipe-emoji.is-clickable,
@@ -2523,8 +2554,13 @@ a {
   margin-bottom: 2px;
 }
 
-.shopping-item-name {
+.shopping-item-main {
   flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.shopping-item-name {
   font-size: 14px;
   color: var(--color-gray-800);
 }
@@ -2534,11 +2570,41 @@ a {
   color: var(--color-gray-400);
 }
 
+/* Recettes d'origine (« ① 2 · ③ 25 ml ») sous le nom de l'article */
+.shopping-item-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--color-gray-600);
+}
+
+.shopping-item-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.shopping-item-source .shopping-ref {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+}
+
+.shopping-item.done .shopping-item-sources {
+  opacity: 0.5;
+}
+
 .shopping-item-amount {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 13px;
   color: var(--color-primary);
+  flex-shrink: 0;
+  max-width: 45%;
+  text-align: right;
 }
 
 .shopping-item.done .shopping-item-amount {

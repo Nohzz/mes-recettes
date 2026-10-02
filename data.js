@@ -300,12 +300,15 @@ const SHOPPING_EXCLUDE = [
   'eau',
   'glaçons',
   'glacons',
+  'cubes de glace',
+  'glace pilée',
   'fleur de sel',
   'gros sel',
   'sel fin',
   'poivre noir',
   'poivre blanc',
   'poivre moulu',
+  'poivre du moulin',
   'eau froide',
   'eau chaude',
   'eau tiède',
@@ -431,41 +434,6 @@ function isShoppingExcluded(name) {
 // CONVERSION D'UNITÉS
 // ============================================
 
-// Conversions standardisées (vers une unité de base)
-// volume → ml, poids → g, le reste reste tel quel
-const UNIT_CONVERSIONS = {
-  // Volume vers ml
-  'ml': { base: 'ml', factor: 1, type: 'volume' },
-  'cl': { base: 'ml', factor: 10, type: 'volume' },
-  'dl': { base: 'ml', factor: 100, type: 'volume' },
-  'l': { base: 'ml', factor: 1000, type: 'volume' },
-  'litre': { base: 'ml', factor: 1000, type: 'volume' },
-  'litres': { base: 'ml', factor: 1000, type: 'volume' },
-  'cuillère à soupe': { base: 'ml', factor: 15, type: 'volume' },
-  'cuillere à soupe': { base: 'ml', factor: 15, type: 'volume' },
-  'cuillère a soupe': { base: 'ml', factor: 15, type: 'volume' },
-  'c. à soupe': { base: 'ml', factor: 15, type: 'volume' },
-  'c.à.s': { base: 'ml', factor: 15, type: 'volume' },
-  'c.a.s': { base: 'ml', factor: 15, type: 'volume' },
-  'cas': { base: 'ml', factor: 15, type: 'volume' },
-  'càs': { base: 'ml', factor: 15, type: 'volume' },
-  'cuillère à café': { base: 'ml', factor: 5, type: 'volume' },
-  'cuillere à café': { base: 'ml', factor: 5, type: 'volume' },
-  'c. à café': { base: 'ml', factor: 5, type: 'volume' },
-  'c.à.c': { base: 'ml', factor: 5, type: 'volume' },
-  'c.a.c': { base: 'ml', factor: 5, type: 'volume' },
-  'cac': { base: 'ml', factor: 5, type: 'volume' },
-  'càc': { base: 'ml', factor: 5, type: 'volume' },
-  // Poids vers g
-  'g': { base: 'g', factor: 1, type: 'mass' },
-  'gr': { base: 'g', factor: 1, type: 'mass' },
-  'gramme': { base: 'g', factor: 1, type: 'mass' },
-  'grammes': { base: 'g', factor: 1, type: 'mass' },
-  'kg': { base: 'g', factor: 1000, type: 'mass' },
-  'kilo': { base: 'g', factor: 1000, type: 'mass' },
-  'kilos': { base: 'g', factor: 1000, type: 'mass' }
-};
-
 // Choisit la meilleure unité d'affichage pour une valeur donnée
 function getBestDisplayUnit(amountInBase, type) {
   if (type === 'mass') {
@@ -480,18 +448,894 @@ function getBestDisplayUnit(amountInBase, type) {
   return null;
 }
 
-// Normalise un (amount, unit) vers (amountInBase, baseUnit, type)
-// Retourne null si l'unité n'est pas convertible
-function normalizeAmount(amount, unit) {
-  if (amount == null || unit == null) return null;
-  const cleanUnit = String(unit).toLowerCase().trim();
-  const conv = UNIT_CONVERSIONS[cleanUnit];
-  if (!conv) return null;
+// ============================================
+// LISTE DE COURSES — QUANTITÉS, UNITÉS, PRODUITS
+// ============================================
+// But : UNE ligne par produit acheté, quelles que soient les unités des recettes
+// (« 2 citrons jaunes » + « 25 ml de jus de citron » → « Citrons jaunes ≈ 3 »).
+// Ce bloc est pur (aucun accès à state) : les alias appris via « Nettoyer avec l'IA »
+// sont appliqués par-dessus dans app.js (getShoppingProduct).
+
+// Table de correspondance sans prototype : une clé comme « constructor » n'y trouve rien
+function _shoppingTable(obj) {
+  return Object.assign(Object.create(null), obj);
+}
+
+function _shoppingOwn(obj, key) {
+  return obj && Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : undefined;
+}
+
+// --- Quantités ---
+
+const _SHOPPING_FRACTIONS = _shoppingTable({ '½': 0.5, '¼': 0.25, '¾': 0.75, '⅓': 1 / 3, '⅔': 2 / 3, '⅛': 0.125 });
+
+// Convertit une quantité saisie (nombre, « 1,5 », « ½ », « 1/2 », « 1 1/2 », « 2-3 ») en nombre.
+// Les fourchettes prennent la borne haute (mieux vaut en acheter un peu trop). null si illisible ou ≤ 0.
+function parseShoppingAmount(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number') return isFinite(value) && value > 0 ? value : null;
+  const s = String(value).trim().replace(/,/g, '.');
+  let n = null;
+  let m;
+  if ((m = s.match(/^(\d+(?:\.\d+)?)?\s*([½¼¾⅓⅔⅛])$/))) {
+    n = (m[1] ? Number(m[1]) : 0) + _SHOPPING_FRACTIONS[m[2]];
+  } else if ((m = s.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/))) {
+    n = Number(m[3]) ? Number(m[1]) + Number(m[2]) / Number(m[3]) : null;
+  } else if ((m = s.match(/^(\d+)\s*\/\s*(\d+)$/))) {
+    n = Number(m[2]) ? Number(m[1]) / Number(m[2]) : null;
+  } else if ((m = s.match(/^(\d+(?:\.\d+)?)\s*(?:-|–|à)\s*(\d+(?:\.\d+)?)$/))) {
+    n = Math.max(Number(m[1]), Number(m[2]));
+  } else if (/^\d*\.?\d+$/.test(s)) {
+    n = Number(s);
+  }
+  return n != null && isFinite(n) && n > 0 ? n : null;
+}
+
+// --- Unités ---
+
+// Masses → g, volumes → ml (clés sans accent, « (s) » retiré)
+const SHOPPING_MASS_UNITS = _shoppingTable({
+  g: 1, gr: 1, grs: 1, gramme: 1, grammes: 1, mg: 0.001,
+  kg: 1000, kgs: 1000, kilo: 1000, kilos: 1000, kilogramme: 1000, kilogrammes: 1000,
+});
+const SHOPPING_VOLUME_UNITS = _shoppingTable({
+  ml: 1, millilitre: 1, millilitres: 1, cl: 10, centilitre: 10, centilitres: 10,
+  dl: 100, decilitre: 100, decilitres: 100, l: 1000, litre: 1000, litres: 1000, lt: 1000,
+});
+// Unités « à la pièce » (y compris les adjectifs de taille parfois saisis comme unité : « 2 gros »)
+const SHOPPING_COUNT_UNITS = new Set([
+  '', 'piece', 'pieces', 'pc', 'pcs', 'unite', 'unites', 'u', 'entier', 'entiere', 'entiers', 'entieres',
+  'moyen', 'moyens', 'moyenne', 'moyennes', 'gros', 'grosse', 'grosses', 'petit', 'petits', 'petite', 'petites',
+  'grand', 'grands', 'grande', 'grandes',
+]);
+// Cuillères et mesures ménagères : des volumes (en ml) qu'on continue d'afficher comme dans la
+// recette tant qu'aucun ml ne s'y ajoute (« c. à s. », « cuillerées à café », « pot de yaourt »…)
+const _SHOPPING_SPOON_WORDS = new Set(['c', 'cuil', 'cuill', 'cuiller', 'cuillers', 'cuillere', 'cuilleres', 'cuilleree', 'cuillerees']);
+const _SHOPPING_SPOON_KINDS = _shoppingTable({ s: 'cas', soupe: 'cas', c: 'cac', cafe: 'cac', the: 'cac', d: 'cad', dessert: 'cad' });
+const SHOPPING_SPOONS = _shoppingTable({
+  cas: { factor: 15, label: 'c. à soupe' },
+  cac: { factor: 5, label: 'c. à café' },
+  cad: { factor: 10, label: 'c. à dessert' },
+  pdy: { factor: 125, label: 'pot de yaourt', plural: 'pots de yaourt' },
+});
+const _SHOPPING_SPOON_QUALIFIERS = /\b(rase|rases|bombee|bombees|pleine|pleines|genereuse|genereuses|bien|remplie|remplies)\b/g;
+// Qualificatifs d'une unité en plusieurs mots (« tranches fines », « grosse gousse »)
+const _SHOPPING_UNIT_QUALIFIERS = /\b(fine|fines|fin|fins|epaisse|epaisses|epais|grosse|grosses|gros|petite|petites|petit|petits|grande|grandes|grand|grands|belle|belles|beau|beaux|bonne|bonnes|bon|bons|moyenne|moyennes|moyen|moyens|bien)\b/g;
+
+function _shoppingSpoonUnit(id) {
+  const s = SHOPPING_SPOONS[id];
+  return { kind: 'volume', id, factor: s.factor, label: s.label, plural: s.plural };
+}
+
+// Unités nommées connues : identifiant (singulier, sans accent) → libellé affiché
+const SHOPPING_NAMED_UNITS = _shoppingTable({
+  gousse: { label: 'gousse' }, tete: { label: 'tête' }, brin: { label: 'brin' }, branche: { label: 'branche' },
+  feuille: { label: 'feuille' }, botte: { label: 'botte' }, bouquet: { label: 'bouquet' }, tige: { label: 'tige' },
+  pincee: { label: 'pincée' }, tranche: { label: 'tranche' }, morceau: { label: 'morceau', plural: 'morceaux' },
+  rondelle: { label: 'rondelle' }, lamelle: { label: 'lamelle' }, cube: { label: 'cube' },
+  sachet: { label: 'sachet' }, boite: { label: 'boîte' }, pot: { label: 'pot' }, brique: { label: 'brique' },
+  paquet: { label: 'paquet' }, barquette: { label: 'barquette' }, bocal: { label: 'bocal', plural: 'bocaux' },
+  carre: { label: 'carré' }, poignee: { label: 'poignée' }, trait: { label: 'trait' }, pointe: { label: 'pointe' },
+  boule: { label: 'boule' }, quartier: { label: 'quartier' }, zeste: { label: 'zeste' },
+  jus: { label: 'jus', plural: 'jus' }, jaune: { label: 'jaune' }, blanc: { label: 'blanc' },
+  noix: { label: 'noix', plural: 'noix' }, filet: { label: 'filet' }, cm: { label: 'cm', plural: 'cm' },
+  goutte: { label: 'goutte' }, plaquette: { label: 'plaquette' }, tablette: { label: 'tablette' },
+  verre: { label: 'verre' }, tasse: { label: 'tasse' }, bol: { label: 'bol' }, louche: { label: 'louche' },
+  dose: { label: 'dose' }, bouteille: { label: 'bouteille' }, rouleau: { label: 'rouleau', plural: 'rouleaux' },
+  cuillere: { label: 'cuillère' }, nuage: { label: 'nuage' }, soupcon: { label: 'soupçon' }, larme: { label: 'larme' },
+});
+
+// Unités qui s'achètent entières : un total fractionnaire s'arrondit à l'unité supérieure
+const SHOPPING_WHOLE_UNITS = new Set([
+  'piece', 'gousse', 'tete', 'botte', 'bouquet', 'sachet', 'boite', 'pot', 'brique', 'paquet', 'barquette', 'bocal',
+  'rouleau', 'tablette', 'plaquette', 'boule', 'cube', 'tranche', 'feuille', 'branche', 'brin', 'morceau', 'carre',
+  'bouteille',
+]);
+
+function _singularizeShoppingUnitWord(w) {
+  if (!w || SHOPPING_NAMED_UNITS[w]) return w;
+  if (w === 'morceaux') return 'morceau';
+  if (w === 'bocaux') return 'bocal';
+  if (w === 'rouleaux') return 'rouleau';
+  if (w.length > 2 && /[sx]$/.test(w)) return w.slice(0, -1);
+  return w;
+}
+
+// Analyse une unité libre. Renvoie { kind, id, factor, label } :
+//   kind 'mass' (factor → g), 'volume' (factor → ml), 'count' (pièces) ou 'named' (gousse, botte…)
+function parseShoppingUnit(unit) {
+  // « boîte(s) (400 g) » → boîte
+  const raw = String(unit == null ? '' : unit)
+    .replace(/\((?:s|x|es)\)/gi, '')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  let n = _stripAccentsAndLigatures(raw).replace(/['’.]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (/^pots? de yaourt$/.test(n)) return _shoppingSpoonUnit('pdy');
+  // « gousse d'ail » → gousse ; « tranches fines », « grosse gousse » → tranche, gousse
+  n = n.replace(/ (?:de|d|du|des) .*$/, '');
+  if (n.includes(' ')) {
+    const bare = n.replace(_SHOPPING_UNIT_QUALIFIERS, ' ').replace(/\s+/g, ' ').trim();
+    if (bare) n = bare;
+  }
+  if (SHOPPING_COUNT_UNITS.has(n)) return { kind: 'count', id: 'piece', factor: 1, label: '' };
+  if (SHOPPING_MASS_UNITS[n] != null) return { kind: 'mass', id: 'g', factor: SHOPPING_MASS_UNITS[n], label: 'g' };
+  if (SHOPPING_VOLUME_UNITS[n] != null) return { kind: 'volume', id: 'ml', factor: SHOPPING_VOLUME_UNITS[n], label: 'ml' };
+  // « <cuillère> [à] <soupe|café|dessert> », qualificatifs ignorés
+  const words = n.replace(_SHOPPING_SPOON_QUALIFIERS, ' ').split(' ').filter(Boolean);
+  if (words.length && _SHOPPING_SPOON_WORDS.has(words[0])) {
+    const rest = words.slice(1).filter(w => w !== 'a');
+    if (rest.length === 1 && _SHOPPING_SPOON_KINDS[rest[0]]) return _shoppingSpoonUnit(_SHOPPING_SPOON_KINDS[rest[0]]);
+  }
+  // Abréviations collées : « cas », « cs », « càc », « cc », « tbsp », « tsp »
+  const squashed = words.join('');
+  if (/^(ca?s|tbsp?)$/.test(squashed)) return _shoppingSpoonUnit('cas');
+  if (/^(ca?c|tsp)$/.test(squashed)) return _shoppingSpoonUnit('cac');
+  const id = n.split(' ').map(_singularizeShoppingUnitWord).join(' ');
+  const known = SHOPPING_NAMED_UNITS[id];
+  const label = known ? known.label : raw.toLowerCase().replace(/\s+(?:de|du|des|d['’])\s*.*$/, '');
+  return { kind: 'named', id, factor: 1, label: label || raw.toLowerCase() };
+}
+
+// Accorde un libellé d'unité nommée (en français, pluriel à partir de 2)
+function pluralizeShoppingUnit(label, amount) {
+  if (!label || !(amount >= 2)) return label || '';
+  const known = SHOPPING_NAMED_UNITS[_singularizeShoppingUnitWord(_stripAccentsAndLigatures(label))];
+  if (known && known.label === label) return known.plural || known.label + 's';
+  // Plusieurs mots : on accorde le premier (« verres à moutarde ») ; abréviations invariables
+  const m = label.match(/^([^\s.]+)(\s.*)$/);
+  if (m) return (/[sxz]$/i.test(m[1]) ? m[1] : m[1] + 's') + m[2];
+  if (/[\s.]/.test(label) || /[sxz]$/i.test(label)) return label;
+  return label + 's';
+}
+
+// Partie d'un produit restée en masse ou en volume : « 1 l de jus », « 100 g de blancs »
+const SHOPPING_PART_LABELS = _shoppingTable({ jus: 'de jus', zeste: 'de zeste', jaune: 'de jaunes', blanc: 'de blancs' });
+
+// --- Identité produit ---
+
+// Mots de tête sans valeur pour identifier le produit (articles, quantificateurs vagues)
+const SHOPPING_LEADING_WORDS = new Set(['de', 'd', 'du', 'des', 'la', 'le', 'les', 'l', 'un', 'une', 'quelques', 'peu', 'environ']);
+// Prépositions qui relient un préfixe de mesure au produit (« gousses d'ail », « brins de thym »)
+const _SHOPPING_PREFIX_PREPS = new Set(['de', 'd', 'du', 'des']);
+// Adjectifs de taille ou d'intensité (« un petit bouquet de », « oignons moyens », « bien mûres »)
+const SHOPPING_SIZE_WORDS = new Set([
+  'gros', 'grosse', 'grosses', 'petit', 'petite', 'petits', 'petites', 'grand', 'grande', 'grands', 'grandes',
+  'moyen', 'moyenne', 'moyens', 'moyennes', 'beau', 'belle', 'beaux', 'belles', 'bon', 'bonne', 'bons', 'bonnes',
+  'bien', 'tres', 'joli', 'jolie', 'jolis', 'jolies',
+]);
+
+// Préfixes de mesure retirés du nom : « gousses d'ail » → produit « ail » + unité « gousse ».
+// forms : formes sans accent (plusieurs mots possibles) ; unit : unité retenue si l'ingrédient n'en a pas ;
+// part : le préfixe désigne une PARTIE du produit (jus, zeste, jaune, blanc) ;
+// only : ne s'applique que devant ces produits (« jus de pomme » reste un produit à part) ;
+// except : produits devant lesquels il ne s'applique pas (« feuilles de riz », « carré d'agneau »).
+const SHOPPING_MEASURE_PREFIXES = [
+  { forms: ['gousse', 'gousses'], unit: 'gousse' },
+  { forms: ['tete', 'tetes'], unit: 'tête', except: /^veau\b/ },
+  { forms: ['brin', 'brins'], unit: 'brin' },
+  { forms: ['branche', 'branches'], unit: 'branche' },
+  { forms: ['feuille', 'feuilles'], unit: 'feuille', except: /^(riz|brick|filo|phyllo)\b/ },
+  { forms: ['botte', 'bottes'], unit: 'botte' },
+  { forms: ['bouquet', 'bouquets'], unit: 'bouquet' },
+  { forms: ['tige', 'tiges'], unit: 'tige' },
+  { forms: ['pincee', 'pincees'], unit: 'pincée' },
+  { forms: ['pointe de couteau', 'pointe', 'pointes'], unit: 'pointe' },
+  { forms: ['tranche', 'tranches'], unit: 'tranche' },
+  { forms: ['morceau', 'morceaux'], unit: 'morceau' },
+  { forms: ['rondelle', 'rondelles'], unit: 'rondelle' },
+  { forms: ['lamelle', 'lamelles'], unit: 'lamelle' },
+  { forms: ['cube', 'cubes'], unit: 'cube' },
+  { forms: ['sachet', 'sachets'], unit: 'sachet' },
+  { forms: ['boite', 'boites'], unit: 'boîte' },
+  { forms: ['pot', 'pots'], unit: 'pot' },
+  { forms: ['brique', 'briques'], unit: 'brique' },
+  { forms: ['paquet', 'paquets'], unit: 'paquet' },
+  { forms: ['barquette', 'barquettes'], unit: 'barquette' },
+  { forms: ['bocal', 'bocaux'], unit: 'bocal' },
+  { forms: ['plaquette', 'plaquettes'], unit: 'plaquette' },
+  { forms: ['tablette', 'tablettes'], unit: 'tablette' },
+  { forms: ['rouleau', 'rouleaux'], unit: 'rouleau' },
+  { forms: ['boule', 'boules'], unit: 'boule' },
+  { forms: ['carre', 'carres'], unit: 'carré', except: /^(agneau|porc|veau)\b/ },
+  { forms: ['poignee', 'poignees'], unit: 'poignée' },
+  { forms: ['trait', 'traits'], unit: 'trait' },
+  { forms: ['goutte', 'gouttes'], unit: 'goutte' },
+  { forms: ['nuage'], unit: 'nuage' },
+  { forms: ['soupcon'], unit: 'soupçon' },
+  { forms: ['larme', 'larmes'], unit: 'larme' },
+  { forms: ['quartier', 'quartiers'], unit: 'quartier' },
+  { forms: ['verre', 'verres'], unit: 'verre' },
+  { forms: ['tasse', 'tasses'], unit: 'tasse' },
+  { forms: ['bol', 'bols'], unit: 'bol' },
+  { forms: ['louche', 'louches'], unit: 'louche' },
+  // Zeste ET jus d'un même fruit : un fruit
+  { forms: ['zeste et jus', 'zeste et le jus', 'jus et zeste', 'jus et le zeste'], unit: 'jus', part: 'jus', only: 'citrus' },
+  { forms: ['jus'], unit: 'jus', part: 'jus', only: 'citrus' },
+  { forms: ['zeste', 'zestes'], unit: 'zeste', part: 'zeste', only: 'citrus' },
+  { forms: ['jaune', 'jaunes'], unit: 'jaune', part: 'jaune', only: 'egg' },
+  { forms: ['blanc', 'blancs'], unit: 'blanc', part: 'blanc', only: 'egg' },
+  { forms: ['noix'], unit: 'noix', only: 'butter' },
+  { forms: ['filet', 'filets'], unit: 'filet', only: 'liquid' },
+];
+const SHOPPING_PREFIX_CONDITIONS = {
+  citrus: /^(citron|orange|pamplemousse|clementine|mandarine|lime|yuzu|bergamote|pomelo)s?\b/,
+  egg: /^oeufs?\b/,
+  butter: /^beurre\b/,
+  liquid: /^(huile|vinaigre|citron|jus|creme|lait|sauce|miel|sirop|vin|rhum|cognac|whisky|calvados|armagnac|porto|kirsch|tabasco|nuoc|soja|worcestershire)s?\b/,
+};
+let _shoppingPrefixForms = null;
+
+// Même produit en rayon sous un nom plus générique (clés normalisées, variétés et couleurs préservées)
+const SHOPPING_VARIETY_ALIASES = {
+  'citron jaune': 'citron',
+  'oignon jaune': 'oignon',
+  'ail blanc': 'ail',
+  'sucre en poudre': 'sucre',
+  'sucre semoule': 'sucre',
+  'sucre blanc': 'sucre',
+  'oeuf entier': 'oeuf',
+  'oeuf moyen': 'oeuf',
+  'gros oeuf': 'oeuf',
+  'oeuf de poule': 'oeuf',
+  'huile olive': 'huile d olive',
+  'huile d olive vierge': 'huile d olive',
+  'huile d olive vierge extra': 'huile d olive',
+  'huile d olive extra vierge': 'huile d olive',
+  'huile d olive extra': 'huile d olive',
+  'farine de ble': 'farine',
+  'creme fraiche epaisse': 'creme',
+  'creme epaisse': 'creme',
+  'creme fleurette': 'creme liquide',
+  'creme liquide entiere': 'creme liquide',
+  'creme fouettee': 'creme liquide',
+  'celeri branche': 'celeri',
+  'noix de muscade': 'muscade',
+};
+let _shoppingVarietyMap = null;
+
+// États que normalizeIngredientName retire mais qui désignent un AUTRE produit en rayon pour
+// certaines têtes : « tomates pelées » (conserve) ≠ tomates, « jambon cru » ≠ jambon (blanc)…
+// tête → [mot du nom d'origine, mot remis dans la clé juste après la tête]
+const SHOPPING_DISTINCT_STATES = _shoppingTable({
+  tomate: [/^pelees?$/, 'pelee'],
+  jambon: [/^crus?$/, 'cru'],
+  betterave: [/^cuites?$/, 'cuite'],
+  patate: [/^douces?$/, 'douce'],
+  piment: [/^(doux|douces?)$/, 'doux'],
+  thon: [/^frais$/, 'frais'],
+  levure: [/^fraiches?$/, 'fraiche'],
+  chevre: [/^frais$/, 'frais'],
+  fromage: [/^frais$/, 'frais'],
+  pate: [/^fraiches?$/, 'fraiche'],
+  sucre: [/^morceaux?$/, 'morceau'],
+  lentille: [/^cuites?$/, 'cuite'],
+});
+
+// Produits dont « haché », « fondu », « tiède », « dur »… décrivent une préparation faite à la maison
+// (« persil haché » = persil, « beurre fondu » = beurre). Ailleurs ces mots restent discriminants
+// (« bœuf haché », « fromage râpé », « fromage fondu »).
+const SHOPPING_FRESH_HEADS = new Set([
+  'persil', 'ciboulette', 'coriandre', 'basilic', 'menthe', 'aneth', 'cerfeuil', 'estragon', 'thym', 'romarin',
+  'sauge', 'origan', 'oignon', 'echalote', 'ail', 'gingembre', 'carotte', 'courgette', 'citron', 'orange',
+  'concombre', 'chou', 'betterave', 'celeri', 'radis', 'navet', 'poireau', 'champignon', 'avocat', 'piment',
+  'poivron', 'pomme', 'poire', 'fenouil', 'panais', 'oeuf', 'beurre', 'lait', 'creme', 'chocolat',
+]);
+const SHOPPING_FRESH_PREP_WORDS = new Set([
+  'hache', 'hachee', 'cisele', 'ciselee', 'rape', 'rapee', 'presse', 'pressee', 'concasse', 'concassee',
+  'effeuille', 'effeuillee', 'equeute', 'equeutee', 'epepine', 'epepinee', 'zeste', 'zestee', 'detaille', 'detaillee',
+  // Température, texture
+  'fondu', 'fondue', 'mou', 'molle', 'pommade', 'ramolli', 'ramollie', 'froid', 'froide', 'tiede', 'chaud', 'chaude',
+  'tempere', 'temperee', 'clarifie', 'tres', 'bien',
+  // Œufs
+  'battu', 'battue', 'monte', 'montee', 'neige', 'dur', 'mollet', 'poche', 'pochee', 'coque',
+]);
+
+// Découpe en mots en gardant leur position dans le texte d'origine (pour un libellé accentué)
+function _shoppingTokens(s) {
+  const toks = [];
+  const re = /[^\s'’.]+/g;
+  let m;
+  while ((m = re.exec(s))) toks.push({ norm: _stripAccentsAndLigatures(m[0]), start: m.index });
+  return toks;
+}
+
+// Avance au-delà des articles et d'une quantité écrite dans le nom (« jus de 2 citrons »,
+// « 200 g de farine »). Garde toujours au moins un mot. Renvoie { i, amount, unit }.
+function _skipShoppingLeading(toks, i) {
+  let amount = null;
+  let unit = null;
+  while (i < toks.length - 1) {
+    const t = toks[i].norm;
+    if (amount == null && /^[\d½¼¾⅓⅔⅛]/.test(t)) {
+      // « 4 épices », « 5 épices » : le nombre fait partie du nom
+      if (i + 2 === toks.length && /^epices?$/.test(toks[i + 1].norm)) break;
+      const n = parseShoppingAmount(t);
+      if (n != null) {
+        amount = n;
+        i++;
+        // Unité écrite après le nombre (« 200 g de », « 1 l de ») — avant de prendre « l » pour un article
+        const u = toks[i] && toks[i + 1] && toks[i + 2] && _SHOPPING_PREFIX_PREPS.has(toks[i + 1].norm) ? toks[i].norm : null;
+        if (u && (SHOPPING_MASS_UNITS[u] != null || SHOPPING_VOLUME_UNITS[u] != null)) {
+          unit = u;
+          i += 2;
+        }
+        continue;
+      }
+    }
+    if (SHOPPING_LEADING_WORDS.has(t)) {
+      i++;
+      continue;
+    }
+    break;
+  }
+  return { i, amount, unit };
+}
+
+// Cherche un préfixe de mesure à la position i. Renvoie { unit, part, next } ou null.
+function _matchShoppingPrefix(toks, i) {
+  if (i >= toks.length) return null;
+  // Adjectif de taille devant la mesure : « un petit bouquet de persil », « une grosse pincée de sel »
+  if (SHOPPING_SIZE_WORDS.has(toks[i].norm)) {
+    const m = _matchShoppingPrefix(toks, i + 1);
+    if (m) return m;
+  }
+  const restFrom = j => toks.slice(_skipShoppingLeading(toks, j).i).map(t => t.norm).join(' ');
+  // Cuillère écrite dans le nom : « cuillère à soupe de miel », « c. à c. de cannelle »
+  if (_SHOPPING_SPOON_WORDS.has(toks[i].norm)) {
+    let j = i + 1;
+    if (toks[j] && toks[j].norm === 'a') j++;
+    const spoon = toks[j] && _SHOPPING_SPOON_KINDS[toks[j].norm];
+    if (spoon && toks[j + 1] && _SHOPPING_PREFIX_PREPS.has(toks[j + 1].norm) && toks[j + 2]) {
+      return { unit: SHOPPING_SPOONS[spoon].label, part: null, next: j + 2 };
+    }
+  }
+  if (!_shoppingPrefixForms) {
+    // Formes multi-mots d'abord (« pointe de couteau » avant « pointe »)
+    _shoppingPrefixForms = [];
+    for (const p of SHOPPING_MEASURE_PREFIXES) {
+      for (const f of p.forms) _shoppingPrefixForms.push({ words: f.split(' '), prefix: p });
+    }
+    _shoppingPrefixForms.sort((a, b) => b.words.length - a.words.length);
+  }
+  for (const { words, prefix } of _shoppingPrefixForms) {
+    const prepAt = i + words.length;
+    if (prepAt + 1 >= toks.length) continue;
+    if (!words.every((w, k) => toks[i + k].norm === w)) continue;
+    if (!_SHOPPING_PREFIX_PREPS.has(toks[prepAt].norm)) continue;
+    const rest = restFrom(prepAt + 1);
+    if (prefix.only && !SHOPPING_PREFIX_CONDITIONS[prefix.only].test(rest)) continue;
+    if (prefix.except && prefix.except.test(rest)) continue;
+    return { unit: prefix.unit, part: prefix.part || null, next: prepAt + 1 };
+  }
+  return null;
+}
+
+let _shoppingCountableHeadsSet = null;
+// Premiers mots des produits vendus à l'unité (pièce, gousse, botte…) : là, la taille ne change pas le produit
+function _shoppingCountableHeads() {
+  if (!_shoppingCountableHeadsSet) {
+    _shoppingCountableHeadsSet = new Set();
+    for (const e of SHOPPING_PRODUCT_UNITS) {
+      if (e.base === 'g' || e.base === 'ml') continue;
+      const head = normalizeIngredientName(e.name).split(' ')[0];
+      if (head) _shoppingCountableHeadsSet.add(head);
+    }
+  }
+  return _shoppingCountableHeadsSet;
+}
+
+const _SHOPPING_EMPTY_NAME = { key: '', label: '', unitHint: null, amountHint: null, amountUnit: null, part: null, fromPrefix: false };
+
+// Identité produit sans les alias de variété.
+// Renvoie { key, label, unitHint, amountHint, amountUnit, part, fromPrefix }.
+function _parseShoppingNameRaw(name) {
+  const base = String(name == null ? '' : name)
+    .replace(/\([^)]*\)/g, ' ')
+    .split(',')[0]
+    // « Beurre pour le moule », « Huile pour la friture » (mais « Sucre pour confiture » reste entier)
+    .split(/\s+pour\s+(?:(?:le|la|les|un|une|du|des)\s|l['’])/i)[0]
+    .replace(/\s+/g, ' ')
+    .trim();
+  const toks = _shoppingTokens(base);
+  if (toks.length === 0) return { ..._SHOPPING_EMPTY_NAME };
+  let { i, amount, unit: amountUnit } = _skipShoppingLeading(toks, 0);
+  let unitHint = null;
+  let part = null;
+  let fromPrefix = false;
+  // Jusqu'à deux préfixes imbriqués : « filet de jus de citron », « quelques gouttes de jus de citron »
+  for (let depth = 0; depth < 2; depth++) {
+    const pm = _matchShoppingPrefix(toks, i);
+    if (!pm) break;
+    if (!unitHint) unitHint = pm.unit;
+    if (!part) part = pm.part;
+    fromPrefix = true;
+    // « le jus d'un citron » : un fruit
+    if (pm.part && amount == null && toks[pm.next] && /^(un|une)$/.test(toks[pm.next].norm)) amount = 1;
+    const after = _skipShoppingLeading(toks, pm.next);
+    i = after.i;
+    if (amount == null && after.amount != null) {
+      amount = after.amount;
+      amountUnit = after.unit;
+    }
+  }
+  const rest = base.slice(toks[i].start).trim();
+  let kt = normalizeIngredientName(rest).split(' ').filter(Boolean);
+  // Nom entièrement fait de mots vides (« Mûres ») : on le garde tel quel plutôt que de le perdre
+  if (kt.length === 0) {
+    kt = _stripAccentsAndLigatures(rest).replace(/['’]/g, ' ').replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean).map(_singularizeToken);
+  }
+  // normalizeIngredientName peut laisser une préposition en tête (« tranches de jambon » → « de jambon »)
+  while (kt.length > 1 && SHOPPING_LEADING_WORDS.has(kt[0])) kt.shift();
+  // « non traité » qualifie l'achat comme « bio » : même produit (« citron non traité » = citron)
+  kt = kt.filter((t, k) => !(t === 'non' && /^traitee?$/.test(kt[k + 1] || '')) && !(/^traitee?$/.test(t) && kt[k - 1] === 'non'));
+  // États qui changent le produit en rayon (« tomates pelées », « jambon cru ») : remis après la tête
+  const distinct = SHOPPING_DISTINCT_STATES[kt[0]];
+  if (distinct && !kt.includes(distinct[1]) && _shoppingTokens(rest).some(t => distinct[0].test(t.norm))) {
+    kt.splice(1, 0, distinct[1]);
+  }
+  // Préparations faites à la maison (« persil haché », « beurre fondu », « œufs durs »)
+  if (kt.length > 1 && SHOPPING_FRESH_HEADS.has(kt[0])) {
+    const kept = kt.filter((t, k) => k === 0 || !SHOPPING_FRESH_PREP_WORDS.has(t));
+    if (kept.length) kt = kept;
+  }
+  // Taille de ce qui se compte (« gros oignon », « oignons moyens ») ; « petits pois », « gros sel » intacts
+  let sizeDropped = false;
+  if (kt.length > 1 && kt.some(t => SHOPPING_SIZE_WORDS.has(t))) {
+    const kept = kt.filter(t => !SHOPPING_SIZE_WORDS.has(t));
+    if (kept.length && _shoppingCountableHeads().has(kept[0])) {
+      kt = kept;
+      sizeDropped = true;
+    }
+  }
+  // Libellé : le nom d'origine, sans la taille retirée de la clé (« Gros oignon » → « Oignon ») ;
+  // après un préfixe, on retire aussi les mots accordés avec lui
+  // (« gousses d'ail écrasées » → « Ail », « brins de ciboulette ciselés » → « Ciboulette »)
+  let labelText = rest;
+  if (sizeDropped) {
+    const words = rest.split(/\s+/).filter(w => !SHOPPING_SIZE_WORDS.has(_stripAccentsAndLigatures(w)));
+    if (words.length) labelText = words.join(' ');
+  }
+  if (fromPrefix) {
+    const keyToks = new Set(kt);
+    const lastToken = w => {
+      const bits = _stripAccentsAndLigatures(w).split(/['’]/);
+      return _singularizeToken(bits[bits.length - 1].replace(/[^a-z0-9]/g, ''));
+    };
+    const words = labelText.split(/\s+/);
+    while (words.length > 1 && !keyToks.has(lastToken(words[words.length - 1]))) words.pop();
+    labelText = words.join(' ');
+  }
   return {
-    amount: Number(amount) * conv.factor,
-    baseUnit: conv.base,
-    type: conv.type
+    key: kt.join(' '),
+    label: labelText.charAt(0).toUpperCase() + labelText.slice(1),
+    unitHint,
+    amountHint: amount,
+    amountUnit,
+    part,
+    fromPrefix,
   };
+}
+
+// Identité produit d'un nom d'ingrédient (alias de variété compris)
+// « Jus de citron jaune » → { key: 'citron', label: 'Citron jaune', unitHint: 'jus', part: 'jus', … }
+function parseShoppingName(name) {
+  const p = _parseShoppingNameRaw(name);
+  if (!_shoppingVarietyMap) {
+    _shoppingVarietyMap = new Map();
+    for (const [from, to] of Object.entries(SHOPPING_VARIETY_ALIASES)) {
+      const f = _parseShoppingNameRaw(from).key;
+      const t = _parseShoppingNameRaw(to).key;
+      if (f && t && f !== t) _shoppingVarietyMap.set(f, t);
+    }
+  }
+  const alias = _shoppingVarietyMap.get(p.key);
+  if (alias) p.key = alias;
+  return p;
+}
+
+let _shoppingExcludedKeys = null;
+// Variante de isShoppingExcluded sur la clé produit (« une pincée de fleur de sel » → « fleur de sel »,
+// « sel et poivre »). Les exclusions écrites avec un préfixe (« cubes de glace ») restent gérées par
+// isShoppingExcluded : leur clé (« glace ») désignerait un autre produit.
+function isShoppingExcludedProduct(key) {
+  if (!_shoppingExcludedKeys) {
+    _shoppingExcludedKeys = new Set();
+    for (const e of SHOPPING_EXCLUDE) {
+      const p = parseShoppingName(e);
+      if (p.key && !p.fromPrefix) _shoppingExcludedKeys.add(p.key);
+    }
+  }
+  if (_shoppingExcludedKeys.has(key)) return true;
+  // « sel et poivre », « sel poivre » : chaque mot est lui-même exclu
+  const words = String(key || '').split(' ').filter(w => w && w !== 'et');
+  return words.length > 1 && words.every(w => _shoppingExcludedKeys.has(w));
+}
+
+// --- Équivalences d'unités par produit ---
+
+// Unité d'achat (base) et équivalences moyennes, pour fusionner des quantités de natures différentes.
+//   base    : 'piece', 'g', 'ml' ou une unité nommée ('gousse', 'sachet', 'botte'…)
+//   g / ml  : poids (g) / volume (ml) d'UNE unité de base
+//   density : g par ml (passage masse ↔ volume)
+//   units   : autres unités → nombre d'unités de base (1 tête d'ail = 10 gousses ; base g : 1 pièce = 150 g)
+//   parts   : parties d'UNE pièce (jaune/blanc d'œuf, zeste/jus d'agrume) avec leur poids et volume ;
+//             une pièce fournit chaque partie une fois (3 jaunes + 3 blancs = 3 œufs)
+//   volumePart : partie que désigne un volume sans précision (25 ml de citron = du jus)
+//   compounds : s'applique aussi aux « X de … » (« huile de colza » → huile) ; sinon « lait de coco » ≠ lait
+//   tolerance : part fractionnaire négligée à l'arrondi (défaut 0,15)
+const SHOPPING_PRODUCT_UNITS = [
+  // Agrumes
+  { name: 'citron', base: 'piece', g: 120, volumePart: 'jus', parts: { jus: { g: 45, ml: 45 }, zeste: { g: 5, ml: 15 } }, units: { quartier: 0.25, rondelle: 0.125, filet: 0.25, goutte: 0.02 } },
+  { name: 'citron vert', base: 'piece', g: 70, volumePart: 'jus', parts: { jus: { g: 30, ml: 30 }, zeste: { g: 3, ml: 10 } }, units: { quartier: 0.25, rondelle: 0.125, filet: 0.25, goutte: 0.02 } },
+  { name: 'orange', base: 'piece', g: 200, volumePart: 'jus', parts: { jus: { g: 90, ml: 90 }, zeste: { g: 10, ml: 30 } }, units: { quartier: 0.125, rondelle: 0.1 } },
+  { name: 'pamplemousse', base: 'piece', g: 400, volumePart: 'jus', parts: { jus: { g: 150, ml: 150 }, zeste: { g: 15, ml: 45 } } },
+  { name: 'clémentine', base: 'piece', g: 70, volumePart: 'jus', parts: { jus: { g: 35, ml: 35 }, zeste: { g: 3, ml: 10 } } },
+  { name: 'mandarine', base: 'piece', g: 80, volumePart: 'jus', parts: { jus: { g: 40, ml: 40 }, zeste: { g: 4, ml: 12 } } },
+  // Alliacées
+  { name: 'ail', base: 'gousse', g: 5, units: { piece: 1, tete: 10 } },
+  { name: 'oignon', base: 'piece', g: 120 },
+  { name: 'oignon nouveau', base: 'piece', g: 30 },
+  { name: 'échalote', base: 'piece', g: 30 },
+  { name: 'poireau', base: 'piece', g: 200 },
+  // Œufs : 1 œuf ≈ 55 g (jaune 18 g, blanc 32 g)
+  { name: 'œuf', base: 'piece', g: 55, ml: 50, parts: { jaune: { g: 18, ml: 17 }, blanc: { g: 32, ml: 30 } } },
+  // Légumes
+  { name: 'tomate', base: 'piece', g: 120 },
+  { name: 'tomate cerise', base: 'g', units: { piece: 15 } },
+  { name: 'tomate pelée', base: 'g', units: { boite: 400 } },
+  { name: 'carotte', base: 'piece', g: 120 },
+  { name: 'pomme de terre', base: 'g', units: { piece: 150 } },
+  { name: 'patate douce', base: 'g', units: { piece: 300 } },
+  { name: 'courgette', base: 'piece', g: 250 },
+  { name: 'aubergine', base: 'piece', g: 300 },
+  { name: 'poivron', base: 'piece', g: 160 },
+  { name: 'concombre', base: 'piece', g: 300 },
+  { name: 'avocat', base: 'piece', g: 200 },
+  { name: 'champignon', base: 'g', compounds: true, units: { piece: 20 } },
+  { name: 'fenouil', base: 'piece', g: 250 },
+  { name: 'navet', base: 'piece', g: 100 },
+  { name: 'betterave', base: 'piece', g: 150 },
+  { name: 'panais', base: 'piece', g: 150 },
+  { name: 'brocoli', base: 'piece', g: 400 },
+  { name: 'chou-fleur', base: 'piece', g: 800 },
+  { name: 'céleri', base: 'branche', g: 40, units: { piece: 1, pied: 8 } },
+  { name: 'céleri-rave', base: 'piece', g: 800 },
+  { name: 'gingembre', base: 'g', units: { cm: 5, morceau: 20 } },
+  // Fruits
+  { name: 'pomme', base: 'piece', g: 150 },
+  { name: 'poire', base: 'piece', g: 150 },
+  { name: 'banane', base: 'piece', g: 120 },
+  { name: 'pêche', base: 'piece', g: 150 },
+  { name: 'abricot', base: 'piece', g: 45 },
+  { name: 'mangue', base: 'piece', g: 400 },
+  { name: 'kiwi', base: 'piece', g: 80 },
+  // Herbes : achetées en botte (≈ 25 brins de persil, 50 de ciboulette, 50 feuilles de basilic)
+  { name: 'persil', base: 'botte', g: 50, density: 0.25, units: { bouquet: 1, piece: 1, brin: 0.04, branche: 0.04, feuille: 0.005 }, tolerance: 0.25 },
+  { name: 'coriandre', base: 'botte', g: 50, density: 0.25, units: { bouquet: 1, piece: 1, brin: 0.04, branche: 0.04, feuille: 0.005 }, tolerance: 0.25 },
+  { name: 'ciboulette', base: 'botte', g: 30, density: 0.25, units: { bouquet: 1, piece: 1, brin: 0.02 }, tolerance: 0.25 },
+  { name: 'basilic', base: 'botte', g: 30, density: 0.2, units: { bouquet: 1, piece: 1, brin: 0.1, branche: 0.1, feuille: 0.02 }, tolerance: 0.25 },
+  { name: 'menthe', base: 'botte', g: 30, density: 0.2, units: { bouquet: 1, piece: 1, brin: 0.1, branche: 0.1, feuille: 0.02 }, tolerance: 0.25 },
+  { name: 'aneth', base: 'botte', g: 30, density: 0.2, units: { bouquet: 1, piece: 1, brin: 0.1, branche: 0.1 }, tolerance: 0.25 },
+  { name: 'thym', base: 'branche', units: { piece: 1, brin: 1 } },
+  { name: 'romarin', base: 'branche', units: { piece: 1, brin: 1 } },
+  { name: 'laurier', base: 'feuille', units: { piece: 1 } },
+  // Crèmerie
+  { name: 'beurre', base: 'g', density: 0.95, units: { noix: 10, plaquette: 250 } },
+  { name: 'lait', base: 'ml', density: 1.03, units: { verre: 200, tasse: 250, bol: 300, brique: 1000 } },
+  { name: 'crème', base: 'ml', density: 1, units: { pot: 200, brique: 200 } },
+  { name: 'crème liquide', base: 'ml', density: 1, units: { pot: 200, brique: 200 } },
+  { name: 'yaourt', base: 'piece', g: 125, units: { pot: 1 } },
+  { name: 'fromage blanc', base: 'g', density: 1.05 },
+  { name: 'mozzarella', base: 'g', units: { boule: 125, piece: 125 } },
+  { name: 'parmesan', base: 'g', density: 0.4 },
+  // Épicerie
+  { name: 'farine', base: 'g', density: 0.6, compounds: true, units: { verre: 120, tasse: 140 } },
+  { name: 'sucre', base: 'g', density: 0.9, units: { morceau: 5, verre: 180, tasse: 200 } },
+  { name: 'sucre glace', base: 'g', density: 0.55 },
+  { name: 'sucre roux', base: 'g', density: 0.85 },
+  { name: 'cassonade', base: 'g', density: 0.85 },
+  { name: 'sucre vanillé', base: 'sachet', g: 7.5, density: 0.85 },
+  { name: 'levure chimique', base: 'sachet', g: 11, density: 0.9 },
+  { name: 'levure de boulanger', base: 'sachet', g: 5.5, density: 0.65 },
+  { name: 'levure boulangère', base: 'sachet', g: 5.5, density: 0.65 },
+  { name: 'levure sèche de boulanger', base: 'sachet', g: 5.5, density: 0.65 },
+  { name: 'levure fraîche', base: 'g', compounds: true, units: { cube: 42 } },
+  { name: 'gélatine', base: 'feuille', g: 2 },
+  { name: 'maïzena', base: 'g', density: 0.6 },
+  { name: 'fécule de maïs', base: 'g', density: 0.6 },
+  { name: 'cacao', base: 'g', density: 0.45 },
+  { name: 'chocolat', base: 'g', units: { carre: 5, tablette: 200, plaquette: 200 } },
+  { name: 'poudre d\'amande', base: 'g', density: 0.4 },
+  { name: 'miel', base: 'g', density: 1.4 },
+  { name: 'moutarde', base: 'g', density: 1.05, compounds: true },
+  { name: 'concentré de tomate', base: 'g', density: 1.1 },
+  { name: 'riz', base: 'g', density: 0.85, units: { verre: 170, tasse: 200 } },
+  { name: 'semoule', base: 'g', density: 0.75, units: { verre: 150 } },
+  { name: 'flocon d\'avoine', base: 'g', density: 0.4 },
+  { name: 'huile', base: 'ml', density: 0.92, compounds: true, units: { filet: 15, trait: 5 } },
+  { name: 'vinaigre', base: 'ml', density: 1.01, compounds: true, units: { filet: 10, trait: 5 } },
+  { name: 'sauce soja', base: 'ml', density: 1.15, units: { trait: 5 } },
+  { name: 'sirop d\'érable', base: 'ml', density: 1.33 },
+  { name: 'lait de coco', base: 'ml', density: 1, units: { boite: 400, brique: 200 } },
+  { name: 'bouillon', base: 'cube', ml: 500, compounds: true },
+  { name: 'vin', base: 'ml', density: 1, compounds: true, units: { verre: 150 } },
+  // Charcuterie, traiteur
+  { name: 'jambon', base: 'tranche', g: 45 },
+  { name: 'jambon cru', base: 'tranche', g: 15, compounds: true },
+  { name: 'bacon', base: 'tranche', g: 15 },
+  { name: 'saumon fumé', base: 'tranche', g: 25 },
+  { name: 'pain de mie', base: 'tranche', g: 25 },
+];
+let _shoppingUnitsMap = null;
+
+// Équivalences d'un produit : correspondance exacte, sinon plus long préfixe de mots
+// (« poivron rouge » → poivron). « X de … » n'hérite que des entrées « compounds »
+// (« huile de colza » → huile, mais « lait de coco » ≠ lait, « pomme de terre » ≠ pomme).
+function getShoppingProductUnits(key) {
+  if (!key) return null;
+  if (!_shoppingUnitsMap) {
+    _shoppingUnitsMap = new Map();
+    for (const e of SHOPPING_PRODUCT_UNITS) {
+      const k = parseShoppingName(e.name).key;
+      if (k && !_shoppingUnitsMap.has(k)) _shoppingUnitsMap.set(k, e);
+    }
+  }
+  const toks = key.split(' ');
+  for (let n = toks.length; n >= 1; n--) {
+    const e = _shoppingUnitsMap.get(toks.slice(0, n).join(' '));
+    if (!e) continue;
+    if (n === toks.length || !_SHOPPING_PREFIX_PREPS.has(toks[n]) || e.compounds) return e;
+  }
+  return null;
+}
+
+function _shoppingBaseUnit(entry) {
+  if (entry.base === 'g') return { kind: 'mass', id: 'g', factor: 1, label: 'g' };
+  if (entry.base === 'ml') return { kind: 'volume', id: 'ml', factor: 1, label: 'ml' };
+  if (entry.base === 'piece') return { kind: 'count', id: 'piece', factor: 1, label: '' };
+  return parseShoppingUnit(entry.base);
+}
+
+// Nature d'une unité pour l'addition : 'mass', 'volume' (ml/cl/l), 'volume:cas' (cuillères),
+// 'count' (pièces) ou 'named:<id>' (gousse, botte…)
+function _shoppingUnitIdentity(unit) {
+  if (unit.kind === 'named') return 'named:' + unit.id;
+  if (unit.kind === 'volume' && unit.id !== 'ml') return 'volume:' + unit.id;
+  return unit.kind;
+}
+
+// Idem, en séparant les parties d'un produit gardées en masse/volume (« 100 g » de blancs ≠ « 100 g » d'œufs)
+function _shoppingQuantityIdentity(q) {
+  const id = _shoppingUnitIdentity(q.unit);
+  return q.part && (q.unit.kind === 'mass' || q.unit.kind === 'volume') ? id + '|' + q.part : id;
+}
+
+const _isShoppingPositive = v => v != null && isFinite(v) && v > 0;
+
+// Ramène une quantité (g, ml, pièces ou unités nommées) d'un produit ENTIER à son unité d'achat.
+// null si l'équivalence n'est pas connue.
+function _convertToShoppingBase(amount, unit, entry) {
+  const base = entry.base;
+  const units = entry.units || null;
+  switch (unit.kind) {
+    case 'mass':
+      if (base === 'g') return amount;
+      if (base === 'ml') return entry.density ? amount / entry.density : null;
+      return entry.g ? amount / entry.g : null;
+    case 'volume':
+      if (base === 'ml') return amount;
+      if (base === 'g') return entry.density ? amount * entry.density : null;
+      if (entry.ml) return amount / entry.ml;
+      return entry.density && entry.g ? (amount * entry.density) / entry.g : null;
+    case 'count': {
+      if (base === 'piece') return amount;
+      const f = _shoppingOwn(units, 'piece');
+      return f != null ? amount * f : null;
+    }
+    case 'named': {
+      if (unit.id === _shoppingBaseUnit(entry).id) return amount;
+      const f = _shoppingOwn(units, unit.id);
+      return f != null ? amount * f : null;
+    }
+  }
+  return null;
+}
+
+// Équivalences exactes, sans « ≈ » : « 2 ail » = 2 gousses, 1 bouquet de persil = 1 botte,
+// 1 pot de yaourt = 1 yaourt… (même nombre, autre nom d'unité, pour un produit vendu à l'unité)
+function _isExactShoppingConversion(unit, entry) {
+  if (!entry.units || entry.base === 'g' || entry.base === 'ml') return false;
+  const id = unit.kind === 'count' ? 'piece' : unit.kind === 'named' ? unit.id : null;
+  return id != null && _shoppingOwn(entry.units, id) === 1;
+}
+
+// Partie d'une pièce que représente une quantité (jaune, blanc, zeste, jus), ou null pour le produit entier
+function _shoppingPartOf(g, entry) {
+  if (!entry.parts) return null;
+  if (g.part && _shoppingOwn(entry.parts, g.part)) return g.part;
+  if (g.unit.kind === 'named' && _shoppingOwn(entry.parts, g.unit.id)) return g.unit.id;
+  if (g.unit.kind === 'volume' && !g.part && entry.volumePart) return entry.volumePart;
+  return null;
+}
+
+// Arrondi à l'unité supérieure de ce qui s'achète à l'unité, en négligeant une petite part
+// (2,05 citrons → 2 ; 2,4 → 3). Jamais moins de 1.
+function _roundUpShoppingCount(n, tolerance) {
+  const floor = Math.floor(n + 1e-9);
+  return Math.max(1, n - floor < tolerance ? floor : Math.ceil(n - 1e-9));
+}
+
+// Arrondi lisible (et par excès, pour ne pas en acheter trop peu) d'une masse ou d'un volume estimé :
+// 114 g → 120 g ; 128,5 g → 130 g
+function _roundShoppingEstimate(n) {
+  const step = n < 20 ? 1 : n < 100 ? 5 : n < 1000 ? 10 : 50;
+  return Math.max(step, Math.ceil(n / step - 1e-9) * step);
+}
+
+// Additionne des quantités par nature d'unité (et partie), dans l'ordre d'apparition.
+// Volumes d'une même partie : cuillères + ml → ml ; cuillères de tailles différentes → la plus petite.
+function _sumShoppingQuantities(quantities) {
+  const groups = [];
+  const byIdentity = new Map();
+  for (const q of quantities || []) {
+    if (!q || !q.unit || !(q.amount > 0)) continue;
+    const id = _shoppingQuantityIdentity(q);
+    const g = byIdentity.get(id);
+    if (g) {
+      g.amount += q.amount;
+    } else {
+      const ng = { amount: q.amount, unit: q.unit, part: q.part || null };
+      byIdentity.set(id, ng);
+      groups.push(ng);
+    }
+  }
+  const buckets = new Map();
+  for (const g of groups) {
+    if (g.unit.kind !== 'volume') continue;
+    const k = g.part || '';
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k).push(g);
+  }
+  const merged = new Set();
+  for (const list of buckets.values()) {
+    if (list.length < 2) continue;
+    const target = list.find(g => g.unit.id === 'ml') || list.reduce((a, b) => (b.unit.factor < a.unit.factor ? b : a));
+    for (const g of list) {
+      if (g === target) continue;
+      target.amount += g.amount;
+      merged.add(g);
+    }
+  }
+  return merged.size ? groups.filter(g => !merged.has(g)) : groups;
+}
+
+// Fusionne les quantités d'UN produit.
+// quantities : [{ amount, unit, part }], amount déjà exprimé dans l'unité de référence de son type
+//   (g pour une masse, ml pour un volume — cuillères comprises —, nombre de pièces ou d'unités
+//   nommées) ; null = non chiffré ; part = 'jaune' | 'blanc' | 'zeste' | 'jus' le cas échéant.
+// key : clé produit pour les équivalences et l'arrondi — null pour seulement additionner (détail par recette).
+// Renvoie { parts: [{ amount, unit, part }], approx } :
+//   - quantités de même nature additionnées (g + kg, ml + cl + c. à soupe…)
+//   - parties d'une pièce ramenées à des pièces, le maximum par partie (3 jaunes + 3 blancs = 3 œufs)
+//   - équivalences exactes appliquées (« 2 ail » = 2 gousses)
+//   - natures différentes ramenées à l'unité d'achat quand l'équivalence est connue (approx : estimée)
+//   - ce qui s'achète à l'unité arrondi à l'unité supérieure (approx si arrondi)
+//   - sinon plusieurs parts, affichées « 2 pièces + 30 g »
+function mergeShoppingQuantities(quantities, key) {
+  const groups = _sumShoppingQuantities(quantities);
+  if (!key || groups.length === 0) return { parts: groups, approx: false };
+  const entry = getShoppingProductUnits(key);
+  const tolerance = entry && entry.tolerance != null ? entry.tolerance : 0.15;
+  let approx = false;
+  let out = groups;
+  let base = null;
+
+  if (entry) {
+    const baseUnit = _shoppingBaseUnit(entry);
+    const baseId = _shoppingUnitIdentity(baseUnit);
+    // 1) Parties d'une pièce : besoin en pièces par partie, une pièce fournissant chaque partie une fois
+    const need = Object.create(null);
+    const whole = [];
+    for (const g of groups) {
+      const p = _shoppingPartOf(g, entry);
+      const spec = p ? entry.parts[p] : null;
+      let v = null;
+      let estimated = false;
+      if (spec) {
+        if (g.unit.kind === 'count' || (g.unit.kind === 'named' && g.unit.id === p)) v = g.amount;
+        else if (g.unit.kind === 'mass' && spec.g) v = g.amount / spec.g;
+        else if (g.unit.kind === 'volume' && spec.ml) v = g.amount / spec.ml;
+        // « filet de jus de citron » : unité du fruit entier (units.filet)
+        else if (g.unit.kind === 'named') v = _convertToShoppingBase(g.amount, g.unit, entry);
+        estimated = !(g.unit.kind === 'count' || (g.unit.kind === 'named' && g.unit.id === p));
+      }
+      // Un grand volume de jus (plus de 4 fruits) s'achète plutôt en bouteille : on le laisse en volume
+      if (_isShoppingPositive(v) && !(p === entry.volumePart && g.unit.kind === 'volume' && v > 4)) {
+        need[p] = (need[p] || 0) + v;
+        if (estimated) approx = true;
+      } else {
+        if (p) g.part = p;
+        whole.push(g);
+      }
+    }
+    const partNeeds = Object.values(need);
+    out = [];
+    if (partNeeds.length) {
+      base = { amount: Math.max(...partNeeds), unit: baseUnit, part: null };
+      out.push(base);
+    }
+    // 2) Unité d'achat + équivalences exactes : une seule part
+    for (const g of whole) {
+      const isBase = !g.part && (_shoppingUnitIdentity(g.unit) === baseId || (baseUnit.kind === 'volume' && g.unit.kind === 'volume'));
+      if (!isBase && !(!g.part && _isExactShoppingConversion(g.unit, entry))) {
+        out.push(g);
+        continue;
+      }
+      const v = isBase ? g.amount : _convertToShoppingBase(g.amount, g.unit, entry);
+      if (base) {
+        base.amount += v;
+      } else {
+        base = { amount: v, unit: baseUnit, part: null };
+        out.push(base);
+      }
+    }
+    // 3) Natures encore différentes : équivalences estimées, seulement si elles réunissent au moins 2 parts
+    if (out.length > 1) {
+      const conv = out.map(p => (p === base ? p.amount : p.part ? null : _convertToShoppingBase(p.amount, p.unit, entry)));
+      if (conv.filter(_isShoppingPositive).length >= 2) {
+        let total = 0;
+        const left = [];
+        out.forEach((p, k) => {
+          if (_isShoppingPositive(conv[k])) total += conv[k];
+          else left.push(p);
+        });
+        base = { amount: total, unit: baseUnit, part: null };
+        out = [base, ...left];
+        approx = true;
+      }
+    } else if (out.length === 1 && out[0] !== base && out[0].unit.kind === 'volume' && !out[0].part && entry.base === 'piece' && entry.ml) {
+      // Un volume seul d'un produit vendu à la pièce (« 100 ml d'œufs battus ») : on ne l'achète pas en ml
+      base = { amount: out[0].amount / entry.ml, unit: baseUnit, part: null };
+      out = [base];
+      approx = true;
+    }
+    if (approx && base && (base.unit.kind === 'mass' || base.unit.kind === 'volume')) {
+      base.amount = _roundShoppingEstimate(base.amount);
+    }
+    // L'unité d'achat d'abord (« 2 pièces + 1 l de jus »)
+    if (base && out[0] !== base) out = [base, ...out.filter(p => p !== base)];
+  }
+
+  // 4) Ce qui s'achète à l'unité : total entier, arrondi à l'unité supérieure (« Œufs 8,3 » → « ≈ 9 »)
+  for (const p of out) {
+    const whole = p.unit.kind === 'count' || (p.unit.kind === 'named' && SHOPPING_WHOLE_UNITS.has(p.unit.id));
+    if (whole && Math.abs(p.amount - Math.round(p.amount)) > 1e-9) {
+      p.amount = _roundUpShoppingCount(p.amount, tolerance);
+      approx = true;
+    }
+  }
+  return { parts: out, approx };
 }
 
 

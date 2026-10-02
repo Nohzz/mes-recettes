@@ -230,4 +230,9 @@ node -c app.js && node -c data.js
 | `processImage(file)` | Compression image 720px qualité 70% |
 | `callClaudeAPI(messages, options)` | Wrapper autour de l'API Anthropic |
 | `escapeHtml(str)` | Échappement XSS pour innerHTML |
+| `_jsArg(str)` | Argument texte d'un `onclick="fn(...)"` (JSON + échappement HTML ; gère les apostrophes) |
+| `aggregateShoppingItems()` | Liste de courses : UNE ligne par produit, unités fusionnées, détail par recette numérotée |
+| `getShoppingProductKey(name)` | Clé produit (alias IA compris) partagée par la liste, le garde-manger et les cases cochées |
+| `parseShoppingName(name)` / `parseShoppingUnit(unit)` | Identité produit (« gousses d'ail » → ail + gousse) / unité normalisée (`data.js`) |
+| `mergeShoppingQuantities(quantities, key)` | Fusion des quantités d'un produit (équivalences de `SHOPPING_PRODUCT_UNITS`, ≈ si estimé) |
 | `uiAlert(msg)` / `uiConfirm(msg, opts)` / `uiPrompt(msg, opts)` | Dialogs async customs |

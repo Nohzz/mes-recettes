@@ -4,7 +4,7 @@
 // ⚠️ BUMP À CHAQUE DÉPLOIEMENT : changer la string CACHE_VERSION ci-dessous force
 // l'invalidation du cache et garantit que les nouveaux fichiers (app.js, styles.css…)
 // sont récupérés. Format suggéré : mes-recettes-vX.Y-YYYY-MM-DD
-const CACHE_VERSION = 'mes-recettes-v3.5-2026-05-17';
+const CACHE_VERSION = 'mes-recettes-v3.9-2026-10-02';
 const APP_FILES = [
   './',
   './index.html',

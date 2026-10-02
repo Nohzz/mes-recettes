@@ -428,6 +428,16 @@ function loadState() {
         try { localStorage.setItem(STORAGE_KEYS.recipes, JSON.stringify(state.recipes)); } catch {}
       }
     }
+
+    // Cases cochées : anciennes clés « Nom|unité » → clé produit (après recettes et alias).
+    // Isolée : si data.js est resté en cache dans une ancienne version, on l'ignore sans bloquer le reste.
+    if (typeof parseShoppingName === 'function') {
+      try {
+        migrateShoppingCheckedKeys();
+      } catch (e) {
+        console.warn('Migration des cases cochées ignorée :', e);
+      }
+    }
   } catch (e) {
     console.error('Load state error:', e);
   }
@@ -967,6 +977,12 @@ async function performSync(silent) {
         state.shopping = active.items;
         state.shoppingChecked = new Set(active.checked || []);
       }
+      // Un appareil pas encore à jour peut avoir renvoyé des cases cochées à l'ancien format
+      try {
+        migrateShoppingCheckedKeys();
+      } catch (e) {
+        console.warn('Migration des cases cochées ignorée :', e);
+      }
       saveShoppingLists();
     } catch (shopErr) {
       console.warn('Sync shopping erreur (non bloquant):', shopErr);
@@ -1191,6 +1207,13 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[c]));
+}
+
+// Texte passé en argument dans un attribut onclick="fn(...)" : littéral JS (JSON) puis échappement HTML.
+// Ne pas utiliser escapeHtml(x).replace(/'/g, "\\'") : le navigateur décode &#39; en ' avant d'exécuter
+// le JS, ce qui casse l'appel dès qu'un nom contient une apostrophe (« Huile d'olive »).
+function _jsArg(value) {
+  return escapeHtml(JSON.stringify(String(value == null ? '' : value)));
 }
 
 function formatAmount(amount, unit) {
@@ -1932,8 +1955,9 @@ function renderRecipeDetail(recipe) {
           </div>
           <button class="recipe-inline-add" onclick="addIngredientInline('${r.id}')">+ Ajouter un ingrédient</button>
           ${(() => {
-            const inPantryCount = r.ingredients.filter(i => isInPantry(i.name)).length;
-            const toBuyCount = r.ingredients.filter(i => !isInPantry(i.name) && !isShoppingExcluded(i.name)).length;
+            const pantryKeys = getPantryProductKeys();
+            const inPantryCount = r.ingredients.filter(i => isInPantry(i.name, pantryKeys)).length;
+            const toBuyCount = r.ingredients.filter(i => !isInPantry(i.name, pantryKeys) && !isShoppingItemExcluded(i.name)).length;
             const parts = [];
             if (inPantryCount > 0) parts.push(`<span class="ingredients-hint-pill ingredients-hint-pantry">📦 ${inPantryCount} chez vous</span>`);
             if (toBuyCount > 0) parts.push(`<span class="ingredients-hint-pill ingredients-hint-buy">🛒 ${toBuyCount} à acheter</span>`);
@@ -2234,9 +2258,10 @@ function updateServingsDisplay() {
 }
 
 function renderIngredientsList(ingredients, ratio, recipeId) {
+  const pantryKeys = getPantryProductKeys();
   return ingredients.map((ing, idx) => {
     const amount = ing.amount != null && ing.amount !== '' ? Number(ing.amount) * ratio : '';
-    const inPantry = isInPantry(ing.name);
+    const inPantry = isInPantry(ing.name, pantryKeys);
     return `
       <div class="ingredient-row ${inPantry ? 'in-pantry' : ''}" onclick="editIngredientInline('${recipeId}', ${idx})" title="Toucher pour modifier">
         <span class="ingredient-name">${escapeHtml(ing.name)}${inPantry ? ' <span class="ingredient-pantry-mark" title="Déjà chez vous">📦</span>' : ''}</span>
@@ -4314,6 +4339,7 @@ function addMenuToShopping(items) {
     const recipe = state.recipes.find(r => r.id === item.recipeId);
     if (recipe && !state.shopping.some(s => s.recipeId === recipe.id)) {
       state.shopping.push({ recipeId: recipe.id, servings: recipe.baseServings });
+      _uncheckShoppingProductsOf(recipe.id);
       added++;
     }
   }
@@ -4421,20 +4447,30 @@ function setPantryDefaultDays(days) {
   localStorage.setItem('mr_pantry_default_days', String(days));
 }
 
+// Le garde-manger se compare sur le PRODUIT (getShoppingProductKey) : « Ail » couvre aussi
+// « gousses d'ail », « Citron » couvre « jus de citron » et les alias appris via l'IA.
 function addToPantry(name, customDays) {
-  const normalized = normalizeIngredientName(name);
-  if (!normalized) return;
+  const key = getShoppingProductKey(name);
+  if (!key) return;
   const days = (customDays && customDays > 0) ? customDays : getPantryDefaultDays();
-  const until = Date.now() + days * 24 * 3600 * 1000;
-  // Remplace si existe
-  state.pantry = state.pantry.filter(p => normalizeIngredientName(p.name) !== normalized);
+  let until = Date.now() + days * 24 * 3600 * 1000;
+  // Remplace les entrées du même produit, sans raccourcir une durée plus longue déjà prévue
+  for (const p of state.pantry) {
+    if (getShoppingProductKey(p.name) === key && (p.until || 0) > until) until = p.until;
+  }
+  state.pantry = state.pantry.filter(p => getShoppingProductKey(p.name) !== key);
   state.pantry.push({ name, until });
   savePantry();
 }
 
+// Entrée du garde-manger : d'abord le nom exact (chip touché), sinon le même produit
+function _findPantryItem(name) {
+  const key = getShoppingProductKey(name);
+  return state.pantry.find(p => p.name === name) || state.pantry.find(p => getShoppingProductKey(p.name) === key);
+}
+
 function extendPantryItem(name, daysToAdd) {
-  const normalized = normalizeIngredientName(name);
-  const item = state.pantry.find(p => normalizeIngredientName(p.name) === normalized);
+  const item = _findPantryItem(name);
   if (!item) return;
   // Si déjà expiré ou proche d'expirer, partir d'aujourd'hui
   const base = Math.max(item.until || 0, Date.now());
@@ -4444,15 +4480,27 @@ function extendPantryItem(name, daysToAdd) {
 window.extendPantryItem = extendPantryItem;
 
 function removeFromPantry(name) {
-  const normalized = normalizeIngredientName(name);
-  state.pantry = state.pantry.filter(p => normalizeIngredientName(p.name) !== normalized);
+  const key = getShoppingProductKey(name);
+  state.pantry = state.pantry.filter(p => getShoppingProductKey(p.name) !== key);
   savePantry();
 }
 
-function isInPantry(name) {
-  const normalized = normalizeIngredientName(name);
+// Clés produit du garde-manger encore valides
+function getPantryProductKeys() {
   const now = Date.now();
-  return state.pantry.some(p => normalizeIngredientName(p.name) === normalized && (!p.until || p.until > now));
+  const keys = new Set();
+  for (const p of state.pantry) {
+    if (p.until && p.until <= now) continue;
+    const key = getShoppingProductKey(p.name);
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+// keys : clés déjà calculées par getPantryProductKeys() (à passer quand on teste toute une recette)
+function isInPantry(name, keys) {
+  const key = getShoppingProductKey(name);
+  return !!key && (keys || getPantryProductKeys()).has(key);
 }
 
 function togglePantryFromShopping(name) {
@@ -4480,7 +4528,7 @@ window.addPantryItemFromInput = addPantryItemFromInput;
 
 // Modal de gestion d'un item du garde-manger (étendre, supprimer)
 async function openPantryItemActions(name) {
-  const item = state.pantry.find(p => normalizeIngredientName(p.name) === normalizeIngredientName(name));
+  const item = _findPantryItem(name);
   if (!item) return;
   const days = Math.max(0, Math.ceil((item.until - Date.now()) / (24 * 3600 * 1000)));
   const message = `"${item.name}" expire dans ${days} jour${days !== 1 ? 's' : ''}.\n\nQue voulez-vous faire ?`;
@@ -5066,12 +5114,22 @@ function _showStepEditDialog({ title, text, canDelete, canMoveUp, canMoveDown })
 // SHOPPING LIST
 // ============================================
 
+// Une recette ajoutée (ou des portions en plus) augmente les quantités de lignes peut-être déjà
+// cochées : ces produits redeviennent « à acheter ».
+function _uncheckShoppingProductsOf(recipeId) {
+  const recipe = state.recipes.find(r => r.id === recipeId);
+  for (const ing of recipe && Array.isArray(recipe.ingredients) ? recipe.ingredients : []) {
+    if (ing && ing.name) state.shoppingChecked.delete(getShoppingProductKey(ing.name));
+  }
+}
+
 function addToShopping(recipeId, servings) {
   if (state.shopping.some(s => s.recipeId === recipeId)) {
     showToast('Déjà dans la liste');
     return;
   }
   state.shopping.push({ recipeId, servings });
+  _uncheckShoppingProductsOf(recipeId);
   saveShopping();
   showToast('Ajoutée à la liste de courses', 'success');
   updateShoppingBadge();
@@ -5100,7 +5158,9 @@ window.removeFromShopping = removeFromShopping;
 function updateShoppingServings(recipeId, delta) {
   const item = state.shopping.find(s => s.recipeId === recipeId);
   if (!item) return;
+  const before = item.servings;
   item.servings = Math.max(1, Math.min(50, item.servings + delta));
+  if (item.servings > before) _uncheckShoppingProductsOf(recipeId);
   saveShopping();
   renderShopping();
 }
@@ -5117,70 +5177,198 @@ function updateShoppingBadge() {
   }
 }
 
-function aggregateShoppingItems() {
-  const aggregated = {};
+// --- Produit acheté (avec les alias appris via « Nettoyer avec l'IA ») ---
+// state.prefs.ingredientSynonyms est indexé par nom brut en minuscules ; on le ré-indexe par clé
+// produit pour qu'un alias s'applique à toutes les écritures d'un même ingrédient.
+const _shoppingProductCache = new Map();
+let _shoppingSynonymIndex = null;
+let _shoppingSynonymSource = null;
 
+// À appeler après toute modification EN PLACE des alias (cleanShoppingWithAI) ; un objet d'alias
+// remplacé (chargement) est détecté tout seul
+function _resetShoppingProductCache() {
+  _shoppingProductCache.clear();
+  _shoppingSynonymIndex = null;
+}
+
+function _getShoppingSynonymIndex() {
+  const syns = (state.prefs && state.prefs.ingredientSynonyms) || {};
+  if (_shoppingSynonymIndex && _shoppingSynonymSource === syns) return _shoppingSynonymIndex;
+  _shoppingProductCache.clear();
+  const index = new Map();
+  for (const [alias, canonical] of Object.entries(syns)) {
+    if (typeof canonical !== 'string' || !canonical.trim()) continue;
+    const k = parseShoppingName(alias).key;
+    if (k && !index.has(k)) index.set(k, canonical.trim());
+  }
+  _shoppingSynonymIndex = index;
+  _shoppingSynonymSource = syns;
+  return index;
+}
+
+// Produit à acheter pour un nom d'ingrédient :
+// { key, label, unitHint, amountHint, amountUnit, part, fromPrefix } (voir parseShoppingName).
+// key est la clé de fusion sur laquelle s'appuient liste de courses, garde-manger et cases cochées.
+function getShoppingProduct(name) {
+  const index = _getShoppingSynonymIndex();
+  const cacheKey = String(name == null ? '' : name);
+  const cached = _shoppingProductCache.get(cacheKey);
+  if (cached) return cached;
+  const p = parseShoppingName(cacheKey);
+  let key = p.key;
+  let label = p.label;
+  let fromPrefix = p.fromPrefix;
+  // Suit la chaîne alias → nom canonique
+  const seen = new Map(); // clé → libellé
+  while (key && index.has(key)) {
+    if (seen.has(key)) {
+      // Cycle d'alias (A → B → A) : un représentant stable, pour que tous ses membres fusionnent
+      key = [...seen.keys()].sort()[0];
+      label = seen.get(key);
+      break;
+    }
+    seen.set(key, label);
+    const c = parseShoppingName(index.get(key));
+    if (!c.key || c.key === key) break;
+    key = c.key;
+    label = c.label;
+    fromPrefix = false;
+  }
+  const res = { ...p, key, label, fromPrefix };
+  _shoppingProductCache.set(cacheKey, res);
+  return res;
+}
+
+function getShoppingProductKey(name) {
+  return getShoppingProduct(name).key;
+}
+
+// Recettes de la liste active, numérotées dans l'ordre d'ajout (recettes supprimées ignorées)
+function getShoppingRecipeEntries() {
+  const entries = [];
   for (const item of state.shopping) {
     const recipe = state.recipes.find(r => r.id === item.recipeId);
-    if (!recipe) continue;
-    const ratio = item.servings / recipe.baseServings;
+    if (recipe) entries.push({ item, recipe, num: entries.length + 1 });
+  }
+  return entries;
+}
 
-    for (const ing of recipe.ingredients) {
+// multi : la quantité est affichée à côté d'autres (« 2 pièces + 1 c. à café »)
+function _formatShoppingPart(part, multi) {
+  const u = part.unit;
+  // Accord sur la valeur affichée (1,96 s'affiche « 2 » → « 2 gousses »)
+  const shown = n => (n < 10 ? Math.round(n * 10) / 10 : Math.round(n));
+  let text;
+  if (u.kind === 'volume' && u.id !== 'ml') {
+    // Cuillères (quantité stockée en ml) : affichées comme dans la recette
+    const n = part.amount / u.factor;
+    text = formatAmount(n, shown(n) >= 2 && u.plural ? u.plural : u.label);
+  } else if (u.kind === 'mass' || u.kind === 'volume') {
+    const best = getBestDisplayUnit(part.amount, u.kind);
+    text = formatAmount(part.amount / best.factor, best.unit);
+  } else if (u.kind === 'count') {
+    // Seule, une pièce se passe d'unité ; à côté d'autres unités on la nomme
+    text = formatAmount(part.amount, multi ? (shown(part.amount) >= 2 ? 'pièces' : 'pièce') : '');
+  } else {
+    text = formatAmount(part.amount, pluralizeShoppingUnit(u.label, shown(part.amount)));
+  }
+  // Partie d'un produit restée en masse ou en volume : « 1 l de jus », « 100 g de blancs »
+  if (part.part && (u.kind === 'mass' || u.kind === 'volume') && SHOPPING_PART_LABELS[part.part]) {
+    text += ' ' + SHOPPING_PART_LABELS[part.part];
+  }
+  return text;
+}
+
+// Texte d'une quantité fusionnée : « 250 g », « ≈ 3 », « 1 botte + 2 c. à soupe »
+function formatShoppingQuantities(merged) {
+  if (!merged || !merged.parts.length) return '';
+  const multi = merged.parts.length > 1;
+  return (merged.approx ? '≈ ' : '') + merged.parts.map(p => _formatShoppingPart(p, multi)).join(' + ');
+}
+
+// Exclu de la liste de courses (sel, poivre, eau…), y compris sous une forme préfixée
+// (« pincée de sel », « verre d'eau ») ou combinée (« sel et poivre »)
+function isShoppingItemExcluded(name) {
+  if (isShoppingExcluded(name)) return true;
+  const key = getShoppingProductKey(name);
+  return !key || isShoppingExcludedProduct(key);
+}
+
+// Rang d'un libellé pour nommer une ligne fusionnée : le nom le plus « nu » l'emporte
+// (« Carottes » plutôt que « Carottes râpées », « Citrons jaunes » plutôt que « Citron » tiré de « jus de citron »)
+function _shoppingLabelRank(prod) {
+  return _shoppingTokens(prod.label).length - prod.key.split(' ').length + (prod.fromPrefix ? 10 : 0);
+}
+
+// Agrège les ingrédients des recettes de la liste : UNE ligne par produit, quelles que soient les
+// unités, avec le détail par recette. Renvoie [{ key, name, category, amountText, approx, detailed,
+// sources: [{ num, recipeId, title, amountText }] }] (num = numéro de la recette dans la liste ;
+// detailed = le détail par recette apporte une information que le total n'affiche pas).
+function aggregateShoppingItems() {
+  const pantryKeys = getPantryProductKeys();
+  const lines = new Map();
+
+  for (const { item, recipe, num } of getShoppingRecipeEntries()) {
+    const base = Number(recipe.baseServings);
+    const servings = Number(item.servings);
+    const ratio = base > 0 && servings > 0 ? servings / base : 1;
+
+    for (const ing of Array.isArray(recipe.ingredients) ? recipe.ingredients : []) {
+      if (!ing || !ing.name) continue;
       // Exclusion : sel, poivre, eau (sauf variantes précises)
-      if (isShoppingExcluded(ing.name)) continue;
-      // Garde-manger
-      if (isInPantry(ing.name)) continue;
+      if (isShoppingItemExcluded(ing.name)) continue;
+      const prod = getShoppingProduct(ing.name);
+      // Garde-manger : comparé sur le produit, toutes ses variantes disparaissent ensemble
+      if (pantryKeys.has(prod.key)) continue;
 
-      // Alias appris via IA (« concentré tomate » → « concentré de tomate ») avant normalisation
-      const syns = (state.prefs && state.prefs.ingredientSynonyms) || {};
-      const canonName = syns[ing.name.toLowerCase().trim()] || ing.name;
-      const normalizedName = normalizeIngredientName(canonName);
-      if (!normalizedName) continue;
-
-      // Conversion d'unités : on essaie de convertir vers la base (ml ou g)
-      const norm = normalizeAmount(ing.amount, ing.unit);
-
-      // Clé : si convertible, on groupe juste par nom (pour fusionner ml + cl + l)
-      // Sinon on garde l'unité dans la clé
-      const key = norm
-        ? normalizedName + '|' + norm.type
-        : normalizedName + '|' + (ing.unit || '').toLowerCase().trim();
-
-      if (!aggregated[key]) {
-        const displayName = canonName.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
-        aggregated[key] = {
-          name: displayName || canonName,
-          unit: ing.unit || '',
-          amount: 0,
-          baseAmount: 0, // pour items convertibles
-          baseType: norm ? norm.type : null,
-          hasAmount: ing.amount != null && ing.amount !== '',
-          category: categorizeIngredient(displayName || ing.name)
-        };
+      // Quantité de l'ingrédient, sinon celle écrite dans le nom (« 200 g de farine », « jus de 2 citrons »)
+      let raw = parseShoppingAmount(ing.amount);
+      let unit = parseShoppingUnit(ing.unit);
+      if (raw == null && prod.amountHint != null) {
+        raw = prod.amountHint;
+        if (unit.kind === 'count' && prod.amountUnit) unit = parseShoppingUnit(prod.amountUnit);
       }
-      if (ing.amount != null && ing.amount !== '' && !isNaN(Number(ing.amount))) {
-        if (norm) {
-          aggregated[key].baseAmount += norm.amount * ratio;
-        } else {
-          aggregated[key].amount += Number(ing.amount) * ratio;
-        }
-      } else {
-        aggregated[key].hasAmount = aggregated[key].hasAmount || false;
+      // « 3 gousses d'ail » sans unité → unité « gousse » tirée du nom
+      if (unit.kind === 'count' && prod.unitHint) unit = parseShoppingUnit(prod.unitHint);
+      const q = { amount: raw != null ? raw * ratio * unit.factor : null, unit, part: prod.part };
+
+      const rank = _shoppingLabelRank(prod);
+      let line = lines.get(prod.key);
+      if (!line) {
+        line = { key: prod.key, name: prod.label, rank, quantities: [], sources: new Map() };
+        lines.set(prod.key, line);
+      } else if (rank < line.rank) {
+        line.name = prod.label;
+        line.rank = rank;
       }
+      line.quantities.push(q);
+      let src = line.sources.get(num);
+      if (!src) {
+        src = { num, recipeId: recipe.id, title: recipe.title, quantities: [] };
+        line.sources.set(num, src);
+      }
+      src.quantities.push(q);
     }
   }
 
-  // Post-process : pour les items convertibles, choisir la meilleure unité d'affichage
-  return Object.values(aggregated).map(item => {
-    if (item.baseType && item.baseAmount > 0) {
-      const best = getBestDisplayUnit(item.baseAmount, item.baseType);
-      if (best) {
-        item.unit = best.unit;
-        item.amount = item.baseAmount / best.factor;
-        item.hasAmount = true;
-      }
-    }
-    return item;
+  return [...lines.values()].map(line => {
+    const merged = mergeShoppingQuantities(line.quantities, line.key);
+    const amountText = formatShoppingQuantities(merged);
+    const sources = [...line.sources.values()].map(s => ({
+      num: s.num,
+      recipeId: s.recipeId,
+      title: s.title,
+      amountText: formatShoppingQuantities(mergeShoppingQuantities(s.quantities, null)),
+    }));
+    return {
+      key: line.key,
+      name: line.name,
+      category: categorizeIngredient(line.name),
+      amountText,
+      approx: merged.approx,
+      detailed: sources.length > 1 || merged.approx || (!!sources[0] && sources[0].amountText !== amountText),
+      sources,
+    };
   });
 }
 
@@ -5250,11 +5438,14 @@ N'inclus QUE les groupes de 2 articles ou plus. N'invente pas d'articles absents
         if (!aKey || aKey === canonical.toLowerCase()) continue;
         // Ne stocke que des alias qui viennent bien de la liste (évite les hallucinations)
         if (!known.has(aKey)) continue;
+        // Inutile ou en boucle : le nom canonique retombe déjà sur ce produit (alias existant inverse)
+        if (getShoppingProductKey(canonical) === parseShoppingName(alias).key) continue;
         state.prefs.ingredientSynonyms[aKey] = canonical;
         count++;
       }
     }
     savePrefs();
+    _resetShoppingProductCache();
     renderShopping();
     if (count === 0) {
       showToast('Aucun doublon détecté', 'success');
@@ -5286,15 +5477,20 @@ function renderShopping() {
   empty.classList.add('hidden');
   content.classList.remove('hidden');
 
+  // Anciennes cases cochées « Nom|unité » (appareil pas encore à jour, sync) → clé produit
+  migrateShoppingCheckedKeys();
+
+  // Numéros de recette (repris à côté des ingrédients) : inutiles s'il n'y a qu'une recette
+  const entries = getShoppingRecipeEntries();
+  const numbered = entries.length > 1;
+
   const recipesEl = document.getElementById('shopping-recipes');
-  recipesEl.innerHTML = state.shopping.map(item => {
-    const r = state.recipes.find(x => x.id === item.recipeId);
-    if (!r) return '';
+  recipesEl.innerHTML = entries.map(({ item, recipe: r, num }) => {
     return `
       <div class="shopping-recipe-row">
         <div class="shopping-recipe-emoji is-clickable" onclick="openRecipe('${r.id}')" role="button" tabindex="0" aria-label="Ouvrir la recette">${r.photo ? `<img src="${r.photo}" alt="" loading="lazy">` : (r.emoji || '🍽️')}</div>
         <div class="shopping-recipe-info">
-          <div class="shopping-recipe-name is-clickable" onclick="openRecipe('${r.id}')" role="button" tabindex="0">${escapeHtml(r.title)}</div>
+          <div class="shopping-recipe-name is-clickable" onclick="openRecipe('${r.id}')" role="button" tabindex="0">${numbered ? `<span class="shopping-ref">${num}</span>` : ''}<span class="shopping-recipe-title">${escapeHtml(r.title)}</span></div>
           <div class="shopping-recipe-servings">
             <button class="shopping-recipe-servings-btn" onclick="updateShoppingServings('${r.id}', -1)" ${item.servings <= 1 ? 'disabled' : ''}>−</button>
             <span class="shopping-recipe-servings-value">${item.servings} pers.</span>
@@ -5331,17 +5527,17 @@ function renderShopping() {
     `;
     for (const item of catItems) {
       totalCount++;
-      const itemKey = item.name + '|' + item.unit;
-      const isChecked = state.shoppingChecked.has(itemKey);
-      const amountStr = item.hasAmount && item.amount > 0 ? formatAmount(item.amount, item.unit) : '';
-      const safeKey = escapeHtml(itemKey).replace(/'/g, "\\'");
-      const safeName = escapeHtml(item.name).replace(/'/g, "\\'");
+      const isChecked = state.shoppingChecked.has(item.key);
+      const keyArg = _jsArg(item.key);
       html += `
         <div class="shopping-item ${isChecked ? 'done' : ''}">
-          <div class="shopping-item-check ${isChecked ? 'checked' : ''}" onclick="toggleShoppingItem('${safeKey}')"></div>
-          <div class="shopping-item-name" onclick="toggleShoppingItem('${safeKey}')">${escapeHtml(item.name)}</div>
-          ${amountStr ? `<div class="shopping-item-amount">${amountStr}</div>` : ''}
-          <button class="shopping-item-pantry" onclick="event.stopPropagation(); togglePantryFromShopping('${safeName}')" title="J'en ai déjà" aria-label="Garde-manger">📦</button>
+          <div class="shopping-item-check ${isChecked ? 'checked' : ''}" onclick="toggleShoppingItem(${keyArg})"></div>
+          <div class="shopping-item-main" onclick="toggleShoppingItem(${keyArg})">
+            <div class="shopping-item-name">${escapeHtml(item.name)}</div>
+            ${_renderShoppingItemSources(item, numbered)}
+          </div>
+          ${item.amountText ? `<div class="shopping-item-amount">${escapeHtml(item.amountText)}</div>` : ''}
+          <button class="shopping-item-pantry" onclick="event.stopPropagation(); togglePantryFromShopping(${_jsArg(item.name)})" title="J'en ai déjà" aria-label="Garde-manger">📦</button>
         </div>
       `;
     }
@@ -5365,9 +5561,8 @@ function renderShopping() {
     const sorted = [...state.pantry].sort((a, b) => (a.until || 0) - (b.until || 0));
     for (const p of sorted) {
       const remaining = Math.max(0, Math.ceil((p.until - Date.now()) / (24 * 3600 * 1000)));
-      const safeName = escapeHtml(p.name).replace(/'/g, "\\'");
       const urgentClass = remaining <= 1 ? 'is-urgent' : '';
-      html += `<button class="shopping-pantry-chip ${urgentClass}" onclick="openPantryItemActions('${safeName}')">
+      html += `<button class="shopping-pantry-chip ${urgentClass}" onclick="openPantryItemActions(${_jsArg(p.name)})">
         ${escapeHtml(p.name)} <span>${remaining}j</span>
       </button>`;
     }
@@ -5377,6 +5572,72 @@ function renderShopping() {
 
   document.getElementById('shopping-list').innerHTML = html;
   document.getElementById('shopping-count').textContent = totalCount + ' article' + (totalCount > 1 ? 's' : '');
+}
+
+// Sous un article : pastilles des recettes d'origine, avec la quantité de chaque recette quand elle
+// apporte quelque chose (plusieurs recettes, total converti ou arrondi : « ① 2 · ③ 25 ml »).
+// Liste à une seule recette : pas de pastille, seulement ce détail s'il y a lieu.
+function _renderShoppingItemSources(item, numbered) {
+  if (!numbered) {
+    const s = item.sources[0];
+    return item.detailed && s && s.amountText ? `<div class="shopping-item-sources">${escapeHtml(s.amountText)}</div>` : '';
+  }
+  return `<div class="shopping-item-sources">${item.sources.map(s => `
+    <span class="shopping-item-source" title="${escapeHtml(s.title)}"><span class="shopping-ref">${s.num}</span>${item.detailed && s.amountText ? escapeHtml(s.amountText) : ''}</span>`).join('')}
+  </div>`;
+}
+
+// Nombre de lignes de l'ANCIEN regroupement (nom + nature d'unité : masse, volume ou unité brute)
+// que chaque produit réunit dans une liste
+function _legacyShoppingLineCounts(list) {
+  const seen = new Map();
+  for (const item of list.items || []) {
+    const recipe = state.recipes.find(r => r.id === item.recipeId);
+    for (const ing of recipe && Array.isArray(recipe.ingredients) ? recipe.ingredients : []) {
+      if (!ing || !ing.name) continue;
+      const key = getShoppingProductKey(ing.name);
+      if (!key) continue;
+      const u = parseShoppingUnit(ing.unit);
+      const kind = u.kind === 'mass' || u.kind === 'volume' ? u.kind : String(ing.unit || '').toLowerCase().trim();
+      if (!seen.has(key)) seen.set(key, new Set());
+      seen.get(key).add(normalizeIngredientName(ing.name) + '|' + kind);
+    }
+  }
+  const counts = new Map();
+  for (const [key, lines] of seen) counts.set(key, lines.size);
+  return counts;
+}
+
+// Les cases cochées étaient indexées « Nom|unité » ; elles le sont désormais par clé produit.
+// Migration douce et idempotente : au chargement, après une sync (un appareil pas à jour peut
+// renvoyer d'anciennes clés) et au rendu. Ne touche pas updatedAt pour ne pas relancer de sync.
+// Quand un produit réunit plusieurs anciennes lignes, on ne sait pas si toutes étaient cochées :
+// la ligne fusionnée reste à cocher plutôt que de faire oublier un achat.
+function migrateShoppingCheckedKeys() {
+  let changed = false;
+  for (const list of state.shoppingLists) {
+    if (!Array.isArray(list.checked) || !list.checked.some(k => typeof k === 'string' && k.includes('|'))) continue;
+    const legacy = _legacyShoppingLineCounts(list);
+    const next = new Set();
+    for (const k of list.checked) {
+      if (typeof k !== 'string') continue;
+      if (!k.includes('|')) {
+        next.add(k);
+        continue;
+      }
+      const key = getShoppingProductKey(k.slice(0, k.lastIndexOf('|')));
+      if (key && (legacy.get(key) || 0) <= 1) next.add(key);
+    }
+    list.checked = [...next];
+    changed = true;
+  }
+  const active = getActiveShoppingList();
+  if (active && [...state.shoppingChecked].some(k => typeof k === 'string' && k.includes('|'))) {
+    state.shoppingChecked = new Set(active.checked || []);
+    changed = true;
+  }
+  if (changed) safeSave(STORAGE_KEYS.shoppingLists, state.shoppingLists, 'listes de courses');
+  return changed;
 }
 
 function renderShoppingListSwitcher() {
@@ -5422,9 +5683,16 @@ function toggleShoppingItem(key) {
 
 window.toggleShoppingItem = toggleShoppingItem;
 
+// Numéro de recette dans le texte copié, comme les pastilles de l'écran : ①, ②… (au-delà de 20 : #21)
+function _shoppingRefText(n) {
+  return n >= 1 && n <= 20 ? String.fromCharCode(0x2460 + n - 1) : '#' + n;
+}
+
 async function copyShoppingList() {
   const items = aggregateShoppingItems();
   if (items.length === 0) return;
+  const entries = getShoppingRecipeEntries();
+  const numbered = entries.length > 1;
 
   const grouped = {};
   for (const cat of PRODUCT_CATEGORIES) grouped[cat.id] = [];
@@ -5439,14 +5707,21 @@ async function copyShoppingList() {
     catItems.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
     text += `${cat.emoji} ${cat.label.toUpperCase()}\n`;
     for (const item of catItems) {
-      const amountStr = item.hasAmount && item.amount > 0 ? ' — ' + formatAmount(item.amount, item.unit) : '';
-      text += `• ${item.name}${amountStr}\n`;
+      const amountStr = item.amountText ? ' — ' + item.amountText : '';
+      // Recettes concernées en pastilles (légende en bas), pour ne pas les lire comme une quantité
+      const refs = numbered ? ' · ' + item.sources.map(s => _shoppingRefText(s.num)).join('') : '';
+      text += `• ${item.name}${amountStr}${refs}\n`;
     }
     text += '\n';
   }
 
   text += '────────────────\n';
-  text += `Pour ${state.shopping.length} recette${state.shopping.length > 1 ? 's' : ''}`;
+  if (numbered) {
+    text += 'Recettes :\n';
+    text += entries.map(e => `${_shoppingRefText(e.num)} ${e.recipe.title} (${e.item.servings} pers.)`).join('\n');
+  } else {
+    text += `Pour ${entries.length} recette${entries.length > 1 ? 's' : ''}`;
+  }
 
   try {
     await navigator.clipboard.writeText(text);
@@ -8127,12 +8402,14 @@ function planningToShopping() {
         if (!recipe) continue;
         if (list.items.some(it => it.recipeId === rr.id)) continue;
         list.items.push({ recipeId: rr.id, servings: rr.servings || recipe.baseServings });
+        _uncheckShoppingProductsOf(rr.id);
         count++;
       }
     }
   }
   state.shopping = list.items;
-  saveShoppingLists();
+  // saveShopping (et non saveShoppingLists) : persiste aussi les cases décochées et synchronise la liste
+  saveShopping();
   updateShoppingBadge();
   if (count === 0) {
     showToast('Aucune nouvelle recette à ajouter');
