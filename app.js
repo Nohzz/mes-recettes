@@ -5243,14 +5243,17 @@ function getShoppingProductKey(name) {
   return getShoppingProduct(name).key;
 }
 
-// Recettes de la liste active, numérotées dans l'ordre d'ajout (recettes supprimées ignorées)
+// Recettes de la liste active par ordre alphabétique, numérotées dans cet ordre : les numéros
+// repris à côté des ingrédients suivent l'affichage (recettes supprimées ignorées ; tri stable,
+// les homonymes gardent l'ordre d'ajout)
 function getShoppingRecipeEntries() {
   const entries = [];
   for (const item of state.shopping) {
     const recipe = state.recipes.find(r => r.id === item.recipeId);
-    if (recipe) entries.push({ item, recipe, num: entries.length + 1 });
+    if (recipe) entries.push({ item, recipe });
   }
-  return entries;
+  entries.sort((a, b) => String(a.recipe.title || '').localeCompare(String(b.recipe.title || ''), 'fr', { sensitivity: 'base', numeric: true }));
+  return entries.map((e, k) => ({ ...e, num: k + 1 }));
 }
 
 // multi : la quantité est affichée à côté d'autres (« 2 pièces + 1 c. à café »)
@@ -5488,7 +5491,7 @@ function renderShopping() {
   recipesEl.innerHTML = entries.map(({ item, recipe: r, num }) => {
     return `
       <div class="shopping-recipe-row">
-        <div class="shopping-recipe-emoji is-clickable" onclick="openRecipe('${r.id}')" role="button" tabindex="0" aria-label="Ouvrir la recette">${r.photo ? `<img src="${r.photo}" alt="" loading="lazy">` : (r.emoji || '🍽️')}</div>
+        <div class="shopping-recipe-emoji is-clickable" onclick="openRecipe('${r.id}')" role="button" tabindex="0" aria-label="Ouvrir la recette">${r.photo ? `<img src="${escapeHtml(r.photo)}" alt="" loading="lazy">` : (r.emoji || '🍽️')}</div>
         <div class="shopping-recipe-info">
           <div class="shopping-recipe-name is-clickable" onclick="openRecipe('${r.id}')" role="button" tabindex="0">${numbered ? `<span class="shopping-ref">${num}</span>` : ''}<span class="shopping-recipe-title">${escapeHtml(r.title)}</span></div>
           <div class="shopping-recipe-servings">
