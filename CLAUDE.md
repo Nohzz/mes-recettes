@@ -2,11 +2,13 @@
 
 Ce fichier est lu automatiquement par Claude Code à l'ouverture du projet. Il contient tout ce qu'il faut savoir pour travailler efficacement sur ce repo.
 
-## 🎯 Projet : Mes Recettes (PWA)
+## 🎯 Projet : La Maisonnée (PWA, ex-« Mes Recettes »)
 
-App de gestion de recettes en français déployée sur GitHub Pages : https://nohzz.github.io/mes-recettes.
+App d'organisation familiale en français (inspirée de Famizen) déployée sur GitHub Pages : https://nohzz.github.io/mes-recettes (URL volontairement inchangée : la changer obligerait à réinstaller la PWA).
 
-PWA installable iOS/Android avec :
+Structure **hub + sous-apps** : un écran d'accueil (hub) à tuiles, et des sous-apps avec chacune sa barre du bas. Sous-apps : **Recettes** (l'app historique), **Calendrier** familial (les repas du planning en font partie) et **Budget**. S'y ajoutent la vue **Famille** (membres, appareils, invitation) et les **rappels** (dans l'app, et en notification push même app fermée).
+
+La sous-app Recettes est une PWA installable iOS/Android avec :
 - Création de recettes assistée par l'IA Claude (API Anthropic)
 - Planning des repas multi-semaines
 - Liste de courses intelligente
@@ -19,12 +21,13 @@ PWA installable iOS/Android avec :
 ## 🏗 Stack technique — contraintes strictes
 
 - **Vanilla HTML/CSS/JS** : **aucune dépendance NPM, aucun bundler, aucun build step**
-- Toute la logique est dans `app.js` (~7500 lignes, monolithique assumé jusqu'à un futur refactor)
+- Le cœur (état, navigation) et la sous-app Recettes sont dans `app.js` (~9300 lignes, monolithique assumé jusqu'à un futur refactor). **Chaque module va dans son propre fichier** (`calendar.js`, `sync.js`, `family.js`, `budget.js`, `reminders.js`, `hub.js`), chargé en **script classique** après `app.js` (pas de `type="module"`) : il partage les globales (`state`, `escapeHtml`, `navigateTo`…)
 - Storage : `localStorage` (5-10 MB max selon navigateur)
 - Service Worker : network-first pour auto-update
 - PWA : `manifest.json` + icônes 192/512/maskable
 - IA : appel direct à l'API Anthropic via `callClaudeAPI()` dans `app.js`, modèle `claude-sonnet-4-6`
-- Sync : Supabase optionnel (tables `recipes` et `planning`)
+- Sync famille : Supabase optionnel (`sync.js`). Chaque appareil a une session **anonyme** et rejoint une famille par lien d'invitation. Une seule table `household_data` (documents JSON par famille), protégée par RLS. **Un projet = une famille** (`create_household` refuse toute nouvelle famille dès qu'une famille du projet a au moins un appareil, `household_users`). Schéma : `supabase/schema.sql`. Guide : `SYNC-GUIDE.md`
+- Rappels : dans l'app (`reminders.js`, sans serveur) + **Web Push gratuit** : l'Edge Function `send-reminders` (`supabase/functions/send-reminders/index.ts`, collée dans le Dashboard) est appelée chaque minute par `pg_cron` + `pg_net` (`supabase/push.sql`). Elle crée elle-même les clés VAPID à son premier passage et n'accède à la base que par les fonctions SQL `maisonnee_*` (aucun droit direct sur les tables ; clé `SUPABASE_SECRET_KEYS`, repli sur `SUPABASE_SERVICE_ROLE_KEY`)
 - Hébergement : GitHub Pages (statique, HTTPS gratuit)
 - Repo : `Nohzz/mes-recettes`
 
@@ -34,10 +37,19 @@ PWA installable iOS/Android avec :
 
 ```
 recettes-app/
-├── index.html         # Structure HTML (~500 lignes)
-├── styles.css         # Design system terracotta (~5800 lignes)
-├── data.js            # Catégories, FODMAP, saisonnalité, conversions, DIET_TAGS (~720 lignes)
-├── app.js             # Logique applicative (~7500 lignes)
+├── index.html         # Structure HTML (~750 lignes)
+├── styles.css         # Design system terracotta (~8300 lignes)
+├── data.js            # Catégories, FODMAP, saisonnalité, conversions, DIET_TAGS, MEMBER_COLORS, EVENT_CATEGORIES (~1800 lignes)
+├── app.js             # Cœur (état, navigation) + sous-app Recettes (~9300 lignes)
+├── calendar.js        # Calendrier : événements (dont les repas du planning), récurrence, vues Jour/Semaine/Mois/À venir, fiche d'édition, calcul des rappels
+├── sync.js            # Sync famille Supabase : session anonyme, outbox, push/pull, import ancienne sync
+├── family.js          # Membres, vue Famille (créer / rejoindre / inviter / appareils), lien #join=
+├── budget.js          # Budget : dépenses (centimes), catégories, budget du mois, vues Aperçu/Dépenses
+├── reminders.js       # Rappels dans l'app, notifications (showLocalNotification), abonnement push, clés VAPID
+├── hub.js             # Écran d'accueil La Maisonnée (carte « Aujourd'hui » + tuiles)
+├── supabase/schema.sql # Schéma SQL de la sync famille (à coller dans le SQL Editor Supabase)
+├── supabase/push.sql  # Rappels push : tables, RPC, tâche pg_cron (à coller après schema.sql)
+├── supabase/functions/send-reminders/index.ts # Edge Function d'envoi des rappels (à coller dans le Dashboard)
 ├── manifest.json      # Configuration PWA
 ├── sw.js              # Service Worker (offline + auto-update)
 ├── icons/             # Icônes app (192, 512, maskable)
@@ -67,17 +79,43 @@ Tokens CSS (dans `styles.css`) :
 
 ## 🔑 Architecture du code
 
-- **`app.js` monolithique** (~7500 lignes). Refactor en modules ES6 prévu mais non commencé (feature #13)
-- **State global** : objet `state` contenant `recipes`, `planning`, `shopping`, `pantry`, `prefs`, `sync`, `_viewScrolls`, etc.
+- **`app.js` monolithique** (~9300 lignes). Refactor en modules ES6 prévu mais non commencé (feature #13)
+- **State global** : objet `state` contenant `recipes`, `events` (calendrier et repas), `shopping`, `pantry`, `members`, `expenses`, `budgetCategories`, `budgetSettings`, `prefs`, `sync`, `_viewScrolls`, etc.
 - **Pattern window globals** : toutes les fonctions appelées depuis le HTML (`onclick="..."`) sont exposées via `window.funcName = funcName`. Quand tu ajoutes une fonction utilisée en `onclick`, **n'oublie pas le `window.X = X`**, sinon ça plante en runtime
 - **17+ fonctions async** : à cause du système de dialogs custom (`uiAlert`, `uiConfirm`, `uiPrompt`) qui retournent des Promises. Toute fonction qui appelle l'un de ces dialogs doit être `async`
 - **Dialogs custom** :
   - `_ensureDialogModal()`, `_showDialog()` — base
   - `_showIngredientEditDialog()`, `_showStepEditDialog()` — édition inline
   - `_showPhotoSourceDialog()`, `_showChatPhotoSourceDialog()` — Caméra/Galerie
+- **Navigation hub + sous-apps** (`app.js`, section NAVIGATION) :
+  - `APPS` (sous-apps du hub) et `VIEWS` (registre des vues : `app`, `title`, `tab`, `keepScroll`, `hideHeader`, `render`). **Nouvelle vue = une entrée dans `VIEWS` + une `<section id="view-<id>">`** ; nouvelle sous-app = une entrée dans `APPS` + une `<nav class="bottom-nav" data-app="<id>">`
+  - Historique : hub = racine (profondeur 0). Changer d'onglet dans une sous-app **remplace** l'entrée ; ouvrir un détail ou un overlay **empile**. Chaque entrée porte `depth` : `goHome()` revient au hub via `history.go(-depth)`
+  - `_applyAppChrome(view)` : barre du bas de la sous-app, bouton Accueil, bouton Planning (Recettes seulement), titres
+  - Raccourcis `?app=` / `?view=` (manifest) gérés par `_handleLaunchParams()`
+- **Sync famille** (`sync.js`) :
+  - **Règle d'or : appeler `markDirty(kind, id)` après TOUTE modification ou suppression d'un document synchronisé.** L'appel se fait après la sauvegarde locale. Pour une suppression, on retire d'abord le document de `state`, puis on appelle `markDirty` : le push envoie alors une suppression.
+  - Kinds synchronisés (`SYNC_COLLECTIONS`) : `recipes`, `shopping_lists`, `events`, `members`, et dans `budget.js` `expenses`, `budget_categories`, `budget_settings`. Nouveau kind = nouvelle entrée dans `SYNC_COLLECTIONS` (list/get/put/remove/save/time, et `merge` / `isPristine` si utile). Les appareils mis à jour rattrapent seuls l'historique d'un nouveau kind (`mr_sync_kinds`). **Ne jamais renommer un kind existant.**
+  - `put` met à jour l'objet local **en place** (`syncPutInPlace`) : une référence gardée à travers un `await` reste valide. `save()` doit **renvoyer le booléen de `safeSave`** : `false` (mémoire pleine) arrête la sync sans avancer le curseur.
+  - L'horloge du serveur fait foi (`updated_at` posé par trigger). Une modification locale en attente (outbox) n'est jamais écrasée par le pull, et nos propres écritures relues ne sont pas ré-appliquées (`_syncKnown`).
+  - Un document refusé par la base (400) est mis de côté (`syncRejectedCount()`, signalé dans la vue Famille) sans bloquer les autres ; il repart quand il est de nouveau modifié.
+  - `performSync()` force un échange. Les déclencheurs automatiques sont le démarrage, le retour au premier plan, `online`, toutes les 60 s et 0,8 s après `markDirty`. Après une erreur « mémoire pleine », seules les syncs manuelles reprennent.
+- **Rappels** (`reminders.js`, `calendar.js`, `supabase/`) :
+  - Calcul commun : `dueReminders(événements, fuseau, de, à)` et `reminderMessage(r)` (heure murale du fuseau de la famille, 9 h pour un événement « toute la journée », repas ignorés). Ces fonctions et les fonctions de dates/récurrence de `calendar.js` sont **recopiées à l'identique** dans `supabase/functions/send-reminders/index.ts` (voir pièges)
+  - Dédoublonnage par le tag du rappel (`rem-<id>-<YYYY-MM-DDTHH:MM>-<délai>` : l'heure visée en fait partie, un événement déplacé a donc un nouveau rappel). Dans l'app : fenêtre glissante de 15 min, `mr_reminders_fired` ; si les push sont actives sur le téléphone, l'app n'affiche qu'un toast (la notification vient du serveur, et sw.js signale chaque push reçue). Côté serveur : fenêtre de 10 min, table `reminder_log`
+  - Événements validés un par un (`_reminderEventOk`) : un document inattendu est ignoré, il ne bloque jamais les rappels des autres. Délais entiers de 0 à 10 080 min (`REMINDER_MAX_OFFSET_MIN`)
+  - Fuseau des rappels : celui de la famille (`households.tz`, `state.sync.householdTz`). Un administrateur qui active les notifications depuis un autre fuseau se voit proposer de l'adopter (jamais automatiquement)
+  - Diagnostic (Réglages → Rappels) : `get_push_config` renvoie le dernier passage du serveur, le dernier problème (`last_problem` : une erreur est effacée par le passage suivant sans erreur, ou pour une erreur d'envoi par le suivant qui avait un rappel dû ; des envois refusés ou en échec restent en base, et l'app les masque dès qu'un envoi plus récent a réussi ou au bout de 7 jours) et le dernier envoi réussi. Elle renvoie `null` à un appareil qui ne fait plus partie de la famille (signalé dans les Réglages)
+  - Abonnement push vérifié au démarrage, au retour au premier plan (au plus 1 fois/h) et dans les Réglages (`reconcilePushSubscription`) : réabonnement silencieux et réenregistrement quotidien. Un réabonnement impossible est signalé (toast). Après une panne passagère, ou des notifications bloquées puis réautorisées, il est retenté sans geste au démarrage et au retour au premier plan, au plus toutes les 5 min (`mr_push_retry`)
+  - Ciblage (identique app/serveur) : événement sans participant → toute la famille ; sinon les téléphones des participants et ceux sans profil ; si aucun participant n'a de téléphone (`state.sync.deviceMemberIds`), toute la famille
+  - Toute notification système passe par `showLocalNotification()` (via le service worker). Le clic sur une notification ouvre l'app ou lui envoie `open-url` (`sw.js`)
+- **Repas = événements** (`calendar.js`) : le planning lit et écrit les repas via `getMealRecipes(clé)` / `setMealRecipes(clé, recettes)`. La clé de créneau est `YYYY-MM-DD-midi|soir|autre` ; l'événement correspondant est `meal-<clé>` dans `state.events`. `state.planning` n'existe plus (l'ancien `mr_planning` est migré une fois via `mr_events_version`).
+- **Feuilles modales des modules** : `openSheet(nom, html)` / `closeSheet(nom)`. Elles sont intégrées au bouton retour (pile `_sheetStack` consultée par `handleBack`). À préférer à un modal créé à la main.
 - **Système de retour OS** : `pushOverlay()` + listener `popstate` pour intégration au bouton retour Android/iOS
-- **Migrations versionnées** : flags localStorage (`mr_seasonality_version`, `mr_steps_enrich_version`, `mr_uses_version`, `mr_fodmap_version`) pour re-traiter les données existantes une seule fois au boot
-- **Sauvegarde scroll** : `state._viewScrolls = { library, planning, shopping }` mémorise la position de chaque vue pour restaurer au retour
+  - Les fonctions `close…(skipHistory)` / `hideSettings(skipHistory)` ne sautent l'historique **que si on passe `true`** (elles servent aussi de handlers de clic, qui reçoivent un objet événement)
+  - Nouvel overlay = `pushOverlay('nom')` + une entrée dans `_OVERLAY_ELEMENT_IDS` + une priorité dans `handleBack()`. `pushOverlay` réutilise l'entrée d'un overlay déjà fermé, et `popstate` saute les entrées d'overlay orphelines
+- **Migrations versionnées** : flags localStorage (`mr_seasonality_version`, `mr_steps_enrich_version`, `mr_uses_version`, `mr_fodmap_version`, `mr_protein_version`, `mr_events_version`) pour re-traiter les données existantes une seule fois au boot
+- **Sauvegarde scroll** : `state._viewScrolls` mémorise la position des vues marquées `keepScroll` dans `VIEWS` pour restaurer au retour
+- **Version** : `APP_NAME` / `APP_VERSION` / `APP_BUILD_DATE` en tête d'`app.js` (affichées dans À propos). **À chaque déploiement, bumper aussi `CACHE_VERSION` dans `sw.js`**
 
 ## 🧠 Comportement IA Claude dans l'app
 
@@ -168,15 +206,21 @@ Pour `styles.css` et `index.html`, vérification visuelle nécessaire (pas de li
 6. **PWA et icône** : changer l'icône nécessite une réinstallation manuelle (limitation iOS/Android, pas un bug)
 7. **Ligature `œ`** : `normalize('NFD')` ne la décompose pas. **Toujours remplacer `œ → oe` AVANT la normalisation**, sinon "œufs" devient " ufs" (avec espace). Idem pour `æ`
 8. **`window.X = X` après chaque nouvelle fonction onclick** : sinon `Uncaught ReferenceError: X is not defined` en runtime, et la fonction n'est pas trouvable dans le HTML
-9. **Sync limitation** : la sync planning ne supporte qu'**une recette par créneau** (le schéma SQL utilise `recipe_id` simple, pas un tableau). L'app permet plusieurs recettes par slot mais seule la première est synchronisée
+9. **Oubli de `markDirty`** : une modification sans `markDirty(kind, id)` reste locale. Elle sera même écrasée par la version de la famille au prochain changement venu d'un autre appareil. Toute nouvelle fonction qui modifie une recette, une liste, un événement, un membre ou une donnée du budget doit l'appeler. L'ancienne sync « code foyer » (tables `recipes`/`planning`/`shopping_lists`) n'est plus utilisée que pour l'import unique (`importLegacyFoyer`)
 10. **Modèle Claude** : utiliser `claude-sonnet-4-6` (string exacte) dans les appels API. Pas `claude-3-5-sonnet`, pas `claude-sonnet-4`. Le suffixe `-6` est critique
+11. **Nouveau fichier JS/CSS** : l'ajouter aux `<script>` d'`index.html` **et** à `APP_FILES` dans `sw.js`. Sinon, hors ligne, le service worker renvoie `index.html` à la place du script et l'app plante
+12. **Clé d'obfuscation** : `_OBF_KEY` (en tête d'`app.js`) dérive d'une chaîne contenant « mes-recettes ». **Ne jamais la renommer** malgré le changement de nom de l'app : les secrets déjà stockés (clé API, sync) deviendraient illisibles
+13. **Calcul des rappels en double** : les fonctions `_pad2` … `eventOccurrences` et le bloc « Rappels : calcul des envois » de `calendar.js` (de `const _tzFormatters` jusqu'au marqueur `// <<< fin du bloc recopié`) sont copiés tels quels entre les marqueurs « COPIE » de `supabase/functions/send-reminders/index.ts`. **Toute modification doit y être reportée à l'identique**, puis la fonction redéployée dans le Dashboard Supabase : sinon l'app et le serveur ne calculent plus les mêmes rappels
+14. **Notifications** : jamais `new Notification(...)` (refusé sur Android), toujours `showLocalNotification(titre, options)`. Sur iPhone, les notifications (et `Notification` lui-même) n'existent que dans l'app **installée** sur l'écran d'accueil (iOS 16.4+)
+15. **SQL Supabase** : `schema.sql` et `push.sql` doivent rester ré-exécutables (`if not exists`, `create or replace`, `drop … if exists`). Changer le type de retour d'une fonction impose un `drop function` avant (et refaire ses `grant`)
+16. **Plusieurs instances de l'app** (onglet du navigateur + app installée, même `localStorage`) : quand l'une enregistre des données, l'autre les relit aussitôt et les applique **en place** (écouteur `storage` de `sync.js`, `_syncSoftReload`), sauf les documents qu'elle a modifiés en dernier. Chaque instance n'envoie que les entrées d'outbox dont elle a écrit la dernière séquence (`_syncOwnSeq`), plus celles qu'elle adopte quand l'outbox n'a plus été écrite par une autre instance depuis 50 s (`SYNC_ADOPT_IDLE_MS`) : au démarrage, et celles d'une instance fermée ou gelée, restées inchangées 60 s. Les préférences et la clé API sont relues de la même façon (`loadPrefs`). Ne pas écrire dans le `localStorage` autrement que par les fonctions `save…()`, et ajouter toute nouvelle collection synchronisée à `_syncStorageKinds()`
 
 ## 📋 Backlog connu
 
 - **#13** Refactor architectural en modules ES6 (gros chantier, sans bénéfice utilisateur visible)
 - **#14** Tests automatisés GitHub Actions (Playwright en CI)
 - **#15** Export PDF d'une recette (window.print + @media print, ou jsPDF)
-- **#16** Sync planning multi-recettes par slot (nécessite modification du schéma SQL Supabase)
+- ~~**#16** Sync planning multi-recettes par slot~~ : fait par la sync famille (les repas sont des événements à plusieurs recettes)
 
 ## 🚀 Démarrer une session
 
@@ -202,13 +246,14 @@ node -c app.js && node -c data.js
 
 ## 📝 Versions actuelles
 
-- **v3.3** (en cours) : FODMAP binaire stricte + 5 régimes essentiels + Retour avec contexte préservé
+- **v4.0** (en cours) : « La Maisonnée » — hub d'accueil + sous-apps (navigation par registre `VIEWS`/`APPS`, retour OS fiabilisé), famille et sync v2 sécurisée (sessions anonymes, RLS, invitation), calendrier familial (repas du planning inclus), budget familial, rappels dans l'app et en notification push (0 €)
+- **v3.3** : FODMAP binaire stricte + 5 régimes essentiels + Retour avec contexte préservé
 - **v3.2** : Source obligatoire + Vérification humaine + Ingrédients-étapes précis + FODMAP auto + Photo Caméra/Galerie + Recalcul IA
 - **v3.0** : Planning + Garde-manger + Timer + ChangeLog + Édition inline + Photo caméra/galerie + Recherche dans étapes
-- app.js : ~298 KB / ~7500 lignes
-- styles.css : ~123 KB / ~5800 lignes
-- data.js : ~33 KB / ~720 lignes
-- ZIP livrable : ~582 KB
+- app.js : ~395 KB / ~9300 lignes
+- styles.css : ~186 KB / ~8300 lignes
+- data.js : ~90 KB / ~1800 lignes
+- calendar.js ~45 KB, sync.js ~71 KB, family.js ~33 KB, budget.js ~30 KB, reminders.js ~25 KB, hub.js ~6 KB
 
 ## 💬 Référence rapide — fonctions principales
 
@@ -217,7 +262,20 @@ node -c app.js && node -c data.js
 | `renderLibrary()` | Affiche la bibliothèque avec filtres + tri |
 | `renderRecipeDetail(recipe)` | Affiche la fiche recette (préserve le scroll) |
 | `openRecipe(id)` | Navigation vers une recette |
-| `navigateTo(view, data)` | Changement de vue avec historique |
+| `navigateTo(view, data)` | Changement de vue avec historique (remplace l'entrée si simple changement d'onglet) |
+| `openApp(appId)` / `goHome()` | Ouvre une sous-app depuis le hub / revient au hub en dépilant l'historique |
+| `renderHub()` | Écran d'accueil (`hub.js`) : repas du jour + tuiles des sous-apps |
+| `getMealRecipes(clé)` / `setMealRecipes(clé, recettes)` | Lecture / écriture d'un créneau repas (événement `meal-<clé>`, `calendar.js`) |
+| `markDirty(kind, id)` / `performSync(silent)` | Sync famille : signaler une modification / forcer un échange (`sync.js`) |
+| `createFamily(…)` / `joinFamily(…)` / `leaveFamily()` | Créer, rejoindre, quitter la famille (`sync.js`) |
+| `openFamilyView()` / `upsertMember(m)` / `memberAvatarHtml(m)` | Vue Famille, membres, pastille de membre (`family.js`) |
+| `openEventEditor(id, occDate, presetDate)` / `saveCalendarEvent(ev)` | Fiche d'édition d'un événement / enregistrement + sync (`calendar.js`) |
+| `eventOccurrences(ev, de, à)` / `calendarItemsByDay(de, à, opts)` | Occurrences d'un événement récurrent / événements et repas jour par jour (`calendar.js`) |
+| `dueReminders(evs, tz, de, à)` / `reminderMessage(r)` | Rappels à envoyer dans une fenêtre / texte de la notification (`calendar.js`, copiés côté serveur) |
+| `checkLocalReminders()` / `showLocalNotification(titre, opts)` | Rappels de l'app ouverte / notification système via le service worker (`reminders.js`) |
+| `enablePushOnThisDevice()` / `disablePushOnThisDevice()` | Abonnement push de ce téléphone (clés VAPID créées par la fonction send-reminders à son premier passage) (`reminders.js`) |
+| `openExpenseEditor(id)` / `budgetSummary(mois)` / `formatEuros(centimes)` | Fiche dépense / agrégats du mois / affichage des montants (`budget.js`) |
+| `openSheet(nom, html)` / `closeSheet(nom)` | Feuille modale de module, intégrée au bouton retour (`app.js`) |
 | `_renderView(view, data)` | Rendu pur sans toucher à l'historique |
 | `saveRecipes()` | Persistance localStorage |
 | `saveValidatedRecipe()` | Sauve une recette créée/modifiée (recalcule FODMAP) |

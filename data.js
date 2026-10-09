@@ -1352,6 +1352,41 @@ const DIET_TAGS = [
   { id: 'high-fodmap', label: 'High FODMAP', emoji: '⚠️', color: '#f97316' },
 ];
 
+// Couleurs des membres de la famille (La Maisonnée). Un membre stocke l'id ('m1'…'m8') :
+// la teinte réelle vient du token CSS --member-<id> (redéfini pour le mode sombre).
+const MEMBER_COLORS = [
+  { id: 'm1', label: 'Terracotta' },
+  { id: 'm2', label: 'Océan' },
+  { id: 'm3', label: 'Sapin' },
+  { id: 'm4', label: 'Prune' },
+  { id: 'm5', label: 'Moutarde' },
+  { id: 'm6', label: 'Framboise' },
+  { id: 'm7', label: 'Lavande' },
+  { id: 'm8', label: 'Ardoise' },
+];
+
+// Catégories d'événements du calendrier familial (les repas du planning sont à part : type 'meal')
+const EVENT_CATEGORIES = [
+  { id: 'rdv', label: 'Rendez-vous', emoji: '📌' },
+  { id: 'medical', label: 'Santé', emoji: '🩺' },
+  { id: 'school', label: 'École', emoji: '🎒' },
+  { id: 'activity', label: 'Activité', emoji: '⚽' },
+  { id: 'birthday', label: 'Anniversaire', emoji: '🎂' },
+  { id: 'outing', label: 'Sortie', emoji: '🎡' },
+  { id: 'holiday', label: 'Vacances', emoji: '🏖️' },
+  { id: 'work', label: 'Travail', emoji: '💼' },
+  { id: 'other', label: 'Autre', emoji: '🗓️' },
+];
+
+// Rappels proposés (minutes avant le début ; pour un événement « toute la journée », avant 9 h le jour J)
+const EVENT_REMINDER_OPTIONS = [
+  { minutes: 0, label: "À l'heure" },
+  { minutes: 15, label: '15 min avant' },
+  { minutes: 60, label: '1 h avant' },
+  { minutes: 1440, label: 'La veille' },
+  { minutes: 10080, label: '1 semaine avant' },
+];
+
 // ============================================
 // BASE FODMAP : classification des aliments
 // ============================================
