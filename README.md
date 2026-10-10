@@ -23,7 +23,8 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
 
 ### 💶 Budget familial
 - **Aperçu du mois** : dépensé, budget, reste, barres par catégorie (avec plafond facultatif) et répartition par membre
-- **Dépenses** : liste groupée par jour, filtres par catégorie et par membre
+- **Dépenses** : liste groupée par jour, filtres par catégorie et par membre, **recherche texte** dans tous les mois (libellé, note, catégorie, membre, montant ; sans tenir compte des accents)
+- **Dépenses récurrentes** (loyer, charges, abonnements…) : ajoutées automatiquement chaque mois dès le 1er, datées de leur jour et marquées « prévue » jusque-là ; supprimer la dépense d'un mois ne touche pas aux autres. Création depuis la liste « 🔁 Dépenses récurrentes » ou par l'option « Chaque mois » d'une nouvelle dépense
 - **Catégories** par défaut (Courses, Logement, Transport, Santé, Enfants…) personnalisables, budget mensuel global
 
 ### 👪 Famille et rappels
@@ -65,8 +66,8 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
   - **Quantités partielles** : si un ingrédient est divisé (ex: 100g pour la pâte + 30g pour le moule), chaque étape affiche sa portion + note explicative
 - **Bouton 🪄 « Recalculer ingrédients-étapes »** :
   - Accessible via le menu kebab ⋮ à côté du titre « Étapes »
-  - Global dans Paramètres → Outils IA (toutes les recettes en une fois)
-  - Sauvegarde automatique de l'ancien état + bouton « ↶ Restaurer l'ancien » dans le même menu
+  - Global dans Paramètres → 🍲 Recettes → 🪄 Recalculer toutes les recettes (toutes les recettes en une fois)
+  - Sauvegarde automatique de l'ancien état + bouton « ↶ Restaurer l'ancien » dans le même menu (seulement les associations ; proposé tant que les étapes n'ont pas changé ; un ingrédient ajouté depuis garde les siennes, pour une sauvegarde faite depuis la v4.0 ; avec une sauvegarde plus ancienne, seules les associations d'avant le recalcul des ingrédients encore présents reviennent)
 - **Minuteurs intégrés aux étapes** : détection automatique des durées dans le texte ("Cuire 30 min", "Reposer 1h30", "1/2 heure"...), tap sur ⏱️ pour lancer
   - Overlay flottant avec affichage `MM:SS`, pause/reprendre/arrêter
   - Alarme à zéro : bips sonores + notification système + vibration
@@ -111,7 +112,7 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
   - ☯️ **Équilibre lourd ↔ léger** sur la journée
   - 🏖️ **Rapide en semaine, festif le weekend**
   - 🍱 **Batch cooking** : maximise les paires de slots consécutifs avec la même recette (badge automatique sur les slots concernés)
-- **Préférences persistantes** : les 6 toggles sont accessibles **à la fois dans Paramètres → 📅 Génération de menu IA** et dans la modal de génération (collapse « ⚡ Préférences d'optimisation »), synchronisés en temps réel
+- **Préférences persistantes** : les 6 toggles sont accessibles **à la fois dans Paramètres → 🍲 Recettes → 🍽️ Génération de menu IA** et dans la modal de génération (collapse « ⚡ Préférences d'optimisation »), synchronisés en temps réel
 - **Feedback de progression** : l'IA affiche des messages narratifs (« Analyse de vos recettes… », « Application des règles nutritionnelles… », « Optimisation des choix… ») pendant l'appel pour rendre l'attente moins anxiogène
 - **Validation pas-à-pas** : aperçu des recettes proposées, possibilité de remplacer chaque repas avant validation
 
@@ -138,7 +139,8 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
 - **Backup automatique** mensuel + export/import JSON
 
 ### ⚙️ Paramètres repensés
-- **Style mobile-first façon iOS** : sections regroupées en cartes blanches arrondies (🔒 Sécurité, 🎨 Apparence, 🪄 IA & génération, 🍽️ Génération de menu IA, 👪 Famille, 🔔 Rappels, 📦 Garde-manger, 💾 Données, ⚠️ Zone dangereuse)
+- **Un menu par espace** : 👪 Famille & synchronisation, 🍲 Recettes (IA, menu IA, garde-manger), 📅 Calendrier (rappels et notifications), 💶 Budget (catégories, budget du mois, dépenses récurrentes), 🎨 Apparence, 💾 Données & sauvegarde. Le bouton ⚙️ d'une sous-app ouvre directement sa page ; le retour ramène au menu
+- **Style mobile-first façon iOS** : sections regroupées en cartes blanches arrondies
 - **Titres de sections sticky** : restent figés en haut pendant le scroll pour aider l'orientation, avec ombre dynamique au sticking
 - **Champs sensibles masqués par défaut** : clé API en `type="password"`, bouton 👁️ pour révéler temporairement
 - **Badge ✓ Configurée** : confirmation visuelle persistante à côté du label « Clé API Claude » quand une clé est saisie
@@ -219,7 +221,7 @@ python3 -m http.server 8000
 
 ### Permissions à autoriser
 
-- **Notifications** (en activant les rappels dans ⚙️ Paramètres → 🔔 Rappels, ou au premier minuteur) : rappels du calendrier et alarmes de fin de cuisson. Sur iPhone, uniquement dans l'app installée sur l'écran d'accueil (iOS 16.4+)
+- **Notifications** (en activant les rappels dans ⚙️ Paramètres → 📅 Calendrier, ou au premier minuteur) : rappels du calendrier et alarmes de fin de cuisson. Sur iPhone, uniquement dans l'app installée sur l'écran d'accueil (iOS 16.4+)
 - **Caméra/Photos** (premier ajout de photo) : pour prendre/choisir la photo du plat
 
 ## 🔑 Configurer l'IA Claude
@@ -229,7 +231,7 @@ L'IA est **optionnelle**. L'app fonctionne en mode démo (création manuelle) si
 1. Créez un compte sur [console.anthropic.com](https://console.anthropic.com)
 2. **API Keys** → « Create Key »
 3. Copiez la clé (`sk-ant-api03-...`)
-4. Dans l'app : ⚙️ Paramètres → Clé API Claude → coller → Enregistrer
+4. Dans l'app : ⚙️ Paramètres → 🍲 Recettes → Clé API Claude → coller → Enregistrer la clé
 
 **Coûts indicatifs** :
 - ~0,02€ par création de recette
@@ -247,7 +249,7 @@ Pour partager recettes, courses, calendrier et budget entre les téléphones de 
 Procédure complète : voir **[SYNC-GUIDE.md](./SYNC-GUIDE.md)** (~10 min de configuration, puis 10 min de plus pour les rappels en notification).
 
 La sync couvre :
-- **Recettes, listes de courses, événements et repas, dépenses, catégories, budget du mois, membres** : un document à la fois, la dernière modification l'emporte (horloge du serveur)
+- **Recettes, listes de courses, événements et repas, dépenses, catégories, budget du mois, dépenses récurrentes, membres** : un document à la fois, la dernière modification l'emporte (horloge du serveur)
 - Lors de la première jonction d'un téléphone, ses données sont fusionnées avec celles de la famille (rien n'est perdu)
 - Les **rappels push** passent par une fonction Supabase planifiée chaque minute : 0 € sur le plan gratuit
 
@@ -293,7 +295,7 @@ L'app n'a aucune dépendance NPM. Modifiez les fichiers sources directement.
 L'app utilise un Service Worker en mode **network-first** : les fichiers se mettent à jour automatiquement à chaque ouverture si vous avez du réseau.
 
 Si vous ne voyez pas la dernière version :
-- ⚙️ Paramètres → 🔄 « Vérifier les mises à jour »
+- ⚙️ Paramètres → 💾 Données & sauvegarde → 🔄 « Vérifier les mises à jour »
 - Ou désinstallez/réinstallez l'app pour mettre à jour aussi l'icône (limitation PWA)
 
 ## 📜 Licence

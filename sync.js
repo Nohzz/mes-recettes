@@ -1004,6 +1004,8 @@ async function _refreshMembership(force) {
 
 let _syncRunning = null;
 let _syncQueued = false;
+// Fonctions appelées après chaque cycle de synchronisation réussi (ex. budget.js : dépenses récurrentes)
+const SYNC_CYCLE_HOOKS = []; // appelés avec l'époque (_syncEpoch) du début du cycle
 let _syncTimer = null;
 let _syncRetryDelay = 0;
 let _syncIdleTimer = null;
@@ -1043,6 +1045,7 @@ async function _runSyncCycle(silent) {
   }
   setSyncStatus('syncing');
   const fresh = _syncFreshHousehold;
+  const cycleEpoch = _syncEpoch;
   try {
     await _ensureSession(false);
     await _refreshMembership(!silent);
@@ -1079,6 +1082,9 @@ async function _runSyncCycle(silent) {
     localStorage.setItem(STORAGE_KEYS.lastSync, String(state.sync.lastSync));
     _syncRetryDelay = 0;
     setSyncStatus('synced');
+    for (const hook of SYNC_CYCLE_HOOKS) {
+      try { hook(cycleEpoch); } catch (err) { console.warn('[sync] après la synchronisation :', err); }
+    }
     if (_syncIdleTimer) clearTimeout(_syncIdleTimer);
     _syncIdleTimer = setTimeout(() => { if (state.sync.status === 'synced') setSyncStatus('idle'); }, 3000);
     if (changed && changed.size) _syncAfterRemoteChange(changed);
@@ -1102,7 +1108,7 @@ function _handleSyncError(e, silent) {
   if (kind === 'storage') {
     // Pas de nouvelle tentative automatique : chaque essai retéléchargerait les mêmes données
     _syncSuspended = 'storage';
-    setSyncStatus('error', "Mémoire du téléphone pleine : libérez de l'espace (Réglages → 💾 Données), puis touchez l'icône de synchronisation");
+    setSyncStatus('error', "Mémoire du téléphone pleine : libérez de l'espace (Paramètres → 💾 Données & sauvegarde), puis touchez l'icône de synchronisation");
     if (!silent) showToast('Mémoire du téléphone pleine', 'error');
     return;
   }
@@ -1179,7 +1185,8 @@ function _syncStorageKinds() {
     [typeof MEMBERS_STORAGE_KEY !== 'undefined' ? MEMBERS_STORAGE_KEY : 'mr_members', 'members'],
     [typeof EXPENSES_STORAGE_KEY !== 'undefined' ? EXPENSES_STORAGE_KEY : 'mr_expenses', 'expenses'],
     [typeof BUDGET_CATEGORIES_STORAGE_KEY !== 'undefined' ? BUDGET_CATEGORIES_STORAGE_KEY : 'mr_budget_categories', 'budget_categories'],
-    [typeof BUDGET_SETTINGS_STORAGE_KEY !== 'undefined' ? BUDGET_SETTINGS_STORAGE_KEY : 'mr_budget_settings', 'budget_settings']
+    [typeof BUDGET_SETTINGS_STORAGE_KEY !== 'undefined' ? BUDGET_SETTINGS_STORAGE_KEY : 'mr_budget_settings', 'budget_settings'],
+    [typeof BUDGET_RECURRING_STORAGE_KEY !== 'undefined' ? BUDGET_RECURRING_STORAGE_KEY : 'mr_budget_recurring', 'budget_recurring']
   ];
 }
 

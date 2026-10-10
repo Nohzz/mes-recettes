@@ -46,7 +46,11 @@ function _hubBudgetSub(today) {
     const left = budget - s.total;
     return left >= 0 ? `Reste ${formatEuros(left, true)} ce mois` : `Dépassé de ${formatEuros(-left, true)}`;
   }
-  return s.count ? `${formatEuros(s.total, true)} dépensés ce mois` : 'Aucune dépense ce mois';
+  if (!s.count) return 'Aucune dépense ce mois';
+  // Dépenses à venir (récurrentes créées dès le 1er) : comptées, et signalées comme dans l'aperçu
+  const planned = expensesOfMonth(today.slice(0, 7)).filter(e => e.date > today).reduce((t, e) => t + e.amountCents, 0);
+  return planned ? `${formatEuros(s.total, true)} ce mois, dont ${formatEuros(planned, true)} prévus`
+    : `${formatEuros(s.total, true)} dépensés ce mois`;
 }
 
 function _hubTileSub(tileId, today) {

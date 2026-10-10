@@ -172,10 +172,12 @@ function _b64urlDecode(str) {
 }
 
 // Inscription du service worker, sans attendre indéfiniment (si son installation a échoué)
-async function _swRegistration() {
+// anyState : l'enregistrement tel quel, actif ou non (suffit pour lire ou retirer un abonnement), sans
+// attendre l'activation du service worker (jusqu'à 10 s)
+async function _swRegistration(anyState) {
   if (!('serviceWorker' in navigator)) return null;
   const reg = await navigator.serviceWorker.getRegistration();
-  if (reg && reg.active) return reg;
+  if (anyState || (reg && reg.active)) return reg || null;
   return Promise.race([navigator.serviceWorker.ready, new Promise(resolve => setTimeout(() => resolve(null), 10000))]);
 }
 
@@ -327,7 +329,7 @@ async function _enablePushOnThisDevice() {
 // opts.localOnly : départ local, le serveur ne répond plus : on ne l'appelle pas (pas d'attente inutile).
 async function dropPushSubscription(opts) {
   try {
-    const reg = await _swRegistration();
+    const reg = await _swRegistration(true);
     const sub = reg && await reg.pushManager.getSubscription();
     if (sub) {
       if (syncEnabled() && !(opts && opts.localOnly)) {
@@ -385,7 +387,7 @@ async function reconcilePushSubscription(force) {
       if (e && e.name !== 'NotAllowedError') localStorage.setItem(PUSH_RETRY_KEY, '1');
       else localStorage.removeItem(PUSH_RETRY_KEY);
       renderSettingsPushSection();
-      if (!retry) showToast('Les notifications de cet appareil se sont arrêtées : réactivez-les dans Paramètres → 🔔 Rappels', 'error');
+      if (!retry) showToast('Les notifications de cet appareil se sont arrêtées : réactivez-les dans Paramètres → 📅 Calendrier', 'error');
       return;
     }
     if (retry) {

@@ -53,7 +53,7 @@ Le script peut être relancé sans risque. Il ne touche pas aux anciennes tables
 
 Choisissez le téléphone qui a les données les plus à jour.
 
-1. Dans La Maisonnée : **Accueil** → carte **« Relier les téléphones de la famille »**, ou **Paramètres** → **👪 Famille** → **Gérer la famille**.
+1. Dans La Maisonnée : **Accueil** → carte **« Relier les téléphones de la famille »**, ou **Paramètres** → **👪 Famille & synchronisation** → **Gérer la famille**.
 2. Dans **Créer la famille**, indiquez :
    - l'URL et la clé de l'étape 4 ;
    - le nom de la famille ;
@@ -92,7 +92,7 @@ Elle est remplacée par la famille, plus sûre. L'ancien système laissait lire 
 | Recettes (photos comprises) | Clé API Claude |
 | Listes de courses et cases cochées | Préférences d'affichage (thème, tri, vue du calendrier…) |
 | Calendrier : événements, anniversaires, repas du planning | Garde-manger |
-| Budget : dépenses, catégories, budget du mois | Historique du chat IA, minuteur |
+| Budget : dépenses, catégories, budget du mois, dépenses récurrentes | Historique du chat IA, minuteur |
 | Membres de la famille | Notifications activées ou non sur ce téléphone |
 
 La synchronisation se fait :
@@ -132,16 +132,16 @@ Dans la minute qui suit, la fonction crée elle-même les clés de notification 
 
 ### Étape C — Activer les notifications sur chaque téléphone
 
-1. Sur chaque téléphone : **Paramètres** → **🔔 Rappels** → **Activer les notifications sur cet appareil**, puis acceptez.
+1. Sur chaque téléphone : **Paramètres** → **📅 Calendrier** → **Activer les notifications sur cet appareil**, puis acceptez.
    - **iPhone / iPad** : l'app doit être installée sur l'écran d'accueil (Safari → Partager → **Sur l'écran d'accueil**), avec iOS 16.4 ou plus récent. Ouvrez-la depuis l'icône, puis activez.
    - **Android** : fonctionne dans Chrome, et mieux encore depuis l'app installée.
 2. Pour vérifier : **Tester une notification**, puis créez un événement dans 3 minutes avec le rappel « À l'heure » et fermez l'app.
 
-L'app vérifie ensuite toute seule que le téléphone est toujours abonné (par exemple après avoir bloqué puis réautorisé les notifications) et le réabonne si besoin. Dans **🔔 Rappels**, elle signale si le service d'envoi ne tourne pas ou si son dernier passage a échoué.
+L'app vérifie ensuite toute seule que le téléphone est toujours abonné (par exemple après avoir bloqué puis réautorisé les notifications) et le réabonne si besoin. Dans **Paramètres** → **📅 Calendrier** (section 🔔 Rappels et notifications), elle signale si le service d'envoi ne tourne pas ou si son dernier passage a échoué.
 
-Les heures des rappels suivent le **fuseau horaire de la famille**, affiché dans **🔔 Rappels** : au départ celui du téléphone qui a créé la famille. Si un administrateur active les notifications depuis un téléphone réglé sur un autre fuseau, l'app lui demande s'il faut l'adopter.
+Les heures des rappels suivent le **fuseau horaire de la famille**, affiché dans **Paramètres** → **📅 Calendrier** (section 🔔 Rappels et notifications) : au départ celui du téléphone qui a créé la famille. Si un administrateur active les notifications depuis un téléphone réglé sur un autre fuseau, l'app lui demande s'il faut l'adopter.
 
-**Mettre à jour les rappels** : quand une nouvelle version de l'app modifie `push.sql` ou `index.ts`, redéployez d'abord la fonction (étape B), puis réexécutez aussitôt `push.sql` en entier (étape A) : les deux vont ensemble. Dans cet ordre, l'erreur éventuelle de la minute intermédiaire est effacée par `push.sql` et ne reste pas affichée dans **🔔 Rappels**.
+**Mettre à jour les rappels** : quand une nouvelle version de l'app modifie `push.sql` ou `index.ts`, redéployez d'abord la fonction (étape B), puis réexécutez aussitôt `push.sql` en entier (étape A) : les deux vont ensemble. Dans cet ordre, l'erreur éventuelle de la minute intermédiaire est effacée par `push.sql` et ne reste pas affichée dans **Paramètres** → **📅 Calendrier** (section 🔔 Rappels et notifications).
 
 ### Qui reçoit quoi
 
@@ -180,7 +180,7 @@ Les heures des rappels suivent le **fuseau horaire de la famille**, affiché dan
 | « Cet appareil doit rejoindre à nouveau la famille » / « ne fait plus partie de la famille » | Rejoignez avec un nouveau lien d'invitation : vos données locales sont conservées et fusionnées |
 | Plus rien ne se synchronise après de longues vacances | Un projet gratuit se met **en pause après 7 jours sans activité**. Dans le tableau de bord Supabase, cliquez **Restore project** : c'est gratuit et les données sont conservées |
 | Trop de tentatives de connexion | Supabase limite les nouvelles connexions anonymes (30 par heure et par adresse IP) : patientez un peu |
-| « Mémoire du téléphone pleine » | **Paramètres** → **💾 Données** → **Libérer de l'espace**, puis touchez l'icône de synchronisation |
+| « Mémoire du téléphone pleine » | **Paramètres** → **💾 Données & sauvegarde** → **Libérer de l'espace**, puis touchez l'icône de synchronisation |
 | « N éléments refusés par le serveur » | Un document n'a pas pu être enregistré (contenu invalide). Modifiez-le pour le renvoyer ; le reste de la synchronisation continue |
 | « Les rappels push ne sont pas installés » | Étape A (`push.sql`) |
 | « Le serveur de rappels n'a pas encore créé ses clés » | Attendez une minute après l'étape B ; sinon, vérifiez l'étape B |
@@ -191,10 +191,10 @@ Les heures des rappels suivent le **fuseau horaire de la famille**, affiché dan
 | « Les services de notification refusent les envois » | Repartez de nouvelles clés : commandes en fin de `push.sql`, puis réactivez les notifications sur chaque téléphone |
 | Aucune notification sur iPhone | App installée sur l'écran d'accueil et ouverte depuis l'icône, iOS 16.4 ou plus, notifications autorisées dans **Réglages iOS → Notifications → La Maisonnée** |
 | « Notifications bloquées » | Autorisez-les dans les réglages du téléphone (ou du navigateur). Si elles étaient activées, les rappels reprennent tout seuls à la prochaine ouverture de l'app ; sinon, touchez **Activer les notifications sur cet appareil** |
-| Les rappels arrivent avec une ou plusieurs heures de décalage | Regardez la ligne « Fuseau des rappels » dans **🔔 Rappels**. Un administrateur peut adopter le fuseau de son téléphone en réactivant les notifications ; sinon, dans le **SQL Editor** : `update public.households set tz = 'Europe/Paris';` (ou votre fuseau). Les téléphones reprennent la valeur à la synchronisation suivante |
+| Les rappels arrivent avec une ou plusieurs heures de décalage | Regardez la ligne « Fuseau des rappels » dans **Paramètres** → **📅 Calendrier** (section 🔔 Rappels et notifications). Un administrateur peut adopter le fuseau de son téléphone en réactivant les notifications ; sinon, dans le **SQL Editor** : `update public.households set tz = 'Europe/Paris';` (ou votre fuseau). Les téléphones reprennent la valeur à la synchronisation suivante |
 | L'ancien téléphone administrateur a été remplacé (plus de bouton « Retirer », fuseau non modifiable) | Le nouveau téléphone a rejoint en simple membre, et l'ancien reste administrateur. Dans le **SQL Editor**, listez les appareils : `select user_id, role, device_label, joined_at, last_seen_at from public.household_users order by joined_at;` puis retirez l'ancien : `delete from public.household_users where user_id = '<identifiant de l'ancien téléphone>';`. L'appareil restant le plus ancien devient administrateur (sur ce téléphone : **Synchroniser maintenant**) |
 
-Pour repartir de zéro sur un téléphone : **Paramètres** → **Actions avancées** → **Tout supprimer**. Seules les données de **ce** téléphone sont effacées : celles de la famille reviennent à la synchronisation suivante.
+Pour repartir de zéro sur un téléphone : **Paramètres** → **💾 Données & sauvegarde** → **Actions avancées** → **Tout supprimer**. Seules les données de **ce** téléphone sont effacées : celles de la famille reviennent à la synchronisation suivante.
 
 ### Plus aucun téléphone n'a accès à la famille
 

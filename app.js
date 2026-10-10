@@ -6,7 +6,7 @@
 // ⚠️ À chaque déploiement, bumper aussi CACHE_VERSION dans sw.js.
 const APP_NAME = 'La Maisonnée';
 const APP_VERSION = '4.0';
-const APP_BUILD_DATE = '2026-10-09';
+const APP_BUILD_DATE = '2026-10-10';
 
 // ============================================
 // OBFUSCATION DES SECRETS DANS LOCALSTORAGE
@@ -445,7 +445,7 @@ function safeSave(storageKey, value, label) {
       if (Date.now() - _quotaErrorShownAt > 30000) {
         _quotaErrorShownAt = Date.now();
         if (typeof showToast === 'function') {
-          showToast('⚠️ Stockage plein. Paramètres → 💾 Données → Libérer l\'espace', 'error');
+          showToast('⚠️ Stockage plein. Paramètres → 💾 Données & sauvegarde → Libérer l\'espace', 'error');
         }
       }
     } else {
@@ -972,10 +972,11 @@ function handleBack() {
     closeValidationModal(true);
     return true;
   }
-  // Priorité 3 : Modal Paramètres
+  // Priorité 3 : Modal Paramètres (une page d'espace ouverte : retour au menu des Paramètres)
   const settingsModal = document.getElementById('settings-modal');
   if (settingsModal && !settingsModal.classList.contains('hidden')) {
-    hideSettings(true);
+    if (_isOverlayOpen('settings-page')) closeSettingsPage(true);
+    else hideSettings(true);
     return true;
   }
   // Priorité 4 : Modal historique cuisson
@@ -1123,6 +1124,7 @@ function _handleLaunchParams() {
 // Élément DOM de chaque overlay inscrit dans l'historique (pour savoir s'il est encore ouvert)
 const _OVERLAY_ELEMENT_IDS = {
   settings: 'settings-modal',
+  'settings-page': 'settings-pages', // page d'un espace dans les Paramètres (retour → menu des Paramètres)
   validation: 'validation-modal',
   'cooked-history': 'cooked-history-modal',
   changelog: 'changelog-modal',
@@ -1163,6 +1165,7 @@ function openSheet(name, innerHtml, opts) {
   }
   el.querySelector('.sheet-content').innerHTML = innerHtml;
   if (el.classList.contains('hidden')) {
+    document.body.appendChild(el); // les feuilles ont le même z-index : la dernière du DOM passe devant
     el.classList.remove('hidden');
     _sheetStack.push(name);
     pushOverlay(name);
@@ -2959,7 +2962,10 @@ Renvoie le bloc <steps>...</steps> avec les ingredientUses pour chaque étape.`;
     if (!recipe._stepsBackup) recipe._stepsBackup = {};
     recipe._stepsBackup.lastRecalc = {
       at: Date.now(),
-      steps: originalSteps
+      steps: originalSteps,
+      // Ingrédients de ce moment-là (id → nom) : « Restaurer » ne rend une association qu'à l'ingrédient
+      // qui porte encore cet id ET ce nom
+      ingredients: (recipe.ingredients || []).map(i => ({ id: i.id, name: i.name }))
     };
 
     if (!updateRecipeAndSync(recipe, 'ingrédients-étapes recalculés par IA')) {
@@ -2996,10 +3002,25 @@ function restoreRecipeSteps(recipeId) {
     return false;
   }
   const backup = recipe._stepsBackup.lastRecalc.steps;
+  const snapshot = recipe._stepsBackup.lastRecalc.ingredients;
+  const norm = s => String(s || '').toLowerCase().replace(/œ/g, 'oe').replace(/æ/g, 'ae')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+  const nowName = new Map((recipe.ingredients || []).map(i => [i.id, norm(i.name)]));
+  const thenName = Array.isArray(snapshot) ? new Map(snapshot.map(i => [i.id, norm(i.name)])) : null;
+  // Ingrédient présent au recalcul et inchangé depuis : il reprend ses associations d'avant le recalcul.
+  // Ingrédient ajouté (ou renommé) depuis : il garde ses associations actuelles. Sauvegarde d'avant la
+  // v4.0, sans liste d'ingrédients : seuls les ingrédients encore présents reprennent leurs associations
+  // (un ingrédient ajouté depuis perd les siennes, un id réutilisé avant la mise à jour est indétectable).
+  // Elle est complétée au premier changement d'ingrédient (_freezeStepsBackupIngredients).
+  const unchanged = id => nowName.has(id) && (!thenName || thenName.get(id) === nowName.get(id));
+  const addedSince = id => !!thenName && nowName.has(id) && thenName.get(id) !== nowName.get(id);
+  const usesOf = step => (Array.isArray(step.ingredientUses) && step.ingredientUses.length
+    ? step.ingredientUses : (step.ingredientIds || []).map(id => ({ id: String(id) }))).filter(u => u && u.id);
   recipe.steps = recipe.steps.map((s, i) => {
     const { ingredientUses, ingredientIds, ...rest } = s;
-    const b = JSON.parse(JSON.stringify(backup[i] || {}));
-    return { ...rest, ...(b.ingredientUses ? { ingredientUses: b.ingredientUses } : {}), ...(b.ingredientIds ? { ingredientIds: b.ingredientIds } : {}) };
+    const before = usesOf(backup[i] || {}).filter(u => unchanged(u.id));
+    const kept = usesOf(s).filter(u => addedSince(u.id));
+    return { ...rest, ingredientUses: JSON.parse(JSON.stringify([...before, ...kept])) };
   });
   delete recipe._stepsBackup;
   if (!updateRecipeAndSync(recipe, 'ingrédients-étapes restaurés')) return;
@@ -4500,6 +4521,7 @@ async function editIngredientInline(recipeId, idx) {
     if (!_recipeStillCurrent(recipe, 'ingredients', idx, ing)) return;
     // Supprimer aussi des références dans les étapes (ancien et nouveau format)
     const removedId = ing.id;
+    _freezeStepsBackupIngredients(recipe);
     recipe.ingredients.splice(idx, 1);
     recipe.steps = (recipe.steps || []).map(s => ({
       ...s,
@@ -4508,6 +4530,7 @@ async function editIngredientInline(recipeId, idx) {
     }));
     if (!updateRecipeAndSync(recipe, `ingrédient "${ing.name}" supprimé`)) return;
   } else {
+    _freezeStepsBackupIngredients(recipe);
     ing.name = result.name;
     ing.amount = result.amount;
     ing.unit = result.unit;
@@ -4529,6 +4552,27 @@ async function editIngredientInline(recipeId, idx) {
 }
 window.editIngredientInline = editIngredientInline;
 
+// Sauvegarde du dernier recalcul faite avant la v4.0 (sans liste d'ingrédients) : on y fige la liste
+// actuelle avant de la modifier, pour que « Restaurer » reconnaisse les ingrédients ajoutés ou renommés
+function _freezeStepsBackupIngredients(recipe) {
+  const last = recipe._stepsBackup && recipe._stepsBackup.lastRecalc;
+  if (last && !Array.isArray(last.ingredients)) last.ingredients = (recipe.ingredients || []).map(i => ({ id: i.id, name: i.name }));
+}
+
+// Ids d'ingrédients cités dans une recette : ingrédients, étapes et sauvegarde du dernier recalcul
+function _ingredientIdsInUse(recipe) {
+  const used = new Set((recipe.ingredients || []).map(i => String(i.id)));
+  const last = recipe._stepsBackup && recipe._stepsBackup.lastRecalc;
+  const steps = [...(recipe.steps || []), ...(last && Array.isArray(last.steps) ? last.steps : [])];
+  for (const s of steps) {
+    if (!s) continue;
+    (s.ingredientIds || []).forEach(id => used.add(String(id)));
+    (s.ingredientUses || []).forEach(u => { if (u) used.add(String(u.id)); });
+  }
+  ((last && last.ingredients) || []).forEach(x => { if (x) used.add(String(x.id)); });
+  return used;
+}
+
 async function addIngredientInline(recipeId) {
   const recipe = state.recipes.find(r => r.id === recipeId);
   if (!recipe) return;
@@ -4544,10 +4588,12 @@ async function addIngredientInline(recipeId) {
     showToast('Le nom est requis', 'error');
     return;
   }
-  // Générer un id unique
-  const usedIds = new Set(recipe.ingredients.map(i => i.id));
+  // Id jamais vu dans cette recette (ni ingrédient, ni étape, ni sauvegarde du dernier recalcul) : sinon
+  // « Restaurer » attribuerait à ce nouvel ingrédient les associations d'un ingrédient supprimé
+  const usedIds = _ingredientIdsInUse(recipe);
   let i = 1;
   while (usedIds.has('ing' + i)) i++;
+  _freezeStepsBackupIngredients(recipe);
   recipe.ingredients.push({
     id: 'ing' + i,
     name: result.name.trim(),
@@ -7366,12 +7412,78 @@ async function _recompressDataUrl(dataUrl, maxSize, quality) {
   });
 }
 
-function showSettings() {
+// ============================================
+// PARAMÈTRES : un menu par espace, puis une page par espace
+// ============================================
+const SETTINGS_PAGES = {
+  family: 'Famille & synchronisation',
+  recipes: 'Recettes',
+  calendar: 'Calendrier',
+  budget: 'Budget',
+  appearance: 'Apparence',
+  data: 'Données & sauvegarde'
+};
+// Page ouverte directement depuis chaque sous-app (le retour mène au menu des Paramètres)
+const SETTINGS_PAGE_OF_APP = { recipes: 'recipes', calendar: 'calendar', budget: 'budget', family: 'family' };
+
+// Résumés du menu des Paramètres
+function _renderSettingsHome() {
+  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  set('settings-menu-sub-family', syncEnabled() ? `Famille « ${state.sync.householdName || 'Ma famille'} »` : 'Relier les téléphones de la famille');
+  set('settings-menu-sub-recipes', state.apiKey ? 'Assistant IA, menu IA, garde-manger' : 'Clé IA à configurer · menu IA, garde-manger');
+  set('settings-menu-sub-calendar', typeof _pushActiveHere === 'function' && _pushActiveHere()
+    ? 'Rappels : notifications activées sur cet appareil' : 'Rappels et notifications');
+  const n = (state.budgetRecurring || []).length;
+  const budget = state.budgetSettings && state.budgetSettings.monthlyBudgetCents;
+  set('settings-menu-sub-budget', `${budget && typeof formatEuros === 'function' ? 'Budget du mois : ' + formatEuros(budget, true) : 'Catégories, budget du mois'} · ${n ? `${n} dépense${n > 1 ? 's' : ''} récurrente${n > 1 ? 's' : ''}` : 'dépenses récurrentes'}`);
+}
+
+// Affiche le menu (page null) ou la page d'un espace, sans toucher à l'historique
+function _settingsShowPage(page) {
+  const known = !!(page && SETTINGS_PAGES[page]);
+  const home = document.getElementById('settings-home');
+  const pages = document.getElementById('settings-pages');
+  if (!home || !pages) return;
+  home.classList.toggle('hidden', known);
+  pages.classList.toggle('hidden', !known);
+  pages.querySelectorAll('.settings-page').forEach(p => p.classList.toggle('hidden', p.dataset.settingsPage !== page));
+  document.getElementById('settings-title').textContent = known ? SETTINGS_PAGES[page] : 'Paramètres';
+  document.getElementById('settings-back').classList.toggle('hidden', !known);
+  if (!known) _renderSettingsHome();
+  const body = document.querySelector('#settings-modal .modal-body');
+  if (body) body.scrollTop = 0;
+}
+
+// Ouvre la page d'un espace (entrée d'historique : le retour ramène au menu des Paramètres)
+function openSettingsPage(page) {
+  if (!SETTINGS_PAGES[page] || !_isOverlayOpen('settings')) return;
+  const wasOpen = _isOverlayOpen('settings-page');
+  _settingsShowPage(page);
+  if (!wasOpen) pushOverlay('settings-page');
+}
+window.openSettingsPage = openSettingsPage;
+
+// Retour au menu des Paramètres. skipHistory : appel depuis handleBack (l'entrée est déjà dépilée)
+function closeSettingsPage(skipHistory) {
+  if (!_isOverlayOpen('settings-page')) return;
+  if (skipHistory !== true) {
+    history.back(); // le popstate (handleBack) fera le retour au menu
+    return;
+  }
+  _settingsShowPage(null);
+}
+window.closeSettingsPage = closeSettingsPage;
+
+// page : page à ouvrir ; sinon celle de la sous-app affichée (bouton ⚙️), ou le menu depuis l'accueil.
+// (Appelée aussi comme gestionnaire de clic : un objet événement n'est pas une page.)
+function showSettings(page) {
   document.getElementById('settings-api-key').value = state.apiKey || '';
   // Section Famille : statut de la famille et de la sync (family.js)
   renderSettingsFamilySection();
   // Section Rappels : notifications push de cet appareil (reminders.js)
   renderSettingsPushSection();
+  // Section Budget : budget du mois, dépenses récurrentes (budget.js)
+  if (typeof renderSettingsBudgetSection === 'function') renderSettingsBudgetSection();
   // Badge ✓ Configurée si la clé API est déjà saisie
   const apiBadge = document.getElementById('settings-api-key-badge');
   if (apiBadge) apiBadge.hidden = !state.apiKey;
@@ -7410,8 +7522,13 @@ function showSettings() {
     buildEl.textContent = `Build du ${d}/${m}/${y} · PWA · IA Claude`;
   }
 
-  document.getElementById('settings-modal').classList.remove('hidden');
-  pushOverlay('settings');
+  const modal = document.getElementById('settings-modal');
+  const wasOpen = !modal.classList.contains('hidden');
+  if (!wasOpen) _settingsShowPage(null);
+  modal.classList.remove('hidden');
+  if (!wasOpen) pushOverlay('settings');
+  const target = typeof page === 'string' ? page : SETTINGS_PAGE_OF_APP[(VIEWS[state.currentView] || {}).app];
+  if (target) openSettingsPage(target);
 }
 
 // Mise à jour d'un toggle des préférences planning (depuis settings ou modal de génération)
@@ -7426,9 +7543,16 @@ function hideSettings(skipHistory) {
   const modal = document.getElementById('settings-modal');
   if (modal.classList.contains('hidden')) return;
   if (skipHistory !== true) {
-    history.back();
+    if (_isOverlayOpen('settings-page')) {
+      // Page d'un espace ouverte : son entrée et celle des Paramètres sont dépilées d'un coup
+      _settingsShowPage(null);
+      history.go(-2);
+    } else {
+      history.back();
+    }
     return;
   }
+  _settingsShowPage(null);
   modal.classList.add('hidden');
 }
 
@@ -7499,6 +7623,7 @@ async function clearAllData() {
   state.expenses = [];
   state.budgetCategories = [];
   state.budgetSettings = { id: 'settings', monthlyBudgetCents: 0 };
+  state.budgetRecurring = [];
   state.shoppingLists = [list];
   state.activeShoppingListId = list.id;
   state.shopping = list.items;
@@ -7513,6 +7638,7 @@ async function clearAllData() {
   saveExpenses();
   saveBudgetCategories();
   saveBudgetSettings();
+  saveBudgetRecurring();
   saveShoppingLists();
   updateShoppingBadge();
   _closeOverlayThen('settings', hideSettings, () => navigateTo('library'));
@@ -7534,6 +7660,7 @@ function exportAllData() {
     expenses: state.expenses,
     budgetCategories: state.budgetCategories,
     budgetSettings: state.budgetSettings,
+    budgetRecurring: state.budgetRecurring,
     prefs: state.prefs
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -8345,7 +8472,7 @@ function openPlanningMenuGenerator() {
         </button>
         <div id="planning-menu-gen-optim" class="planning-menu-gen-optim hidden" style="margin-top:8px">
           ${optimOptions}
-          <p class="settings-hint" style="margin-top:6px">Ces préférences sont aussi modifiables dans <strong>Paramètres → Génération de menu IA</strong>.</p>
+          <p class="settings-hint" style="margin-top:6px">Ces préférences sont aussi modifiables dans <strong>Paramètres → 🍲 Recettes → Génération de menu IA</strong>.</p>
         </div>
       </div>
 
@@ -8978,6 +9105,12 @@ async function bindEvents() {
   if (planningGenAIBtn) planningGenAIBtn.addEventListener('click', openPlanningMenuGenerator);
   document.getElementById('settings-close').addEventListener('click', hideSettings);
   document.querySelector('#settings-modal .modal-backdrop').addEventListener('click', hideSettings);
+  document.getElementById('settings-back').addEventListener('click', () => closeSettingsPage());
+  document.querySelectorAll('#settings-modal [data-settings-open]').forEach(btn => {
+    btn.addEventListener('click', () => openSettingsPage(btn.dataset.settingsOpen));
+  });
+  document.getElementById('settings-budget-categories').addEventListener('click', () => openBudgetSettings());
+  document.getElementById('settings-budget-recurring').addEventListener('click', () => openRecurringList());
   document.getElementById('settings-save-key').addEventListener('click', () => {
     const k = document.getElementById('settings-api-key').value.trim();
     saveApiKey(k);

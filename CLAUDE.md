@@ -44,7 +44,7 @@ recettes-app/
 ├── calendar.js        # Calendrier : événements (dont les repas du planning), récurrence, vues Jour/Semaine/Mois/À venir, fiche d'édition, calcul des rappels
 ├── sync.js            # Sync famille Supabase : session anonyme, outbox, push/pull, import ancienne sync
 ├── family.js          # Membres, vue Famille (créer / rejoindre / inviter / appareils), lien #join=
-├── budget.js          # Budget : dépenses (centimes), catégories, budget du mois, vues Aperçu/Dépenses
+├── budget.js          # Budget : dépenses (centimes), catégories, budget du mois, dépenses récurrentes, vues Aperçu/Dépenses (recherche)
 ├── reminders.js       # Rappels dans l'app, notifications (showLocalNotification), abonnement push, clés VAPID
 ├── hub.js             # Écran d'accueil La Maisonnée (carte « Aujourd'hui » + tuiles)
 ├── supabase/schema.sql # Schéma SQL de la sync famille (à coller dans le SQL Editor Supabase)
@@ -80,7 +80,8 @@ Tokens CSS (dans `styles.css`) :
 ## 🔑 Architecture du code
 
 - **`app.js` monolithique** (~9300 lignes). Refactor en modules ES6 prévu mais non commencé (feature #13)
-- **State global** : objet `state` contenant `recipes`, `events` (calendrier et repas), `shopping`, `pantry`, `members`, `expenses`, `budgetCategories`, `budgetSettings`, `prefs`, `sync`, `_viewScrolls`, etc.
+- **State global** : objet `state` contenant `recipes`, `events` (calendrier et repas), `shopping`, `pantry`, `members`, `expenses`, `budgetCategories`, `budgetSettings`, `budgetRecurring`, `prefs`, `sync`, `_viewScrolls`, etc.
+- **Paramètres** : un menu par espace (accueil) puis une page par espace (`SETTINGS_PAGES`, `<div data-settings-page>` d'`index.html`). `openSettingsPage(page)` empile l'overlay `settings-page` (le retour ramène au menu), `closeSettingsPage()` y revient ; le bouton ⚙️ d'une sous-app ouvre sa page (`SETTINGS_PAGE_OF_APP`). Nouvelle option = dans la page de son espace
 - **Pattern window globals** : toutes les fonctions appelées depuis le HTML (`onclick="..."`) sont exposées via `window.funcName = funcName`. Quand tu ajoutes une fonction utilisée en `onclick`, **n'oublie pas le `window.X = X`**, sinon ça plante en runtime
 - **17+ fonctions async** : à cause du système de dialogs custom (`uiAlert`, `uiConfirm`, `uiPrompt`) qui retournent des Promises. Toute fonction qui appelle l'un de ces dialogs doit être `async`
 - **Dialogs custom** :
@@ -94,7 +95,7 @@ Tokens CSS (dans `styles.css`) :
   - Raccourcis `?app=` / `?view=` (manifest) gérés par `_handleLaunchParams()`
 - **Sync famille** (`sync.js`) :
   - **Règle d'or : appeler `markDirty(kind, id)` après TOUTE modification ou suppression d'un document synchronisé.** L'appel se fait après la sauvegarde locale. Pour une suppression, on retire d'abord le document de `state`, puis on appelle `markDirty` : le push envoie alors une suppression.
-  - Kinds synchronisés (`SYNC_COLLECTIONS`) : `recipes`, `shopping_lists`, `events`, `members`, et dans `budget.js` `expenses`, `budget_categories`, `budget_settings`. Nouveau kind = nouvelle entrée dans `SYNC_COLLECTIONS` (list/get/put/remove/save/time, et `merge` / `isPristine` si utile). Les appareils mis à jour rattrapent seuls l'historique d'un nouveau kind (`mr_sync_kinds`). **Ne jamais renommer un kind existant.**
+  - Kinds synchronisés (`SYNC_COLLECTIONS`) : `recipes`, `shopping_lists`, `events`, `members`, et dans `budget.js` `expenses`, `budget_categories`, `budget_settings`, `budget_recurring`. Nouveau kind = nouvelle entrée dans `SYNC_COLLECTIONS` (list/get/put/remove/save/time, et `merge` / `isPristine` si utile). Les appareils mis à jour rattrapent seuls l'historique d'un nouveau kind (`mr_sync_kinds`). **Ne jamais renommer un kind existant.**
   - `put` met à jour l'objet local **en place** (`syncPutInPlace`) : une référence gardée à travers un `await` reste valide. `save()` doit **renvoyer le booléen de `safeSave`** : `false` (mémoire pleine) arrête la sync sans avancer le curseur.
   - L'horloge du serveur fait foi (`updated_at` posé par trigger). Une modification locale en attente (outbox) n'est jamais écrasée par le pull, et nos propres écritures relues ne sont pas ré-appliquées (`_syncKnown`).
   - Un document refusé par la base (400) est mis de côté (`syncRejectedCount()`, signalé dans la vue Famille) sans bloquer les autres ; il repart quand il est de nouveau modifié.
@@ -104,10 +105,11 @@ Tokens CSS (dans `styles.css`) :
   - Dédoublonnage par le tag du rappel (`rem-<id>-<YYYY-MM-DDTHH:MM>-<délai>` : l'heure visée en fait partie, un événement déplacé a donc un nouveau rappel). Dans l'app : fenêtre glissante de 15 min, `mr_reminders_fired` ; si les push sont actives sur le téléphone, l'app n'affiche qu'un toast (la notification vient du serveur, et sw.js signale chaque push reçue). Côté serveur : fenêtre de 10 min, table `reminder_log`
   - Événements validés un par un (`_reminderEventOk`) : un document inattendu est ignoré, il ne bloque jamais les rappels des autres. Délais entiers de 0 à 10 080 min (`REMINDER_MAX_OFFSET_MIN`)
   - Fuseau des rappels : celui de la famille (`households.tz`, `state.sync.householdTz`). Un administrateur qui active les notifications depuis un autre fuseau se voit proposer de l'adopter (jamais automatiquement)
-  - Diagnostic (Réglages → Rappels) : `get_push_config` renvoie le dernier passage du serveur, le dernier problème (`last_problem` : une erreur est effacée par le passage suivant sans erreur, ou pour une erreur d'envoi par le suivant qui avait un rappel dû ; des envois refusés ou en échec restent en base, et l'app les masque dès qu'un envoi plus récent a réussi ou au bout de 7 jours) et le dernier envoi réussi. Elle renvoie `null` à un appareil qui ne fait plus partie de la famille (signalé dans les Réglages)
+  - Diagnostic (Paramètres → Calendrier, section Rappels) : `get_push_config` renvoie le dernier passage du serveur, le dernier problème (`last_problem` : une erreur est effacée par le passage suivant sans erreur, ou pour une erreur d'envoi par le suivant qui avait un rappel dû ; des envois refusés ou en échec restent en base, et l'app les masque dès qu'un envoi plus récent a réussi ou au bout de 7 jours) et le dernier envoi réussi. Elle renvoie `null` à un appareil qui ne fait plus partie de la famille (signalé dans les Réglages)
   - Abonnement push vérifié au démarrage, au retour au premier plan (au plus 1 fois/h) et dans les Réglages (`reconcilePushSubscription`) : réabonnement silencieux et réenregistrement quotidien. Un réabonnement impossible est signalé (toast). Après une panne passagère, ou des notifications bloquées puis réautorisées, il est retenté sans geste au démarrage et au retour au premier plan, au plus toutes les 5 min (`mr_push_retry`)
   - Ciblage (identique app/serveur) : événement sans participant → toute la famille ; sinon les téléphones des participants et ceux sans profil ; si aucun participant n'a de téléphone (`state.sync.deviceMemberIds`), toute la famille
   - Toute notification système passe par `showLocalNotification()` (via le service worker). Le clic sur une notification ouvre l'app ou lui envoie `open-url` (`sw.js`)
+- **Dépenses récurrentes** (`budget.js`) : chaque mois, une dépense par récurrence, créée dès le 1er et datée de son jour (« prévue » jusque-là), d'id déterministe `ex_rec_<récurrence>_<mois>` (deux téléphones créent le même document). Supprimer une de ces dépenses l'**annule** (`cancelled: true`, document gardé) pour qu'elle ne soit jamais recréée : toute somme ou liste de dépenses doit ignorer `cancelled` (`expensesOfMonth`). `budgetGenerateRecurring()` ; relié à une famille, la création attend une synchronisation réussie depuis le dernier changement d'époque de sync (`_budMustWaitSync`, hooks `SYNC_CYCLE_HOOKS` de `sync.js`) : l'envoi passant avant la réception, une dépense créée trop tôt écraserait la version de la famille. Seule une récurrence toute neuve crée ses dépenses sans attendre. Chaque dépense générée porte `recAt` (version de sa récurrence) : tant qu'elle n'est pas retouchée à la main, la dépense du mois en cours, encore à venir, suit la récurrence, et est retirée si la récurrence ne couvre plus le mois (`_budRealignRecurring`)
 - **Repas = événements** (`calendar.js`) : le planning lit et écrit les repas via `getMealRecipes(clé)` / `setMealRecipes(clé, recettes)`. La clé de créneau est `YYYY-MM-DD-midi|soir|autre` ; l'événement correspondant est `meal-<clé>` dans `state.events`. `state.planning` n'existe plus (l'ancien `mr_planning` est migré une fois via `mr_events_version`).
 - **Feuilles modales des modules** : `openSheet(nom, html)` / `closeSheet(nom)`. Elles sont intégrées au bouton retour (pile `_sheetStack` consultée par `handleBack`). À préférer à un modal créé à la main.
 - **Système de retour OS** : `pushOverlay()` + listener `popstate` pour intégration au bouton retour Android/iOS
@@ -130,6 +132,7 @@ Le **matching texte des étapes ↔ ingrédients** est doublé d'un fallback `en
 - Détection des verbes dérivés (saler, beurrer, sucrer, fariner...) via `DERIVED_VERB_RULES`
 - Détection des références pures (« une fois X cuit », « mélange de X ») pour ne PAS rajouter l'ingrédient
 - L'IA oublie parfois, on rattrape ; l'IA met parfois en trop, on n'enlève pas
+- « Restaurer » (après un recalcul) ne rend que les associations des ingrédients inchangés depuis (sauvegarde `_stepsBackup.lastRecalc` avec la liste `ingredients` id → nom) ; un ingrédient ajouté depuis garde les siennes. Réserve : une sauvegarde d'avant la v4.0 n'a pas cette liste (seuls les ingrédients encore présents reprennent leurs associations) ; elle est complétée au premier changement d'ingrédient (`_freezeStepsBackupIngredients`). Un nouvel ingrédient ne reprend jamais un id encore cité (`_ingredientIdsInUse`)
 
 ## 🍽️ Régimes alimentaires et FODMAP
 
@@ -275,6 +278,8 @@ node -c app.js && node -c data.js
 | `checkLocalReminders()` / `showLocalNotification(titre, opts)` | Rappels de l'app ouverte / notification système via le service worker (`reminders.js`) |
 | `enablePushOnThisDevice()` / `disablePushOnThisDevice()` | Abonnement push de ce téléphone (clés VAPID créées par la fonction send-reminders à son premier passage) (`reminders.js`) |
 | `openExpenseEditor(id)` / `budgetSummary(mois)` / `formatEuros(centimes)` | Fiche dépense / agrégats du mois / affichage des montants (`budget.js`) |
+| `openRecurringList()` / `openRecurringEditor(id)` / `budgetGenerateRecurring()` | Dépenses récurrentes : liste, fiche, création des dépenses du mois (`budget.js`) |
+| `showSettings(page)` / `openSettingsPage(page)` / `closeSettingsPage()` | Paramètres : ouverture (page de la sous-app par défaut), page d'un espace, retour au menu (`app.js`) |
 | `openSheet(nom, html)` / `closeSheet(nom)` | Feuille modale de module, intégrée au bouton retour (`app.js`) |
 | `_renderView(view, data)` | Rendu pur sans toucher à l'historique |
 | `saveRecipes()` | Persistance localStorage |
