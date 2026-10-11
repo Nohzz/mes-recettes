@@ -6,7 +6,7 @@
 // ⚠️ À chaque déploiement, bumper aussi CACHE_VERSION dans sw.js.
 const APP_NAME = 'La Maisonnée';
 const APP_VERSION = '4.0';
-const APP_BUILD_DATE = '2026-10-10';
+const APP_BUILD_DATE = '2026-10-11';
 
 // ============================================
 // OBFUSCATION DES SECRETS DANS LOCALSTORAGE
@@ -232,6 +232,8 @@ function loadState() {
     loadSyncState();
     loadMembers();
     loadBudget();
+    loadMemos();     // memos.js
+    loadOccasions(); // occasions.js
 
     // Listes de courses (avec migration depuis l'ancienne liste unique)
     const lists = localStorage.getItem(STORAGE_KEYS.shoppingLists);
@@ -7433,8 +7435,8 @@ function _renderSettingsHome() {
   set('settings-menu-sub-recipes', state.apiKey ? 'Assistant IA, menu IA, garde-manger' : 'Clé IA à configurer · menu IA, garde-manger');
   set('settings-menu-sub-calendar', typeof _pushActiveHere === 'function' && _pushActiveHere()
     ? 'Rappels : notifications activées sur cet appareil' : 'Rappels et notifications');
-  const n = (state.budgetRecurring || []).length;
-  const budget = state.budgetSettings && state.budgetSettings.monthlyBudgetCents;
+  const n = typeof _allRecurring === 'function' ? _allRecurring().length : (state.budgetRecurring || []).length;
+  const budget = typeof budgetOfMonth === 'function' ? budgetOfMonth(formatPlanningDate(new Date()).slice(0, 7)) : 0;
   set('settings-menu-sub-budget', `${budget && typeof formatEuros === 'function' ? 'Budget du mois : ' + formatEuros(budget, true) : 'Catégories, budget du mois'} · ${n ? `${n} dépense${n > 1 ? 's' : ''} récurrente${n > 1 ? 's' : ''}` : 'dépenses récurrentes'}`);
 }
 
@@ -7600,7 +7602,7 @@ async function clearAllData() {
     ? `\n\nCet appareil est relié à la famille « ${state.sync.householdName} » : les données de la famille ne sont PAS supprimées, elles reviendront à la prochaine synchronisation.`
     : '';
   if (!(await uiConfirm(
-    `Supprimer toutes les données de CET APPAREIL ? Cela inclut :\n• ${state.recipes.length} recette${state.recipes.length > 1 ? 's' : ''}\n• Vos listes de courses, planning, garde-manger, membres\n\nVos réglages (thème, clé IA, famille) sont conservés. Cette action est IRRÉVERSIBLE.${familyNote}`,
+    `Supprimer toutes les données de CET APPAREIL ? Cela inclut :\n• ${state.recipes.length} recette${state.recipes.length > 1 ? 's' : ''}\n• Vos listes de courses, planning, calendrier, mémos, budget, garde-manger, membres\n\nVos réglages (thème, clé IA, famille) sont conservés. Cette action est IRRÉVERSIBLE.${familyNote}`,
     { title: 'Suppression définitive', confirmLabel: 'Continuer', danger: true }
   ))) return;
   // 2ème confirmation : saisie d'un mot-clé (anti-doigt qui glisse)
@@ -7623,7 +7625,12 @@ async function clearAllData() {
   state.expenses = [];
   state.budgetCategories = [];
   state.budgetSettings = { id: 'settings', monthlyBudgetCents: 0 };
+  state.budgetMonths = [];
   state.budgetRecurring = [];
+  state.budgetYearly = [];
+  state.memos = [];
+  state.wishes = [];
+  state.sharedExpenses = [];
   state.shoppingLists = [list];
   state.activeShoppingListId = list.id;
   state.shopping = list.items;
@@ -7638,7 +7645,12 @@ async function clearAllData() {
   saveExpenses();
   saveBudgetCategories();
   saveBudgetSettings();
+  saveBudgetMonths();
   saveBudgetRecurring();
+  saveBudgetYearly();
+  saveMemos();
+  saveWishes();
+  saveSharedExpenses();
   saveShoppingLists();
   updateShoppingBadge();
   _closeOverlayThen('settings', hideSettings, () => navigateTo('library'));
@@ -7660,7 +7672,12 @@ function exportAllData() {
     expenses: state.expenses,
     budgetCategories: state.budgetCategories,
     budgetSettings: state.budgetSettings,
+    budgetMonths: state.budgetMonths,
     budgetRecurring: state.budgetRecurring,
+    budgetYearly: state.budgetYearly,
+    memos: state.memos,
+    wishes: state.wishes,
+    sharedExpenses: state.sharedExpenses,
     prefs: state.prefs
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });

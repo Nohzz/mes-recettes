@@ -264,6 +264,8 @@ $$;
 -- chaque minute), délais de rappel entiers de 0 à 10 080 minutes. Pré-filtre des répétitions : un
 -- événement annuel n'est lu que si son jour et son mois tombent dans la fenêtre, un mensuel que si
 -- son jour du mois y tombe (le calcul exact est fait par la fonction).
+-- S'y ajoutent les mémos de l'accueil qui ont un rappel dans la fenêtre (kind 'memos', voir memos.js),
+-- présentés comme un événement de type 'memo' : un seul rappel, à l'heure dite.
 drop function if exists public.maisonnee_reminder_candidates(text, text);
 create or replace function public.maisonnee_reminder_candidates(p_household uuid, p_from text, p_to text)
 returns table (tz text, data jsonb)
@@ -272,7 +274,7 @@ language sql stable security definer set search_path = public as $$
     select to_char(g, 'MM-DD') as md, to_char(g, 'DD') as dd
       from generate_series(p_from::date, p_to::date, interval '1 day') g
   )
-  select h.tz, jsonb_build_object(
+  (select h.tz, jsonb_build_object(
       'id', d.id,
       'type', 'event',
       'title', left(coalesce(d.data->>'title', ''), 120),
@@ -284,6 +286,7 @@ language sql stable security definer set search_path = public as $$
       'recurrence', case when jsonb_typeof(d.data->'recurrence') = 'object' then d.data->'recurrence' end,
       'exdates', case when jsonb_typeof(d.data->'exdates') = 'array' then d.data->'exdates' else '[]'::jsonb end,
       'memberIds', case when jsonb_typeof(d.data->'memberIds') = 'array' then d.data->'memberIds' else '[]'::jsonb end,
+      'ownerIds', case when jsonb_typeof(d.data->'ownerIds') = 'array' then d.data->'ownerIds' else '[]'::jsonb end,
       'reminders', (select coalesce(jsonb_agg(v.m), '[]'::jsonb)
                       from (select distinct (r #>> '{}')::int as m
                               from jsonb_array_elements(d.data->'reminders') r
@@ -307,7 +310,29 @@ language sql stable security definer set search_path = public as $$
                          else true end
               else (d.data->>'date') >= p_from end
    order by d.id
-   limit 500
+   limit 500)
+  union all
+  (select h.tz, jsonb_build_object(
+      'id', d.id,
+      'type', 'memo',
+      'title', left(coalesce(d.data->>'text', ''), 120),
+      'location', '',
+      'date', d.data->>'remindDate',
+      'start', d.data->'remindTime',
+      'allDay', 'false'::jsonb,
+      'exdates', '[]'::jsonb,
+      'memberIds', case when jsonb_typeof(d.data->'memberIds') = 'array' then d.data->'memberIds' else '[]'::jsonb end,
+      'ownerIds', '[]'::jsonb,
+      'reminders', '[0]'::jsonb)
+    from public.household_data d
+    join public.households h on h.id = d.household_id
+   where d.household_id = p_household and d.kind = 'memos' and d.deleted_at is null
+     and jsonb_typeof(d.data) = 'object'
+     and jsonb_typeof(d.data->'remindDate') = 'string' and (d.data->>'remindDate') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+     and jsonb_typeof(d.data->'remindTime') = 'string' and (d.data->>'remindTime') ~ '^[0-9]{2}:[0-9]{2}$'
+     and (d.data->>'remindDate') between p_from and p_to
+   order by d.id
+   limit 200)
 $$;
 
 -- Réserve les rappels à envoyer (dédoublonnage atomique) : ne renvoie que ceux pas encore envoyés.

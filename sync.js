@@ -1186,7 +1186,12 @@ function _syncStorageKinds() {
     [typeof EXPENSES_STORAGE_KEY !== 'undefined' ? EXPENSES_STORAGE_KEY : 'mr_expenses', 'expenses'],
     [typeof BUDGET_CATEGORIES_STORAGE_KEY !== 'undefined' ? BUDGET_CATEGORIES_STORAGE_KEY : 'mr_budget_categories', 'budget_categories'],
     [typeof BUDGET_SETTINGS_STORAGE_KEY !== 'undefined' ? BUDGET_SETTINGS_STORAGE_KEY : 'mr_budget_settings', 'budget_settings'],
-    [typeof BUDGET_RECURRING_STORAGE_KEY !== 'undefined' ? BUDGET_RECURRING_STORAGE_KEY : 'mr_budget_recurring', 'budget_recurring']
+    [typeof BUDGET_RECURRING_STORAGE_KEY !== 'undefined' ? BUDGET_RECURRING_STORAGE_KEY : 'mr_budget_recurring', 'budget_recurring'],
+    [typeof BUDGET_YEARLY_STORAGE_KEY !== 'undefined' ? BUDGET_YEARLY_STORAGE_KEY : 'mr_budget_yearly', 'budget_yearly'],
+    [typeof BUDGET_MONTHS_STORAGE_KEY !== 'undefined' ? BUDGET_MONTHS_STORAGE_KEY : 'mr_budget_months', 'budget_months'],
+    [typeof MEMOS_STORAGE_KEY !== 'undefined' ? MEMOS_STORAGE_KEY : 'mr_memos', 'memos'],
+    [typeof WISHES_STORAGE_KEY !== 'undefined' ? WISHES_STORAGE_KEY : 'mr_wishes', 'wishes'],
+    [typeof SHARED_EXPENSES_STORAGE_KEY !== 'undefined' ? SHARED_EXPENSES_STORAGE_KEY : 'mr_shared_expenses', 'shared_expenses']
   ];
 }
 

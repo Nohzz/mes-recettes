@@ -91,9 +91,11 @@ Elle est remplacée par la famille, plus sûre. L'ancien système laissait lire 
 |---|---|
 | Recettes (photos comprises) | Clé API Claude |
 | Listes de courses et cases cochées | Préférences d'affichage (thème, tri, vue du calendrier…) |
-| Calendrier : événements, anniversaires, repas du planning | Garde-manger |
-| Budget : dépenses, catégories, budget du mois, dépenses récurrentes | Historique du chat IA, minuteur |
-| Membres de la famille | Notifications activées ou non sur ce téléphone |
+| Calendrier : événements (pour qui, qui s'en occupe), anniversaires, repas du planning | Garde-manger |
+| Listes de souhaits et dépenses partagées des événements | Historique du chat IA, minuteur |
+| Budget : dépenses, catégories, budget habituel et budgets propres à un mois, dépenses récurrentes (mensuelles et annuelles) | Notifications activées ou non sur ce téléphone |
+| Mémos de l'accueil | |
+| Membres de la famille | |
 
 La synchronisation se fait :
 - à l'ouverture de l'app ;
@@ -109,7 +111,7 @@ L'icône en haut de l'écran indique l'état : ⟳ en cours, ✓ synchronisé, �
 
 ## Rappels en notification, même app fermée (facultatif)
 
-Quand l'app est ouverte, les rappels des événements du calendrier s'affichent tout seuls, sans rien configurer. Pour les recevoir **app fermée**, il faut un petit service dans votre projet Supabase, gratuit lui aussi : chaque minute, il regarde les rappels à envoyer et les pousse aux téléphones abonnés.
+Quand l'app est ouverte, les rappels des événements du calendrier et des mémos de l'accueil s'affichent tout seuls, sans rien configurer. Pour les recevoir **app fermée**, il faut un petit service dans votre projet Supabase, gratuit lui aussi : chaque minute, il regarde les rappels à envoyer et les pousse aux téléphones abonnés.
 
 Prérequis : la famille est créée (étapes 1 à 6).
 
@@ -145,9 +147,11 @@ Les heures des rappels suivent le **fuseau horaire de la famille**, affiché dan
 
 ### Qui reçoit quoi
 
-- Un événement **sans participant** concerne toute la famille : tous les téléphones abonnés sont prévenus.
-- Un événement **avec participants** prévient leurs téléphones (d'après « Cet appareil appartient à »), plus les téléphones qui n'ont pas indiqué à qui ils appartiennent.
-- Si aucun participant n'a de téléphone (un enfant, par exemple), toute la famille est prévenue.
+- Les membres concernés par un événement sont ceux de **« Pour qui ? »** et ceux de **« Qui s'en occupe ? »**.
+- Un événement **sans membre concerné** concerne toute la famille : tous les téléphones abonnés sont prévenus.
+- Sinon, les téléphones des membres concernés sont prévenus (d'après « Cet appareil appartient à »), plus les téléphones qui n'ont pas indiqué à qui ils appartiennent. Exemple : le pédiatre « pour Léa », « Papa s'en occupe » prévient le téléphone de Papa.
+- Si aucun membre concerné n'a de téléphone (un enfant seul, par exemple), toute la famille est prévenue.
+- Un **mémo avec rappel** suit la même règle, avec ses membres « Pour qui ? ».
 - Les repas du planning n'envoient pas de rappel.
 - Un même rappel n'est envoyé qu'une fois (si l'événement est déplacé après coup, le rappel de la nouvelle heure part aussi), et un rappel en retard de plus de 10 minutes (serveur en panne) n'est plus envoyé.
 - Quand l'app est ouverte, elle affiche un simple bandeau pour un rappel déjà reçu en notification, sans doubler l'alerte.

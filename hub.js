@@ -1,9 +1,14 @@
 // ============================================
 // LA MAISONNÉE — Hub (écran d'accueil)
 // ============================================
-// Vue racine de l'app : carte « Aujourd'hui » (événements + repas) et tuiles des sous-apps.
+// Vue racine de l'app : carte « Aujourd'hui » (événements + repas), « Qui s'en occupe ? » (événements à
+// venir sans responsable), mémos de la famille, et tuiles des sous-apps.
 // Script classique chargé en dernier : utilise state, escapeHtml, openApp, navigateTo,
-// calendarItemsByDay / _calItemHtml (calendar.js), memberAvatarHtml (family.js), syncEnabled (sync.js).
+// calendarItemsByDay / _calItemHtml / calendarOwnerAlerts (calendar.js), memberAvatarHtml (family.js),
+// syncEnabled (sync.js), memosHubCardHtml (memos.js).
+
+const HUB_OWNER_DAYS = 7;     // « Qui s'en occupe ? » : événements des 7 prochains jours
+const HUB_OWNER_MAX_ROWS = 4;
 
 // Tuiles du hub, dans l'ordre d'affichage. `action` = code exécuté au clic.
 const HUB_TILES = [
@@ -41,7 +46,7 @@ function _hubCalendarSub(today) {
 
 function _hubBudgetSub(today) {
   const s = budgetSummary(today.slice(0, 7));
-  const budget = state.budgetSettings.monthlyBudgetCents || 0;
+  const budget = budgetOfMonth(today.slice(0, 7));
   if (budget) {
     const left = budget - s.total;
     return left >= 0 ? `Reste ${formatEuros(left, true)} ce mois` : `Dépassé de ${formatEuros(-left, true)}`;
@@ -70,9 +75,44 @@ function _hubTileSub(tileId, today) {
   return '';
 }
 
+// Carte « Qui s'en occupe ? » : événements des prochains jours que personne n'a pris en charge
+function _hubOwnerCardHtml(today) {
+  const alerts = calendarOwnerAlerts(today, HUB_OWNER_DAYS);
+  if (!alerts.length) return '';
+  const me = state.sync.memberId && getMember(state.sync.memberId) ? state.sync.memberId : '';
+  const rows = alerts.slice(0, HUB_OWNER_MAX_ROWS).map(({ ev, date }) => {
+    const cat = EVENT_CATEGORIES.find(c => c.id === ev.category) || EVENT_CATEGORIES[EVENT_CATEGORIES.length - 1];
+    const day = date === today ? "Aujourd'hui" : date === shiftDate(today, 1) ? 'Demain' : _capitalize(_fmtDate(date, { weekday: 'long', day: 'numeric' }));
+    const forWho = (ev.memberIds || []).map(getMember).filter(Boolean).map(m => m.name);
+    const sub = [day + (ev.allDay || !ev.start ? '' : ' · ' + ev.start), forWho.length ? 'pour ' + forWho.join(', ') : 'toute la famille'].join(' · ');
+    return `<div class="owner-row">
+      <button class="owner-row-main" onclick="openEventEditor(${_jsArg(ev.id)}, ${_jsArg(date)})">
+        <span class="owner-row-title">${cat.emoji} ${escapeHtml(ev.title || cat.label)}</span>
+        <span class="owner-row-sub">${escapeHtml(sub)}</span>
+      </button>
+      <div class="owner-row-actions">
+        ${me ? `<button class="cal-pick" onclick="calSetOwner(${_jsArg(ev.id)}, 'me')">🙋 Moi</button>` : ''}
+        <button class="cal-pick" onclick="openEventEditor(${_jsArg(ev.id)}, ${_jsArg(date)})">Choisir…</button>
+        <button class="btn-link owner-row-none" onclick="calSetOwner(${_jsArg(ev.id)}, 'none')">Personne</button>
+      </div>
+    </div>`;
+  }).join('');
+  const more = alerts.length - HUB_OWNER_MAX_ROWS;
+  return `<section class="hub-card owner-card">
+      <h3 class="hub-card-title">🙋 Qui s'en occupe ?</h3>
+      <p class="hub-empty owner-card-hint">Personne n'est encore désigné pour :</p>
+      <div class="owner-list">${rows}</div>
+      ${more > 0 ? `<button class="hub-card-action" onclick="openApp('calendar')">Et ${more} autre${more > 1 ? 's' : ''} dans le calendrier →</button>` : ''}
+    </section>`;
+}
+
 function renderHub() {
   const el = document.getElementById('hub-content');
   if (!el) return;
+  // Mémo en cours de saisie : un nouvel affichage (sync, retour au premier plan) le garde, clavier compris
+  const memoInput = document.getElementById('memo-quick');
+  const memoDraft = memoInput ? memoInput.value : '';
+  const memoFocused = !!memoInput && document.activeElement === memoInput;
   const now = new Date();
   const today = formatPlanningDate(now);
   const dateLabel = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -122,9 +162,14 @@ function renderHub() {
         <button class="hub-card-action" onclick="navigateTo('planning')">Planning des repas →</button>
       </div>
     </section>
+    ${_hubOwnerCardHtml(today)}
+    ${typeof memosHubCardHtml === 'function' ? memosHubCardHtml() : ''}
     ${familyCard}
     <h3 class="hub-section-title">Espaces</h3>
     <div class="hub-tiles">${tiles}</div>`;
+  const again = document.getElementById('memo-quick');
+  if (again && memoDraft) again.value = memoDraft;
+  if (again && memoFocused) again.focus();
 }
 window.renderHub = renderHub;
 

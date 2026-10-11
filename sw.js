@@ -6,7 +6,7 @@
 // sont récupérés. Format suggéré : maisonnee-vX.Y-YYYY-MM-DD (aligné sur APP_VERSION dans app.js)
 // ⚠️ Tout nouveau fichier JS/CSS doit être ajouté à APP_FILES (sinon, hors ligne,
 // il est remplacé par index.html et l'app plante).
-const CACHE_VERSION = 'maisonnee-v4.0-2026-10-10';
+const CACHE_VERSION = 'maisonnee-v4.0-2026-10-11';
 const APP_FILES = [
   './',
   './index.html',
@@ -17,6 +17,8 @@ const APP_FILES = [
   './sync.js',
   './family.js',
   './budget.js',
+  './memos.js',
+  './occasions.js',
   './reminders.js',
   './hub.js',
   './manifest.json',

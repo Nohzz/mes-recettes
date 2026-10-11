@@ -224,9 +224,18 @@ function dueReminders(events, tz, fromMs, toMs) {
   return out.sort((a, b) => a.fireAt - b.fireAt);
 }
 
-// Texte d'une notification de rappel (le tag sert aussi de clé de dédoublonnage dans l'app)
+// Texte d'une notification de rappel (le tag sert aussi de clé de dédoublonnage dans l'app).
+// Un mémo (type 'memo', voir memos.js) a son propre texte et ouvre l'accueil.
 function reminderMessage(r) {
   const ev = r.event;
+  if (ev.type === 'memo') {
+    return {
+      title: '📝 ' + (ev.title || 'Mémo'),
+      body: 'Mémo · ' + _reminderTime(ev),
+      tag: `rem-${ev.id}-${r.when}-${r.offset}`,
+      url: './index.html'
+    };
+  }
   const [y, m, d] = r.occ.split('-').map(Number);
   const day = new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
   let when;
@@ -292,11 +301,12 @@ async function createVapidKeys() {
   };
 }
 
-// Téléphones à prévenir. Même règle que l'app (reminders.js) : un événement sans participant concerne
-// toute la famille ; sinon les téléphones des participants et ceux qui n'ont pas indiqué leur profil.
-// Si aucun participant n'a de téléphone (ex. un enfant), toute la famille est prévenue.
+// Téléphones à prévenir. Même règle que l'app (reminders.js) : les membres concernés sont ceux pour qui
+// est l'événement et ceux qui s'en occupent (ownerIds). Aucun : toute la famille ; sinon les téléphones
+// de ces membres et ceux qui n'ont pas indiqué leur profil. Si aucun n'a de téléphone (ex. un enfant
+// seul), toute la famille est prévenue.
 function recipientsFor(ev, targets, deviceMembers) {
-  const ids = Array.isArray(ev.memberIds) ? ev.memberIds : [];
+  const ids = [...(Array.isArray(ev.memberIds) ? ev.memberIds : []), ...(Array.isArray(ev.ownerIds) ? ev.ownerIds : [])];
   if (!ids.length || !ids.some(id => deviceMembers.has(id))) return targets;
   return targets.filter(t => !t.member_id || ids.includes(t.member_id));
 }

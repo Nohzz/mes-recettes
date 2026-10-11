@@ -210,8 +210,11 @@ function _capitalize(s) {
 // Récurrence et requêtes
 // ============================================
 // Événement : { id, type: 'event', title, category, date, endDate?, allDay, start?, end?, memberIds: [],
-//   location, notes, recurrence: null | { freq: 'daily'|'weekly'|'monthly'|'yearly', interval, byWeekday?, until? },
+//   ownerIds?: [], noOwnerNeeded?: bool, location, notes,
+//   recurrence: null | { freq: 'daily'|'weekly'|'monthly'|'yearly', interval, byWeekday?, until? },
 //   exdates: ['YYYY-MM-DD'…] (occurrences supprimées), reminders: [minutes…], createdAt, updatedAt }
+// memberIds : pour qui (aucun = toute la famille) ; ownerIds : qui s'en occupe (rappels compris) ;
+// noOwnerNeeded : « Personne en particulier », l'événement n'est plus signalé sans responsable.
 
 function _eventSpan(ev) {
   return ev.endDate && ev.endDate > ev.date ? _dayNum(ev.endDate) - _dayNum(ev.date) : 0;
@@ -286,8 +289,48 @@ function _compareCalendarItems(a, b) {
   return (a.ev.title || '').localeCompare(b.ev.title || '', 'fr');
 }
 
+// Membres concernés par un événement : pour qui, et qui s'en occupe (vide : toute la famille)
+function eventPeopleIds(ev) {
+  const ids = [...(Array.isArray(ev.memberIds) ? ev.memberIds : []), ...(Array.isArray(ev.ownerIds) ? ev.ownerIds : [])];
+  return [...new Set(ids)];
+}
+
+// Événement à venir sans « Qui s'en occupe ? », dans une catégorie qui en demande un (askOwner) : signalé,
+// sauf « Personne en particulier », ou si un des membres concernés a un téléphone dans la famille (il s'en
+// occupe lui-même, ex. le dentiste de Papa). Toute la famille, ou seulement des enfants : quelqu'un doit
+// s'en charger. Sans membres dans la famille, rien n'est signalé.
+function eventNeedsOwner(ev) {
+  if (!ev || ev.type === 'meal' || ev.noOwnerNeeded || !state.members.length) return false;
+  if ((ev.ownerIds || []).some(id => getMember(id))) return false;
+  const cat = EVENT_CATEGORIES.find(c => c.id === ev.category);
+  if (!cat || !cat.askOwner) return false;
+  const withDevice = state.sync.deviceMemberIds || [];
+  return !(ev.memberIds || []).some(id => getMember(id) && withDevice.includes(id));
+}
+
+// Occurrences des `days` prochains jours (aujourd'hui compris) à attribuer : [{ ev, date }], la plus proche
+// d'abord, une seule par événement (une série se règle en une fois)
+function calendarOwnerAlerts(today, days) {
+  const out = [];
+  const seen = new Set();
+  const now = new Date();
+  const nowTime = _pad2(now.getHours()) + ':' + _pad2(now.getMinutes());
+  const items = calendarItemsByDay(today, shiftDate(today, days - 1), { meals: false });
+  for (let i = 0; i < days; i++) {
+    for (const it of items.get(shiftDate(today, i)) || []) {
+      if (seen.has(it.ev.id) || !it.isFirstDay || !eventNeedsOwner(it.ev)) continue;
+      // Déjà terminé aujourd'hui : trop tard pour s'en occuper
+      if (it.date === calendarToday() && !it.ev.allDay && it.ev.start && (it.ev.end || it.ev.start) < nowTime) continue;
+      seen.add(it.ev.id);
+      out.push({ ev: it.ev, date: it.date });
+    }
+  }
+  return out;
+}
+
 // Événements et repas qui touchent [fromStr, toStr], étalés jour par jour.
-// opts.meals (défaut true), opts.members : ids filtrés (un événement « toute la famille » reste visible).
+// opts.meals (défaut true), opts.members : ids filtrés (un événement « toute la famille » reste visible ;
+// un événement dont le membre s'occupe compte aussi).
 // Renvoie une Map 'YYYY-MM-DD' → [{ ev, date (début de l'occurrence), isMeal, multiDay, isFirstDay }].
 function calendarItemsByDay(fromStr, toStr, opts) {
   const o = opts || {};
@@ -298,7 +341,7 @@ function calendarItemsByDay(fromStr, toStr, opts) {
     if (!ev || !ev.date) continue;
     const isMeal = ev.type === 'meal';
     if (isMeal && o.meals === false) continue;
-    if (!isMeal && members.length && (ev.memberIds || []).length && !ev.memberIds.some(id => members.includes(id))) continue;
+    if (!isMeal && members.length && (ev.memberIds || []).length && !eventPeopleIds(ev).some(id => members.includes(id))) continue;
     if (isMeal && !(ev.recipes || []).length) continue;
     const span = isMeal ? 0 : _eventSpan(ev);
     const occs = isMeal ? (ev.date >= fromStr && ev.date <= toStr ? [ev.date] : []) : eventOccurrences(ev, fromStr, toStr);
@@ -407,9 +450,18 @@ function dueReminders(events, tz, fromMs, toMs) {
   return out.sort((a, b) => a.fireAt - b.fireAt);
 }
 
-// Texte d'une notification de rappel (le tag sert aussi de clé de dédoublonnage dans l'app)
+// Texte d'une notification de rappel (le tag sert aussi de clé de dédoublonnage dans l'app).
+// Un mémo (type 'memo', voir memos.js) a son propre texte et ouvre l'accueil.
 function reminderMessage(r) {
   const ev = r.event;
+  if (ev.type === 'memo') {
+    return {
+      title: '📝 ' + (ev.title || 'Mémo'),
+      body: 'Mémo · ' + _reminderTime(ev),
+      tag: `rem-${ev.id}-${r.when}-${r.offset}`,
+      url: './index.html'
+    };
+  }
   const [y, m, d] = r.occ.split('-').map(Number);
   const day = new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
   let when;
@@ -439,11 +491,36 @@ function saveCalendarEvent(ev) {
   markDirty('events', ev.id);
 }
 
+// Accueil, « Qui s'en occupe ? » : « Moi » (profil de ce téléphone) ou « Personne en particulier ».
+// S'applique à toute la série d'un événement récurrent.
+function calSetOwner(id, who) {
+  const ev = state.events[id];
+  if (!ev) return;
+  if (who === 'me') {
+    const me = state.sync.memberId;
+    if (!me || !getMember(me)) {
+      showToast("Indique d'abord qui tu es dans la vue Famille (« C'est moi »)", 'error');
+      return;
+    }
+    ev.ownerIds = [...new Set([...(ev.ownerIds || []), me])];
+    ev.noOwnerNeeded = false;
+  } else {
+    ev.ownerIds = [];
+    ev.noOwnerNeeded = true;
+  }
+  saveCalendarEvent(ev);
+  _calendarRefreshIfVisible();
+  showToast(who === 'me' ? `🙋 Tu t'occupes de « ${ev.title} »` : `« ${ev.title} » : personne en particulier`, 'success');
+}
+window.calSetOwner = calSetOwner;
+
 function deleteCalendarEvent(id) {
   if (!state.events[id]) return;
   delete state.events[id];
   saveEvents();
   markDirty('events', id);
+  // Sa liste de souhaits et ses dépenses partagées (occasions.js)
+  if (typeof occasionsDeleteForEvent === 'function') occasionsDeleteForEvent(id);
 }
 
 // ============================================
@@ -550,14 +627,20 @@ function _calItemHtml(it) {
   }
   const cat = EVENT_CATEGORIES.find(c => c.id === ev.category) || EVENT_CATEGORIES[EVENT_CATEGORIES.length - 1];
   const members = (ev.memberIds || []).map(getMember).filter(Boolean);
+  const owners = (ev.ownerIds || []).map(getMember).filter(Boolean);
   const time = (ev.allDay || !ev.start)
     ? (it.multiDay ? 'Plusieurs jours' : 'Journée')
     : (it.multiDay && !it.isFirstDay ? 'Suite' : ev.start + (ev.end ? '–' + ev.end : ''));
+  // Qui s'en occupe, ou à attribuer (occurrence à venir seulement)
+  const who = owners.length ? `🙋 ${owners.map(m => m.name).join(', ')}`
+    : it.date >= calendarToday() && eventNeedsOwner(ev) ? '❓ Qui s\'en occupe ?' : '';
+  const sub = [ev.location ? `📍 ${escapeHtml(ev.location)}` : '', who && owners.length ? escapeHtml(who) : ''].filter(Boolean).join(' · ');
   return `<button class="cal-item" style="--event-color: ${_calItemColor(it)}" onclick="openEventEditor(${_jsArg(ev.id)}, ${_jsArg(it.date)})">
     <span class="cal-item-time">${escapeHtml(time)}</span>
     <span class="cal-item-main">
       <span class="cal-item-title">${cat.emoji} ${escapeHtml(ev.title || cat.label)}${ev.recurrence ? ' <span class="cal-item-repeat" title="Événement récurrent">↻</span>' : ''}</span>
-      ${ev.location ? `<span class="cal-item-sub">📍 ${escapeHtml(ev.location)}</span>` : ''}
+      ${sub ? `<span class="cal-item-sub">${sub}</span>` : ''}
+      ${who && !owners.length ? `<span class="cal-item-sub cal-item-alert">${escapeHtml(who)}</span>` : ''}
     </span>
     <span class="cal-item-members">${members.slice(0, 3).map(m => memberAvatarHtml(m, 'sm')).join('')}</span>
   </button>`;
@@ -734,6 +817,13 @@ function _eventEditorHtml(ev, isNew) {
   const members = state.members.length
     ? state.members.map(m => `<button type="button" class="cal-pick cal-pick-member${(ev.memberIds || []).includes(m.id) ? ' is-selected' : ''}" data-value="${escapeHtml(m.id)}" onclick="this.classList.toggle('is-selected')">${memberAvatarHtml(m, 'sm')} ${escapeHtml(m.name)}</button>`).join('')
     : `<p class="family-hint">Ajoutez les membres de la famille pour leur assigner des événements : <button type="button" class="btn-link" onclick="calEditorOpenFamily()">Gérer la famille</button></p>`;
+  // Qui s'en occupe : des membres, ou « Personne en particulier » (exclusifs)
+  const owners = state.members.length
+    ? state.members.map(m => `<button type="button" class="cal-pick cal-pick-member${(ev.ownerIds || []).includes(m.id) ? ' is-selected' : ''}" data-value="${escapeHtml(m.id)}" onclick="calPickOwner(this)">${memberAvatarHtml(m, 'sm')} ${escapeHtml(m.name)}</button>`).join('') +
+      `<button type="button" class="cal-pick${ev.noOwnerNeeded && !(ev.ownerIds || []).length ? ' is-selected' : ''}" data-value="" onclick="calPickOwner(this)">Personne en particulier</button>`
+    : '';
+  // Liste de souhaits et dépenses partagées (occasions.js) : pour un événement déjà enregistré
+  const extras = !isNew && typeof occasionsEditorHtml === 'function' ? occasionsEditorHtml(ev.id) : '';
   const reminders = EVENT_REMINDER_OPTIONS.map(r => `<button type="button" class="cal-pick${(ev.reminders || []).includes(r.minutes) ? ' is-selected' : ''}" data-value="${r.minutes}" onclick="this.classList.toggle('is-selected')">${escapeHtml(r.label)}</button>`).join('');
   const repeat = _repeatValue(ev.recurrence);
   const repeatOptions = [['none', 'Jamais'], ['daily', 'Chaque jour'], ['weekly', 'Chaque semaine'], ['biweekly', 'Toutes les 2 semaines'], ['monthly', 'Chaque mois'], ['yearly', 'Chaque année']]
@@ -758,6 +848,8 @@ function _eventEditorHtml(ev, isNew) {
       </div>
       <span class="family-label">Pour qui ? <small>(aucun = toute la famille)</small></span>
       <div class="cal-picks" id="ev-members">${members}</div>
+      ${owners ? `<span class="family-label">Qui s'en occupe ? <small>(reçoit les rappels)</small></span>
+      <div class="cal-picks" id="ev-owners">${owners}</div>` : ''}
       <div class="cal-row">
         <div class="cal-field"><label class="family-label" for="ev-repeat">Répétition</label><select id="ev-repeat" class="settings-select" onchange="calRepeatChanged(this.value)">${repeatOptions}</select></div>
         <div class="cal-field${repeat === 'none' ? ' hidden' : ''}" id="ev-until-field"><label class="family-label" for="ev-until">Jusqu'au (facultatif)</label><input type="date" id="ev-until" class="family-input" value="${escapeHtml((ev.recurrence && ev.recurrence.until) || '')}"></div>
@@ -768,6 +860,7 @@ function _eventEditorHtml(ev, isNew) {
       <input id="ev-location" class="family-input" value="${escapeHtml(ev.location || '')}" maxlength="120" autocomplete="off" placeholder="Adresse, salle…">
       <label class="family-label" for="ev-notes">Notes</label>
       <textarea id="ev-notes" class="family-input" rows="2" maxlength="1000">${escapeHtml(ev.notes || '')}</textarea>
+      ${extras}
       <div class="sheet-actions">
         ${isNew ? '' : '<button class="btn-danger" onclick="deleteEventFromEditor()">Supprimer</button>'}
         <button class="btn-primary" onclick="saveEventFromEditor()">Enregistrer</button>
@@ -788,6 +881,18 @@ function calPickCategory(btn) {
   }
 }
 window.calPickCategory = calPickCategory;
+
+// « Qui s'en occupe ? » : plusieurs membres possibles ; « Personne en particulier » les exclut
+function calPickOwner(btn) {
+  const box = btn.closest('.cal-picks');
+  const nobody = !btn.dataset.value;
+  btn.classList.toggle('is-selected');
+  if (!btn.classList.contains('is-selected')) return;
+  box.querySelectorAll('.cal-pick').forEach(b => {
+    if (b !== btn && (nobody || !b.dataset.value)) b.classList.remove('is-selected');
+  });
+}
+window.calPickOwner = calPickOwner;
 
 function calToggleAllDay(checked) {
   const times = document.getElementById('ev-times');
@@ -830,10 +935,13 @@ function _readEventForm() {
     interval: repeat === 'biweekly' ? 2 : 1,
     until: until && until >= date ? until : null
   };
+  const owners = _selectedValues('ev-owners');
   return {
     title: val('ev-title').trim().slice(0, 80) || (cat ? cat.label : 'Événement'),
     category, date, endDate, allDay, start, end,
     memberIds: _selectedValues('ev-members').filter(id => getMember(id)),
+    ownerIds: owners.filter(id => getMember(id)),
+    noOwnerNeeded: owners.includes(''),
     recurrence,
     reminders: _selectedValues('ev-reminders').map(Number).filter(Number.isFinite).sort((a, b) => a - b),
     location: val('ev-location').trim().slice(0, 120),
@@ -865,7 +973,10 @@ async function saveEventFromEditor() {
       // Cette fois seulement : on retire l'occurrence de la série et on crée un événement isolé
       original.exdates = [...new Set([...(original.exdates || []), e.occDate])];
       saveCalendarEvent(original);
-      saveCalendarEvent({ ...original, ...form, id: 'ev_' + uid(), recurrence: null, exdates: [], createdAt: 0 });
+      const single = { ...original, ...form, id: 'ev_' + uid(), recurrence: null, exdates: [], createdAt: 0 };
+      saveCalendarEvent(single);
+      // Liste de souhaits et dépenses partagées de cette occurrence : elles suivent l'événement isolé
+      if (typeof occasionsMoveOccurrence === 'function') occasionsMoveOccurrence(original.id, e.occDate, single.id, single.date);
     } else {
       // Toute la série : la date saisie déplace la série d'autant de jours que l'occurrence
       const delta = _dayNum(form.date) - _dayNum(e.occDate);
@@ -897,11 +1008,14 @@ async function deleteEventFromEditor() {
     if (scope === 'occurrence') {
       original.exdates = [...new Set([...(original.exdates || []), e.occDate])];
       saveCalendarEvent(original);
+      if (typeof occasionsDeleteForEvent === 'function') occasionsDeleteForEvent(original.id, e.occDate);
     } else {
       deleteCalendarEvent(original.id);
     }
   } else {
-    if (!(await uiConfirm(`Supprimer « ${original.title} » ?`, { confirmLabel: 'Supprimer', danger: true }))) return;
+    const extras = typeof occasionsCount === 'function' && occasionsCount(original.id)
+      ? '\nSa liste de souhaits et ses dépenses partagées seront supprimées aussi.' : '';
+    if (!(await uiConfirm(`Supprimer « ${original.title} » ?${extras}`, { confirmLabel: 'Supprimer', danger: true }))) return;
     deleteCalendarEvent(original.id);
   }
   _calEditing = null;

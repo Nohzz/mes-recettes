@@ -1365,14 +1365,15 @@ const MEMBER_COLORS = [
   { id: 'm8', label: 'Ardoise' },
 ];
 
-// Catégories d'événements du calendrier familial (les repas du planning sont à part : type 'meal')
+// Catégories d'événements du calendrier familial (les repas du planning sont à part : type 'meal').
+// askOwner : sans « Qui s'en occupe ? », l'événement est signalé à l'accueil (voir eventNeedsOwner)
 const EVENT_CATEGORIES = [
-  { id: 'rdv', label: 'Rendez-vous', emoji: '📌' },
-  { id: 'medical', label: 'Santé', emoji: '🩺' },
-  { id: 'school', label: 'École', emoji: '🎒' },
-  { id: 'activity', label: 'Activité', emoji: '⚽' },
+  { id: 'rdv', label: 'Rendez-vous', emoji: '📌', askOwner: true },
+  { id: 'medical', label: 'Santé', emoji: '🩺', askOwner: true },
+  { id: 'school', label: 'École', emoji: '🎒', askOwner: true },
+  { id: 'activity', label: 'Activité', emoji: '⚽', askOwner: true },
   { id: 'birthday', label: 'Anniversaire', emoji: '🎂' },
-  { id: 'outing', label: 'Sortie', emoji: '🎡' },
+  { id: 'outing', label: 'Sortie', emoji: '🎡', askOwner: true },
   { id: 'holiday', label: 'Vacances', emoji: '🏖️' },
   { id: 'work', label: 'Travail', emoji: '💼' },
   { id: 'other', label: 'Autre', emoji: '🗓️' },

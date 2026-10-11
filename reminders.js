@@ -82,11 +82,12 @@ function _markReminderShown(tag, fireAt) {
 }
 
 // Même règle que la fonction serveur send-reminders : un rappel concerne cet appareil s'il est pour
-// toute la famille, pour son profil, si l'appareil n'a pas indiqué son profil, ou si aucun des
-// participants n'a de téléphone dans la famille (ex. un enfant : toute la famille est prévenue)
+// toute la famille, pour son profil (pour qui, ou qui s'en occupe), si l'appareil n'a pas indiqué son
+// profil, ou si aucun des membres concernés n'a de téléphone dans la famille (ex. un enfant : toute la
+// famille est prévenue)
 function _reminderConcernsMe(ev) {
   const me = state.sync.memberId;
-  const ids = Array.isArray(ev.memberIds) ? ev.memberIds : [];
+  const ids = [...(Array.isArray(ev.memberIds) ? ev.memberIds : []), ...(Array.isArray(ev.ownerIds) ? ev.ownerIds : [])];
   if (!ids.length || !me || ids.includes(me)) return true;
   const withDevice = state.sync.deviceMemberIds || [];
   return !ids.some(id => withDevice.includes(id));
@@ -112,7 +113,8 @@ function checkLocalReminders() {
 function _checkLocalReminders() {
   const now = Date.now();
   const from = now - REMINDER_CATCHUP_MS;
-  const events = Object.values(state.events || {}).filter(ev => ev && ev.type !== 'meal' && Array.isArray(ev.reminders) && ev.reminders.length);
+  const events = Object.values(state.events || {}).filter(ev => ev && ev.type !== 'meal' && Array.isArray(ev.reminders) && ev.reminders.length)
+    .concat(typeof memoReminderEvents === 'function' ? memoReminderEvents() : []);
   if (!events.length) return [];
   const due = dueReminders(events, _reminderTz(), from, now).filter(r => _reminderConcernsMe(r.event));
   if (!due.length) return [];

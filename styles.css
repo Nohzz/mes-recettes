@@ -8377,3 +8377,332 @@ body[data-app="hub"] .timer-overlay {
 .bud-rec-toggle {
   margin-top: 12px;
 }
+
+/* Budget : budget du mois, comparaison, projection, montants rapides, fréquence des récurrences */
+.bud-month-link {
+  align-self: flex-start;
+}
+.bud-compare {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-gray-600);
+}
+.bud-compare.is-up {
+  color: var(--color-primary);
+}
+.bud-compare small {
+  font-weight: 600;
+  color: var(--color-gray-500);
+}
+.bud-projection {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-primary-cream);
+}
+.bud-projection.is-over {
+  background: var(--color-primary-pale);
+}
+.bud-projection p {
+  margin: 0;
+}
+.bud-projection-main {
+  font-size: 14px;
+  color: var(--color-gray-700);
+}
+.bud-projection-main strong {
+  font-family: var(--font-display);
+  font-weight: 800;
+  color: var(--color-gray-800);
+}
+.bud-projection-verdict {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-gray-600);
+}
+.bud-projection.is-over .bud-projection-verdict {
+  color: var(--color-red-deep);
+}
+.bud-projection-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-gray-500);
+}
+.bud-quick {
+  margin-top: 8px;
+}
+.bud-rec-freq {
+  margin: 4px 0 8px;
+}
+.bud-expense-amount small {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-gray-500);
+}
+
+/* Calendrier : événement sans « Qui s'en occupe ? » */
+.cal-item-sub.cal-item-alert {
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+/* Accueil : « Qui s'en occupe ? » */
+.owner-card-hint {
+  margin-bottom: 6px;
+}
+.owner-list {
+  display: flex;
+  flex-direction: column;
+}
+.owner-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+}
+.owner-row + .owner-row {
+  border-top: 1px solid var(--color-gray-200);
+}
+.owner-row-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  text-align: left;
+}
+.owner-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-gray-800);
+}
+.owner-row-sub {
+  font-size: 12px;
+  color: var(--color-gray-500);
+}
+.owner-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.owner-row-none {
+  width: auto;
+  margin: 0 0 0 auto;
+  padding: 6px 8px;
+}
+
+/* Accueil : mémos */
+.memo-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.memo-new {
+  margin-top: 0;
+}
+.memo-list {
+  display: flex;
+  flex-direction: column;
+}
+.memo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+}
+.memo-row + .memo-row {
+  border-top: 1px solid var(--color-gray-200);
+}
+.memo-check {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid var(--color-gray-300);
+  background: var(--color-surface);
+}
+.memo-check:active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-pale);
+}
+.memo-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+.memo-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-gray-800);
+  overflow-wrap: anywhere;
+}
+.memo-sub {
+  font-size: 12px;
+  color: var(--color-gray-500);
+}
+.memo-when {
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.memo-when.is-past {
+  color: var(--color-gray-500);
+}
+.memo-undo .btn-link,
+.occ-settle .btn-link {
+  width: auto;
+  margin: 0;
+  padding: 4px 8px;
+  color: var(--color-primary);
+}
+.memo-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-cream);
+  font-size: 13px;
+  color: var(--color-gray-600);
+}
+.memo-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.memo-add .family-input {
+  flex: 1;
+  min-width: 0;
+}
+.memo-add-btn {
+  width: 44px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: var(--color-surface);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+/* Fiche d'un événement : liste de souhaits et dépenses partagées (occasions.js) */
+.occ-links {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.occ-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--color-gray-200);
+  background: var(--color-surface);
+  text-align: left;
+}
+.occ-link-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-gray-800);
+}
+.occ-link-sub {
+  font-size: 12px;
+  color: var(--color-gray-500);
+}
+.occ-event {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-gray-600);
+}
+.occ-list {
+  display: flex;
+  flex-direction: column;
+}
+.occ-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
+.occ-row + .occ-row {
+  border-top: 1px solid var(--color-gray-200);
+}
+.occ-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+.occ-row-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-gray-800);
+  overflow-wrap: anywhere;
+}
+.occ-row.is-reserved .occ-row-title {
+  color: var(--color-gray-500);
+}
+.occ-row-sub {
+  font-size: 12px;
+  color: var(--color-gray-500);
+}
+.occ-reserve {
+  flex-shrink: 0;
+}
+.occ-reserved {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-gray-600);
+}
+.occ-open-link {
+  display: inline-block;
+  width: auto;
+  margin-top: 6px;
+  padding: 0;
+  color: var(--color-primary);
+}
+.occ-cur {
+  font-size: 18px;
+}
+.occ-balance.is-plus {
+  color: var(--color-primary);
+}
+.occ-balance.is-minus {
+  color: var(--color-red-deep);
+}
+.occ-settle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-cream);
+}
+.occ-settle-text {
+  font-size: 14px;
+  color: var(--color-gray-700);
+}
+.occ-settled {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-gray-600);
+}
+.occ-subtitle {
+  margin-top: 16px;
+}

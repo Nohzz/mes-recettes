@@ -2,10 +2,11 @@
 // LA MAISONNÉE — Budget familial
 // ============================================
 // Dépenses (montant en centimes, catégorie, membre, date), catégories avec plafond mensuel
-// facultatif, budget mensuel global, dépenses récurrentes mensuelles (loyer, charges…). Vues :
-// Aperçu (reste du mois, par catégorie, par membre) et Dépenses (liste groupée par jour, filtrable,
-// recherche texte). Synchronisé en famille (kinds 'expenses', 'budget_categories', 'budget_settings',
-// 'budget_recurring').
+// facultatif, budget habituel (chaque mois) et budget propre à un mois, dépenses récurrentes
+// mensuelles (loyer, charges…) et annuelles (assurance, taxe foncière…). Vues : Aperçu (reste du mois,
+// comparaison au mois précédent, projection de fin de mois, par catégorie, par membre) et Dépenses
+// (liste groupée par jour, filtrable, recherche texte). Synchronisé en famille (kinds 'expenses',
+// 'budget_categories', 'budget_settings', 'budget_recurring', 'budget_yearly', 'budget_months').
 //
 // Script classique chargé après app.js, sync.js et family.js.
 
@@ -13,7 +14,11 @@ const EXPENSES_STORAGE_KEY = 'mr_expenses';
 const BUDGET_CATEGORIES_STORAGE_KEY = 'mr_budget_categories';
 const BUDGET_SETTINGS_STORAGE_KEY = 'mr_budget_settings';
 const BUDGET_RECURRING_STORAGE_KEY = 'mr_budget_recurring';
+const BUDGET_YEARLY_STORAGE_KEY = 'mr_budget_yearly';
+const BUDGET_MONTHS_STORAGE_KEY = 'mr_budget_months';
 const BUDGET_SETTINGS_ID = 'settings';
+const BUDGET_PROJECTION_MIN_DAY = 5; // avant le 5, le rythme du mois ne dit encore rien
+const BUDGET_QUICK_AMOUNTS = [5, 10, 20, 50]; // boutons « +5 € »… de la fiche dépense
 
 // Catégories par défaut : ids fixes, pour que deux téléphones ne les créent pas en double
 const BUDGET_DEFAULT_CATEGORIES = [
@@ -31,10 +36,17 @@ const BUDGET_DEFAULT_CATEGORIES = [
 
 state.expenses = [];
 state.budgetCategories = [];
-state.budgetSettings = { id: BUDGET_SETTINGS_ID, monthlyBudgetCents: 0 };
-// Dépenses récurrentes : [{ id, label, amountCents, categoryId, memberId, note, day (1-31),
-//   startMonth 'YYYY-MM', endMonth 'YYYY-MM' | '', createdAt, updatedAt }]
+state.budgetSettings = { id: BUDGET_SETTINGS_ID, monthlyBudgetCents: 0 }; // budget habituel
+// Budget propre à un mois (remplace le budget habituel ce mois-là) : [{ id: 'bm_YYYY-MM', month, amountCents, updatedAt }]
+state.budgetMonths = [];
+// Dépenses récurrentes : [{ id, freq: 'monthly'|'yearly', label, amountCents, categoryId, memberId, note,
+//   day (1-31), startMonth 'YYYY-MM', endMonth 'YYYY-MM' | '', createdAt, updatedAt }]. Une récurrence
+// annuelle tombe chaque année le mois de startMonth. Les mensuelles sont dans budgetRecurring (kind
+// 'budget_recurring'), les annuelles dans budgetYearly (kind 'budget_yearly') : une version de l'app qui
+// ne connaît que les mensuelles ignore ce kind (elle créerait sinon une dépense chaque mois), puis le
+// rattrape seule une fois à jour.
 state.budgetRecurring = [];
+state.budgetYearly = [];
 
 // ============================================
 // Montants
@@ -80,6 +92,14 @@ function loadBudget() {
     const rec = JSON.parse(localStorage.getItem(BUDGET_RECURRING_STORAGE_KEY) || '[]');
     state.budgetRecurring = Array.isArray(rec) ? rec.filter(_isValidRecurring) : [];
   } catch (e) { state.budgetRecurring = []; }
+  try {
+    const yearly = JSON.parse(localStorage.getItem(BUDGET_YEARLY_STORAGE_KEY) || '[]');
+    state.budgetYearly = Array.isArray(yearly) ? yearly.filter(_isValidYearly) : [];
+  } catch (e) { state.budgetYearly = []; }
+  try {
+    const months = JSON.parse(localStorage.getItem(BUDGET_MONTHS_STORAGE_KEY) || '[]');
+    state.budgetMonths = Array.isArray(months) ? months.filter(_isValidMonthBudget) : [];
+  } catch (e) { state.budgetMonths = []; }
   budgetGenerateRecurring(); // sans famille : dépenses récurrentes du mois créées dès le démarrage
 }
 
@@ -87,6 +107,8 @@ function saveExpenses() { return safeSave(EXPENSES_STORAGE_KEY, state.expenses, 
 function saveBudgetCategories() { return safeSave(BUDGET_CATEGORIES_STORAGE_KEY, state.budgetCategories, 'catégories de budget'); }
 function saveBudgetSettings() { return safeSave(BUDGET_SETTINGS_STORAGE_KEY, state.budgetSettings, 'budget'); }
 function saveBudgetRecurring() { return safeSave(BUDGET_RECURRING_STORAGE_KEY, state.budgetRecurring, 'dépenses récurrentes'); }
+function saveBudgetYearly() { return safeSave(BUDGET_YEARLY_STORAGE_KEY, state.budgetYearly, 'dépenses annuelles'); }
+function saveBudgetMonths() { return safeSave(BUDGET_MONTHS_STORAGE_KEY, state.budgetMonths, 'budgets du mois'); }
 
 // Catégories par défaut, complétées au premier usage du budget. Elles restent locales (pas de markDirty)
 // et datées de 0 : identiques sur tous les téléphones (ids fixes), elles ne partent dans la famille
@@ -146,14 +168,38 @@ function _isValidRecurring(r) {
     Number.isInteger(r.day) && r.day >= 1 && r.day <= 31 && _BUD_MONTH_RE.test(r.startMonth || '') &&
     (!r.endMonth || _BUD_MONTH_RE.test(r.endMonth));
 }
-SYNC_COLLECTIONS.budget_recurring = _arrayCollection('budgetRecurring', () => saveBudgetRecurring(), _isValidRecurring);
+function _isValidYearly(r) {
+  return _isValidRecurring(r) && r.freq === 'yearly';
+}
+function _isValidMonthBudget(b) {
+  return !!b && typeof b === 'object' && _BUD_MONTH_RE.test(b.month || '') && b.id === 'bm_' + b.month &&
+    Number.isFinite(b.amountCents) && b.amountCents > 0;
+}
+SYNC_COLLECTIONS.budget_recurring = _arrayCollection('budgetRecurring', () => saveBudgetRecurring(), r => _isValidRecurring(r) && r.freq !== 'yearly');
+SYNC_COLLECTIONS.budget_yearly = _arrayCollection('budgetYearly', () => saveBudgetYearly(), _isValidYearly);
+SYNC_COLLECTIONS.budget_months = _arrayCollection('budgetMonths', () => saveBudgetMonths(), _isValidMonthBudget);
 
 function getBudgetCategory(id) {
   return state.budgetCategories.find(c => c.id === id) || null;
 }
 
+// Toutes les récurrences, mensuelles puis annuelles
+function _allRecurring() {
+  return state.budgetRecurring.concat(state.budgetYearly);
+}
+
 function getBudgetRecurring(id) {
-  return state.budgetRecurring.find(r => r.id === id) || null;
+  return _allRecurring().find(r => r.id === id) || null;
+}
+
+// Budget d'un mois : son budget propre s'il en a un, sinon le budget habituel (0 : aucun)
+function budgetMonthDoc(month) {
+  return state.budgetMonths.find(b => b.month === month) || null;
+}
+
+function budgetOfMonth(month) {
+  const doc = budgetMonthDoc(month);
+  return doc ? doc.amountCents : (state.budgetSettings.monthlyBudgetCents || 0);
 }
 
 // ============================================
@@ -186,6 +232,21 @@ function _recurringExpenseId(recId, month) {
   return `ex_rec_${recId}_${month}`;
 }
 
+// La récurrence a-t-elle une dépense ce mois-ci ? (dans sa période ; une annuelle : le mois de son départ)
+function _recCoversMonth(rec, month) {
+  if (month < rec.startMonth || (rec.endMonth && rec.endMonth < month)) return false;
+  return rec.freq !== 'yearly' || month.slice(5) === rec.startMonth.slice(5);
+}
+
+function _monthName(month) {
+  return new Date(2000, Number(month.slice(5)) - 1, 1).toLocaleDateString('fr-FR', { month: 'long' });
+}
+
+// « le 5 de chaque mois », « le 12 mars de chaque année »
+function _recWhenLabel(rec) {
+  return rec.freq === 'yearly' ? `le ${rec.day} ${_monthName(rec.startMonth)} de chaque année` : `le ${rec.day} de chaque mois`;
+}
+
 // Époque de sync (_syncEpoch de sync.js) de la dernière synchronisation réussie, -1 : aucune. Créer,
 // rejoindre ou quitter une famille et « Tout supprimer » changent d'époque : on attend alors la suivante.
 let _budSyncedEpoch = -1;
@@ -203,10 +264,11 @@ function budgetGenerateRecurring(onlyId) {
   const oldest = _budShiftMonth(current, -11);
   const now = Date.now();
   const created = [];
-  for (const rec of state.budgetRecurring) {
+  for (const rec of _allRecurring()) {
     if (!_isValidRecurring(rec) || (onlyId && rec.id !== onlyId)) continue;
     const last = rec.endMonth && rec.endMonth < current ? rec.endMonth : current;
     for (let m = rec.startMonth > oldest ? rec.startMonth : oldest; m <= last; m = _budShiftMonth(m, 1)) {
+      if (!_recCoversMonth(rec, m)) continue; // annuelle : seulement le mois anniversaire
       const id = _recurringExpenseId(rec.id, m);
       if (state.expenses.some(e => e.id === id)) continue; // déjà créée (ou annulée)
       state.expenses.push({
@@ -227,19 +289,19 @@ function budgetGenerateRecurring(onlyId) {
 // Récurrence modifiée (ici ou sur un autre téléphone) : la dépense du mois en cours la suit si elle est
 // encore à venir et n'a pas été retouchée à la main (elle porte alors recAt, plus ancien que la
 // récurrence). Les mois passés gardent leur montant. Si la récurrence ne couvre plus le mois (terminée
-// avant, ou repoussée), sa dépense est retirée pour de bon : elle reviendra si la période la couvre de
-// nouveau. Une récurrence périmée ne réaligne jamais en arrière (son updatedAt ne dépasse pas recAt).
-// Renvoie le nombre de dépenses changées.
+// avant, repoussée, ou devenue annuelle avec un autre mois), sa dépense est retirée pour de bon : elle
+// reviendra si la période la couvre de nouveau. Une récurrence périmée ne réaligne jamais en arrière
+// (son updatedAt ne dépasse pas recAt). Renvoie le nombre de dépenses changées.
 function _budRealignRecurring(onlyId) {
   if (_budMustWaitSync()) return 0;
   const today = formatPlanningDate(new Date());
   const month = today.slice(0, 7);
   const changed = [];
-  for (const rec of state.budgetRecurring) {
+  for (const rec of _allRecurring()) {
     if (!_isValidRecurring(rec) || (onlyId && rec.id !== onlyId)) continue;
     const e = state.expenses.find(x => x.id === _recurringExpenseId(rec.id, month));
     if (!e || e.cancelled || !e.date || e.date < today || !e.recAt || e.recAt >= (rec.updatedAt || 0)) continue;
-    if (rec.startMonth > month || (rec.endMonth && rec.endMonth < month)) {
+    if (!_recCoversMonth(rec, month)) {
       state.expenses = state.expenses.filter(x => x !== e);
     } else {
       Object.assign(e, {
@@ -257,11 +319,34 @@ function _budRealignRecurring(onlyId) {
   return changed.length;
 }
 
+// Type de document et tableau d'une récurrence, selon sa fréquence
+function _recStore(yearly) {
+  return yearly
+    ? { key: 'budgetYearly', kind: 'budget_yearly', save: saveBudgetYearly }
+    : { key: 'budgetRecurring', kind: 'budget_recurring', save: saveBudgetRecurring };
+}
+
 function _budUpsertRecurring(rec) {
-  const i = state.budgetRecurring.findIndex(r => r.id === rec.id);
-  if (i >= 0) state.budgetRecurring[i] = rec; else state.budgetRecurring.push(rec);
-  saveBudgetRecurring();
-  markDirty('budget_recurring', rec.id);
+  const yearly = rec.freq === 'yearly';
+  const to = _recStore(yearly), from = _recStore(!yearly);
+  // Fréquence changée : la récurrence change de type de document (l'ancien est supprimé, même id)
+  if (state[from.key].some(r => r.id === rec.id)) {
+    state[from.key] = state[from.key].filter(r => r.id !== rec.id);
+    from.save();
+    markDirty(from.kind, rec.id);
+  }
+  const arr = state[to.key];
+  const i = arr.findIndex(r => r.id === rec.id);
+  if (i >= 0) arr[i] = rec; else arr.push(rec);
+  to.save();
+  markDirty(to.kind, rec.id);
+}
+
+function _budRemoveRecurring(rec) {
+  const store = _recStore(rec.freq === 'yearly');
+  state[store.key] = state[store.key].filter(x => x.id !== rec.id);
+  store.save();
+  markDirty(store.kind, rec.id);
 }
 
 // Après chaque synchronisation réussie (epoch : celle du début du cycle) : la version de la famille est connue
@@ -330,6 +415,46 @@ function budgetSummary(month) {
   return { total, byCategory, byMember, count: list.length };
 }
 
+function _daysInMonthOf(month) {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+// Dépensé dans le mois jusqu'au jour donné inclus (un jour au-delà de la fin du mois : le dernier jour)
+function _budSpentThrough(month, day) {
+  const limit = `${month}-${String(Math.min(day, _daysInMonthOf(month))).padStart(2, '0')}`;
+  return expensesOfMonth(month).filter(e => e.date <= limit).reduce((t, e) => t + e.amountCents, 0);
+}
+
+// Comparaison au mois précédent. Mois en cours : dépensé jusqu'à aujourd'hui, face au mois précédent à la
+// même date (les dépenses « prévues » ne comptent pas encore). Mois passé : mois entiers. Mois à venir, ou
+// mois précédent sans dépense : null. → { prev, now, before, pct, sameDate }
+function budgetComparison(month, today) {
+  const current = today.slice(0, 7);
+  if (month > current) return null;
+  const prev = _budShiftMonth(month, -1);
+  const sameDate = month === current;
+  const day = sameDate ? Number(today.slice(8, 10)) : 31;
+  const now = _budSpentThrough(month, day);
+  const before = _budSpentThrough(prev, day);
+  if (!before) return null;
+  return { prev, now, before, pct: Math.round(((now - before) / before) * 100), sameDate };
+}
+
+// Projection de fin de mois (mois en cours, à partir du BUDGET_PROJECTION_MIN_DAY) : tout ce qui est déjà
+// saisi pour le mois (récurrentes prévues comprises), plus le rythme quotidien des dépenses PONCTUELLES
+// déjà faites prolongé jusqu'à la fin du mois. Les récurrentes (loyer…) ne sont donc pas extrapolées.
+// → { cents, total, variable } ou null
+function budgetProjection(month, today) {
+  if (month !== today.slice(0, 7)) return null;
+  const day = Number(today.slice(8, 10));
+  if (day < BUDGET_PROJECTION_MIN_DAY) return null;
+  const list = expensesOfMonth(month);
+  const total = list.reduce((t, e) => t + e.amountCents, 0);
+  const variable = list.filter(e => !e.recurringId && e.date <= today).reduce((t, e) => t + e.amountCents, 0);
+  return { cents: Math.round(total + (variable / day) * (_daysInMonthOf(month) - day)), total, variable };
+}
+
 // ============================================
 // Vues : Aperçu · Dépenses
 // ============================================
@@ -392,22 +517,56 @@ function _budBar(pct, over) {
   return `<span class="bud-bar${over ? ' is-over' : ''}"><span class="bud-bar-fill" style="width:${Math.max(0, Math.min(100, Math.round(pct)))}%"></span></span>`;
 }
 
+// « de mars », « d'octobre »
+function _deMonth(name) {
+  return (/^[aeiouyàâéèêîïôûù]/i.test(name) ? "d'" : 'de ') + name;
+}
+
+// Comparaison au mois précédent (voir budgetComparison) : une ligne, ou ''
+function _budCompareHtml(month, today) {
+  const c = budgetComparison(month, today);
+  if (!c) return '';
+  const when = `qu'en ${_monthName(c.prev)}${c.sameDate ? ' à la même date' : ''}`;
+  const text = c.pct > 0 ? `▲ ${c.pct} % de plus ${when}`
+    : c.pct < 0 ? `▼ ${-c.pct} % de moins ${when}`
+      : `= Autant ${when}`;
+  return `<p class="bud-compare${c.pct > 0 ? ' is-up' : ''}">${escapeHtml(text)} <small>(${escapeHtml(formatEuros(c.before, true))})</small></p>`;
+}
+
+// Projection de fin de mois (voir budgetProjection) : un encart, ou ''
+function _budProjectionHtml(month, today, budget) {
+  const p = budgetProjection(month, today);
+  if (!p) return '';
+  const over = budget && p.cents > budget;
+  const verdict = !budget ? ''
+    : over ? `dépassement estimé de ${formatEuros(p.cents - budget, true)}`
+      : `dans le budget (≈ ${formatEuros(budget - p.cents, true)} de marge)`;
+  return `<div class="bud-projection${over ? ' is-over' : ''}">
+      <p class="bud-projection-main">📈 Fin de mois estimée : <strong>${escapeHtml(formatEuros(p.cents, true))}</strong></p>
+      ${verdict ? `<p class="bud-projection-verdict">${escapeHtml(verdict)}</p>` : ''}
+      <p class="bud-projection-hint">D'après le rythme des dépenses ponctuelles depuis le 1er. Les dépenses récurrentes du mois sont comptées telles quelles.</p>
+    </div>`;
+}
+
 function _budOverviewHtml(month) {
   const s = budgetSummary(month);
-  const budget = state.budgetSettings.monthlyBudgetCents || 0;
+  const budget = budgetOfMonth(month);
+  const ownBudget = !!budgetMonthDoc(month);
   const left = budget - s.total;
   // Dépenses à venir ce mois-ci (récurrentes créées dès le 1er) : comptées, et signalées
   const today = formatPlanningDate(new Date());
   const planned = expensesOfMonth(month).filter(e => e.date > today).reduce((t, e) => t + e.amountCents, 0);
   const plannedText = planned ? `dont ${formatEuros(planned)} prévus` : '';
+  const monthName = _deMonth(_monthName(month));
   const head = budget
     ? `<p class="bud-left${left < 0 ? ' is-over' : ''}">${left >= 0 ? 'Reste' : 'Dépassement'} <strong>${escapeHtml(formatEuros(Math.abs(left)))}</strong></p>
        ${_budBar(budget ? (s.total / budget) * 100 : 0, left < 0)}
-       <p class="bud-sub">${escapeHtml(formatEuros(s.total))} dépensés sur ${escapeHtml(formatEuros(budget, true))}${plannedText ? ' · ' + escapeHtml(plannedText) : ''}</p>`
+       <p class="bud-sub">${escapeHtml(formatEuros(s.total))} dépensés sur ${escapeHtml(formatEuros(budget, true))}${plannedText ? ' · ' + escapeHtml(plannedText) : ''}</p>
+       <button class="bud-link bud-month-link" onclick="openMonthBudgetSheet()">✏️ Budget ${escapeHtml(monthName)}${ownBudget ? ' (propre à ce mois)' : ''}</button>`
     : `<p class="bud-left"><strong>${escapeHtml(formatEuros(s.total))}</strong> dépensés</p>
        ${plannedText ? `<p class="bud-sub">${escapeHtml(_capitalize(plannedText))}</p>` : ''}
-       <button class="cal-add-link" onclick="openBudgetSettings()">Définir un budget mensuel →</button>`;
-  const nRec = state.budgetRecurring.length;
+       <button class="cal-add-link" onclick="openMonthBudgetSheet()">Définir un budget →</button>`;
+  const nRec = _allRecurring().length;
   const recLink = `<button class="cal-add-link" onclick="openRecurringList()">🔁 Dépenses récurrentes${nRec ? ` (${nRec})` : ''} →</button>`;
 
   const catRows = _activeCategories()
@@ -445,7 +604,7 @@ function _budOverviewHtml(month) {
     }).join('');
 
   return `
-    <section class="hub-card bud-summary">${head}${recLink}</section>
+    <section class="hub-card bud-summary">${head}${_budCompareHtml(month, today)}${_budProjectionHtml(month, today, budget)}${recLink}</section>
     <section class="bud-section">
       <div class="bud-section-head"><h3 class="hub-section-title">Par catégorie</h3>
         <button class="bud-link" onclick="openBudgetSettings()">Catégories et budgets</button></div>
@@ -601,11 +760,16 @@ function openExpenseEditor(id) {
   // Dépense issue d'une récurrence : la modifier ne change que ce mois
   const rec = existing && existing.recurringId ? getBudgetRecurring(existing.recurringId) : null;
   const recInfo = !existing || !existing.recurringId ? ''
-    : rec ? `<p class="family-hint bud-rec-info">🔁 Dépense récurrente « ${escapeHtml(rec.label)} », le ${rec.day} de chaque mois${rec.endMonth ? ` jusqu'en ${escapeHtml(_monthLabel(rec.endMonth).toLowerCase())}` : ''} : les modifications ici ne concernent que ce mois.
+    : rec ? `<p class="family-hint bud-rec-info">🔁 Dépense récurrente « ${escapeHtml(rec.label)} », ${escapeHtml(_recWhenLabel(rec))}${rec.endMonth ? ` jusqu'en ${escapeHtml(_monthLabel(rec.endMonth).toLowerCase())}` : ''} : les modifications ici ne concernent que ${rec.freq === 'yearly' ? 'cette année' : 'ce mois'}.
         <button type="button" class="cal-add-link" onclick="budOpenRecurringFromExpense(${_jsArg(rec.id)})">Modifier la récurrence →</button></p>`
       : `<p class="family-hint bud-rec-info">🔁 Issue d'une dépense récurrente supprimée depuis.</p>`;
-  const recToggle = existing ? '' : `<label class="settings-toggle cal-toggle bud-rec-toggle"><input type="checkbox" id="exp-recurring">
-      <span>🔁 Chaque mois <small>(dépense récurrente : loyer, charges, abonnement…)</small></span></label>`;
+  const recToggle = existing ? '' : `<label class="settings-toggle cal-toggle bud-rec-toggle"><input type="checkbox" id="exp-recurring" onchange="budToggleRecurring(this.checked)">
+      <span>🔁 Se répète <small>(loyer, charges, abonnement, assurance…)</small></span></label>
+      <div class="cal-picks bud-rec-freq hidden" id="exp-rec-freq" data-value="monthly">
+        <button type="button" class="cal-pick is-selected" data-value="monthly" onclick="budPickSingle(this)">Chaque mois</button>
+        <button type="button" class="cal-pick" data-value="yearly" onclick="budPickSingle(this)">Chaque année</button>
+      </div>`;
+  const quick = BUDGET_QUICK_AMOUNTS.map(n => `<button type="button" class="cal-pick" onclick="budAddAmount('exp-amount', ${n})">+${n} €</button>`).join('');
   openSheet('expense-editor', `
     <div class="modal-header">
       <h2>${existing ? 'Dépense' : 'Nouvelle dépense'}</h2>
@@ -618,6 +782,7 @@ function openExpenseEditor(id) {
         <input id="exp-amount" class="family-input bud-amount-input" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${escapeHtml(_centsToInput(exp.amountCents))}">
         <span class="bud-amount-cur">€</span>
       </div>
+      <div class="cal-picks bud-quick">${quick}</div>
       <label class="family-label" for="exp-label">Libellé</label>
       <input id="exp-label" class="family-input" maxlength="80" autocomplete="off" placeholder="Ex. Supermarché" value="${escapeHtml(exp.label || '')}">
       <span class="family-label">Catégorie</span>
@@ -651,6 +816,20 @@ function budPickSingle(btn, allowNone) {
 }
 window.budPickSingle = budPickSingle;
 
+// Boutons « +5 € »… : ajoutent au montant saisi (un montant illisible repart de 0)
+function budAddAmount(inputId, euros) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  input.value = _centsToInput((parseAmountToCents(input.value) || 0) + euros * 100);
+}
+window.budAddAmount = budAddAmount;
+
+function budToggleRecurring(checked) {
+  const box = document.getElementById('exp-rec-freq');
+  if (box) box.classList.toggle('hidden', !checked);
+}
+window.budToggleRecurring = budToggleRecurring;
+
 function saveExpenseFromEditor() {
   const e = _budEditing;
   if (!e) return;
@@ -676,16 +855,18 @@ function saveExpenseFromEditor() {
   };
   const recBox = document.getElementById('exp-recurring');
   if (e.isNew && recBox && recBox.checked) {
-    // « Chaque mois » : la récurrence crée elle-même la dépense de ce mois (et celles des suivants). Les
+    // « Se répète » : la récurrence crée elle-même la dépense de ce mois (et celles des suivants). Les
     // mois rattrapés s'arrêtent à 12 : une date plus ancienne ne serait jamais créée
     if (date.slice(0, 7) < _budShiftMonth(formatPlanningDate(new Date()).slice(0, 7), -11)) {
-      showToast('« Chaque mois » : choisis une date dans les 12 derniers mois', 'error');
+      showToast('Dépense qui se répète : choisis une date dans les 12 derniers mois', 'error');
       return;
     }
     const cat = getBudgetCategory(expense.categoryId);
     const now = Date.now();
+    const freqBox = document.getElementById('exp-rec-freq');
     const rec = {
-      id: 'rec_' + uid(), label: expense.label || (cat ? cat.name : 'Dépense récurrente'), amountCents: cents,
+      id: 'rec_' + uid(), freq: freqBox && freqBox.dataset.value === 'yearly' ? 'yearly' : 'monthly',
+      label: expense.label || (cat ? cat.name : 'Dépense récurrente'), amountCents: cents,
       categoryId: expense.categoryId, memberId: expense.memberId, note: expense.note,
       day: Number(date.slice(8, 10)), startMonth: date.slice(0, 7), endMonth: '', createdAt: now, updatedAt: now
     };
@@ -695,7 +876,7 @@ function saveExpenseFromEditor() {
     closeSheet('expense-editor');
     if (date.slice(0, 7) !== _budMonth() && state.currentView && state.currentView.startsWith('budget-')) _bud.month = date.slice(0, 7);
     _budRefreshIfVisible();
-    showToast(created ? `Dépense récurrente créée ✓ ${formatEuros(cents)} le ${rec.day} de chaque mois`
+    showToast(created ? `Dépense récurrente créée ✓ ${formatEuros(cents)} ${_recWhenLabel(rec)}`
       : `Dépense récurrente créée ✓ première dépense en ${_monthLabel(rec.startMonth).toLowerCase()}`, 'success');
     return;
   }
@@ -737,36 +918,42 @@ window.budOpenRecurringFromExpense = budOpenRecurringFromExpense;
 function openRecurringList() {
   _ensureDefaultCategories();
   const current = formatPlanningDate(new Date()).slice(0, 7);
-  const recs = state.budgetRecurring.slice().sort((a, b) => (a.day - b.day) || String(a.label || '').localeCompare(String(b.label || ''), 'fr'));
+  // Mensuelles par jour, puis annuelles par date dans l'année
+  const sortKey = r => (r.freq === 'yearly' ? 'b' + r.startMonth.slice(5) : 'a00') + String(r.day).padStart(2, '0');
+  const recs = _allRecurring().slice().sort((a, b) => sortKey(a).localeCompare(sortKey(b)) || String(a.label || '').localeCompare(String(b.label || ''), 'fr'));
   const active = r => r.startMonth <= current && !(r.endMonth && r.endMonth < current);
   const rows = recs.map(r => {
     const c = getBudgetCategory(r.categoryId);
     const m = r.memberId ? getMember(r.memberId) : null;
+    const yearly = r.freq === 'yearly';
     const when = r.endMonth && r.endMonth < current ? `terminée en ${_monthLabel(r.endMonth).toLowerCase()}`
       : r.startMonth > current ? `à partir de ${_monthLabel(r.startMonth).toLowerCase()}`
-        : r.endMonth ? `jusqu'en ${_monthLabel(r.endMonth).toLowerCase()}` : 'chaque mois';
+        : r.endMonth ? `jusqu'en ${_monthLabel(r.endMonth).toLowerCase()}` : yearly ? 'chaque année' : 'chaque mois';
     return `<button class="bud-expense${active(r) ? '' : ' is-inactive'}" onclick="openRecurringEditor(${_jsArg(r.id)})">
       <span class="bud-row-emoji" aria-hidden="true">${escapeHtml((c && c.emoji) || '🔁')}</span>
       <span class="bud-row-main">
         <span class="bud-expense-label">${escapeHtml(r.label || (c ? c.name : 'Dépense'))}</span>
-        <span class="bud-expense-sub">Le ${r.day} · ${escapeHtml(when)}${c ? ' · ' + escapeHtml(c.name) : ''}</span>
+        <span class="bud-expense-sub">Le ${r.day}${yearly ? ' ' + escapeHtml(_monthName(r.startMonth)) : ''} · ${escapeHtml(when)}${c ? ' · ' + escapeHtml(c.name) : ''}</span>
       </span>
       ${m ? memberAvatarHtml(m, 'sm') : ''}
-      <span class="bud-expense-amount">${escapeHtml(formatEuros(r.amountCents))}</span>
+      <span class="bud-expense-amount">${escapeHtml(formatEuros(r.amountCents))}${yearly ? '<small> /an</small>' : ''}</span>
     </button>`;
   }).join('');
   const running = recs.filter(active);
-  const monthly = running.reduce((t, r) => t + r.amountCents, 0);
+  const monthly = running.filter(r => r.freq !== 'yearly').reduce((t, r) => t + r.amountCents, 0);
+  const yearly = running.filter(r => r.freq === 'yearly').reduce((t, r) => t + r.amountCents, 0);
+  const totals = [monthly ? `<strong>${escapeHtml(formatEuros(monthly))}</strong> par mois` : '', yearly ? `<strong>${escapeHtml(formatEuros(yearly))}</strong> par an` : '']
+    .filter(Boolean).join(' + ');
   openSheet('budget-recurring', `
     <div class="modal-header">
       <h2>Dépenses récurrentes</h2>
       <button class="icon-btn icon-btn-light" onclick="closeSheet('budget-recurring')" aria-label="Fermer">${_CAL_ICON_CLOSE}</button>
     </div>
     <div class="sheet-body">
-      <p class="family-hint">Ajoutées automatiquement chaque mois, dès le 1er, et marquées « prévue » jusqu'à leur jour. Supprimer la dépense d'un mois ne touche pas aux autres.</p>
+      <p class="family-hint">Ajoutées automatiquement dès le 1er du mois (chaque mois, ou chaque année le même mois), et marquées « prévue » jusqu'à leur jour. Supprimer la dépense d'un mois ne touche pas aux autres.</p>
       ${recs.length
-        ? `<p class="bud-total">${running.length} en cours · <strong>${escapeHtml(formatEuros(monthly))}</strong> par mois</p><div class="cal-list">${rows}</div>`
-        : `<p class="cal-empty">Aucune dépense récurrente pour l'instant : loyer, charges, abonnements…</p>`}
+        ? `<p class="bud-total">${running.length} en cours${totals ? ' · ' + totals : ''}</p><div class="cal-list">${rows}</div>`
+        : `<p class="cal-empty">Aucune dépense récurrente pour l'instant : loyer, charges, abonnements, assurances…</p>`}
       <div class="sheet-actions"><button class="btn-primary" onclick="openRecurringEditor()">+ Nouvelle dépense récurrente</button></div>
     </div>`);
 }
@@ -779,6 +966,21 @@ function _budRefreshRecurringList() {
 
 let _budRecEditing = null; // { rec (copie de travail), isNew }
 
+const _REC_HINT_MONTHLY = "Le 29, le 30 ou le 31 tombent le dernier jour des mois plus courts. Une modification s'applique aux mois suivants, et au mois en cours si sa dépense est encore à venir et n'a pas été retouchée.";
+const _REC_HINT_YEARLY = "Ajoutée chaque année le mois choisi (assurance, taxe foncière, cotisation…). Une modification s'applique aux années suivantes, et à cette année si sa dépense est encore à venir et n'a pas été retouchée.";
+
+// Fiche d'une récurrence : « Chaque mois » / « Chaque année » change les libellés des champs
+function budPickRecFreq(btn) {
+  budPickSingle(btn);
+  const yearly = btn.dataset.value === 'yearly';
+  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  set('rec-amount-label', yearly ? 'Montant chaque année' : 'Montant chaque mois');
+  set('rec-day-label', yearly ? 'Jour' : 'Jour du mois');
+  set('rec-start-label', yearly ? 'Première fois en' : 'À partir de');
+  set('rec-hint', yearly ? _REC_HINT_YEARLY : _REC_HINT_MONTHLY);
+}
+window.budPickRecFreq = budPickRecFreq;
+
 function openRecurringEditor(id) {
   _ensureDefaultCategories();
   const existing = id ? getBudgetRecurring(id) : null;
@@ -789,10 +991,11 @@ function openRecurringEditor(id) {
   const today = formatPlanningDate(new Date());
   const logement = getBudgetCategory('bc_logement');
   const rec = existing ? { ...existing } : {
-    id: 'rec_' + uid(), label: '', amountCents: 0,
+    id: 'rec_' + uid(), freq: 'monthly', label: '', amountCents: 0,
     categoryId: logement && !logement.archived ? 'bc_logement' : ((_activeCategories()[0] || {}).id || ''),
     memberId: '', note: '', day: Number(today.slice(8, 10)), startMonth: today.slice(0, 7), endMonth: ''
   };
+  const yearly = rec.freq === 'yearly';
   _budRecEditing = { rec, isNew: !existing };
   const archived = existing && getBudgetCategory(existing.categoryId) && getBudgetCategory(existing.categoryId).archived ? [getBudgetCategory(existing.categoryId)] : [];
   const unknownCat = !!rec.categoryId && !getBudgetCategory(rec.categoryId);
@@ -806,23 +1009,27 @@ function openRecurringEditor(id) {
       <button class="icon-btn icon-btn-light" onclick="closeSheet('budget-recurring-editor')" aria-label="Fermer">${_CAL_ICON_CLOSE}</button>
     </div>
     <div class="sheet-body">
-      <label class="family-label" for="rec-amount">Montant chaque mois</label>
+      <div class="cal-picks" id="rec-freq" data-value="${yearly ? 'yearly' : 'monthly'}">
+        <button type="button" class="cal-pick${yearly ? '' : ' is-selected'}" data-value="monthly" onclick="budPickRecFreq(this)">Chaque mois</button>
+        <button type="button" class="cal-pick${yearly ? ' is-selected' : ''}" data-value="yearly" onclick="budPickRecFreq(this)">Chaque année</button>
+      </div>
+      <label class="family-label" for="rec-amount" id="rec-amount-label">${yearly ? 'Montant chaque année' : 'Montant chaque mois'}</label>
       <div class="bud-amount-wrap">
         <input id="rec-amount" class="family-input bud-amount-input" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${escapeHtml(_centsToInput(rec.amountCents))}">
         <span class="bud-amount-cur">€</span>
       </div>
       <label class="family-label" for="rec-label">Libellé</label>
-      <input id="rec-label" class="family-input" maxlength="80" autocomplete="off" placeholder="Ex. Loyer" value="${escapeHtml(rec.label || '')}">
+      <input id="rec-label" class="family-input" maxlength="80" autocomplete="off" placeholder="Ex. Loyer, assurance habitation" value="${escapeHtml(rec.label || '')}">
       <span class="family-label">Catégorie</span>
       <div class="cal-picks" id="rec-category" data-value="${escapeHtml(rec.categoryId || '')}">${cats}</div>
       ${members ? `<span class="family-label">Qui ? <small>(facultatif)</small></span><div class="cal-picks" id="rec-member" data-value="${escapeHtml(rec.memberId || '')}">${members}</div>` : ''}
       <div class="cal-row">
-        <div class="cal-field"><label class="family-label" for="rec-day">Jour du mois</label><input type="number" id="rec-day" class="family-input" min="1" max="31" step="1" inputmode="numeric" value="${rec.day}"></div>
-        <div class="cal-field"><label class="family-label" for="rec-start">À partir de</label><input type="month" id="rec-start" class="family-input" placeholder="AAAA-MM" value="${escapeHtml(rec.startMonth)}"></div>
+        <div class="cal-field"><label class="family-label" for="rec-day" id="rec-day-label">${yearly ? 'Jour' : 'Jour du mois'}</label><input type="number" id="rec-day" class="family-input" min="1" max="31" step="1" inputmode="numeric" value="${rec.day}"></div>
+        <div class="cal-field"><label class="family-label" for="rec-start" id="rec-start-label">${yearly ? 'Première fois en' : 'À partir de'}</label><input type="month" id="rec-start" class="family-input" placeholder="AAAA-MM" value="${escapeHtml(rec.startMonth)}"></div>
       </div>
       <label class="family-label" for="rec-end">Jusqu'à <small>(facultatif)</small></label>
       <input type="month" id="rec-end" class="family-input" placeholder="AAAA-MM" value="${escapeHtml(rec.endMonth || '')}">
-      <p class="family-hint">Le 29, le 30 ou le 31 tombent le dernier jour des mois plus courts. Une modification s'applique aux mois suivants, et au mois en cours si sa dépense est encore à venir et n'a pas été retouchée.</p>
+      <p class="family-hint" id="rec-hint">${yearly ? _REC_HINT_YEARLY : _REC_HINT_MONTHLY}</p>
       <label class="family-label" for="rec-note">Note</label>
       <input id="rec-note" class="family-input" maxlength="200" autocomplete="off" value="${escapeHtml(rec.note || '')}">
       <div class="sheet-actions">
@@ -869,9 +1076,11 @@ function saveRecurringFromEditor() {
   const categoryId = document.getElementById('rec-category').dataset.value || '';
   const cat = getBudgetCategory(categoryId);
   const memberBox = document.getElementById('rec-member');
+  const freqBox = document.getElementById('rec-freq');
   const now = Date.now();
   const rec = {
     ...r.rec,
+    freq: freqBox && freqBox.dataset.value === 'yearly' ? 'yearly' : 'monthly',
     label: document.getElementById('rec-label').value.trim().slice(0, 80) || (cat ? cat.name : 'Dépense récurrente'),
     amountCents: cents, categoryId, memberId: memberBox ? (memberBox.dataset.value || '') : '',
     note: document.getElementById('rec-note').value.trim().slice(0, 200),
@@ -887,9 +1096,10 @@ function saveRecurringFromEditor() {
   _budRefreshRecurringList();
   _budRefreshIfVisible();
   showToast(!r.isNew ? 'Dépense récurrente modifiée ✓'
-    : created ? `Dépense récurrente créée ✓ ${formatEuros(cents)} le ${day} de chaque mois`
+    : created ? `Dépense récurrente créée ✓ ${formatEuros(cents)} ${_recWhenLabel(rec)}`
       : startMonth > formatPlanningDate(new Date()).slice(0, 7) ? `Dépense récurrente créée ✓ première dépense en ${_monthLabel(startMonth).toLowerCase()}`
-        : 'Dépense récurrente créée ✓ aucune dépense ajoutée : période antérieure aux 12 derniers mois', 'success');
+        : rec.freq === 'yearly' ? `Dépense annuelle créée ✓ prochaine dépense en ${_monthName(startMonth)}`
+          : 'Dépense récurrente créée ✓ aucune dépense ajoutée : période antérieure aux 12 derniers mois', 'success');
 }
 window.saveRecurringFromEditor = saveRecurringFromEditor;
 
@@ -899,9 +1109,7 @@ async function deleteRecurringFromEditor() {
   if (!(await uiConfirm(`Supprimer la dépense récurrente « ${r.rec.label} » ? Les dépenses déjà ajoutées sont gardées ; il n'y en aura plus de nouvelles.`,
     { confirmLabel: 'Supprimer', danger: true }))) return;
   if (_budRecEditing !== r) return; // fiche fermée ou remplacée pendant la confirmation
-  state.budgetRecurring = state.budgetRecurring.filter(x => x.id !== r.rec.id);
-  saveBudgetRecurring();
-  markDirty('budget_recurring', r.rec.id);
+  _budRemoveRecurring(getBudgetRecurring(r.rec.id) || r.rec);
   _budRecEditing = null;
   closeSheet('budget-recurring-editor');
   _budRefreshRecurringList();
@@ -914,8 +1122,8 @@ window.deleteRecurringFromEditor = deleteRecurringFromEditor;
 function renderSettingsBudgetSection() {
   const el = document.getElementById('settings-budget-status');
   if (!el) return;
-  const budget = state.budgetSettings.monthlyBudgetCents || 0;
-  const n = state.budgetRecurring.length;
+  const budget = budgetOfMonth(formatPlanningDate(new Date()).slice(0, 7));
+  const n = _allRecurring().length;
   el.textContent = `${budget ? 'Budget du mois : ' + formatEuros(budget, true) : 'Aucun budget mensuel défini'} · ${n} dépense${n > 1 ? 's' : ''} récurrente${n > 1 ? 's' : ''}`;
 }
 
@@ -948,11 +1156,12 @@ function openBudgetSettings() {
       <button class="icon-btn icon-btn-light" onclick="closeSheet('budget-settings')" aria-label="Fermer">${_CAL_ICON_CLOSE}</button>
     </div>
     <div class="sheet-body">
-      <label class="family-label" for="bud-monthly">Budget mensuel de la famille</label>
+      <label class="family-label" for="bud-monthly">Budget habituel de la famille <small>(chaque mois)</small></label>
       <div class="bud-amount-wrap">
         <input id="bud-monthly" class="family-input bud-amount-input" inputmode="decimal" placeholder="Ex. 2 000" value="${escapeHtml(_centsToInput(state.budgetSettings.monthlyBudgetCents))}" data-initial="${Number(state.budgetSettings.monthlyBudgetCents) || 0}">
         <span class="bud-amount-cur">€</span>
       </div>
+      <p class="family-hint">Un mois peut avoir son propre budget (rentrée, fêtes…) : « ✏️ Budget du mois » dans l'aperçu.</p>
       <span class="family-label">Catégories <small>(plafond mensuel facultatif)</small></span>
       <div id="bud-cat-rows" class="bud-cat-rows">${rows}</div>
       <button class="btn-secondary btn-block" onclick="budAddCategoryRow()">+ Ajouter une catégorie</button>
@@ -1056,3 +1265,96 @@ function saveBudgetSettingsFromSheet() {
   showToast('Budgets enregistrés ✓', 'success');
 }
 window.saveBudgetSettingsFromSheet = saveBudgetSettingsFromSheet;
+
+// ============================================
+// Budget propre à un mois
+// ============================================
+// Feuille « Budget d'octobre » : un montant, pour tous les mois (budget habituel) ou pour ce mois seulement.
+// « Tous les mois » retire aussi le budget propre du mois affiché, qui suit alors le budget habituel.
+
+function openMonthBudgetSheet() {
+  const month = _budMonth();
+  const own = budgetMonthDoc(month);
+  const usual = state.budgetSettings.monthlyBudgetCents || 0;
+  const scope = own ? 'month' : 'all';
+  const name = _monthName(month);
+  openSheet('budget-month', `
+    <div class="modal-header">
+      <h2>Budget ${escapeHtml(_deMonth(name))} ${escapeHtml(month.slice(0, 4))}</h2>
+      <button class="icon-btn icon-btn-light" onclick="closeSheet('budget-month')" aria-label="Fermer">${_CAL_ICON_CLOSE}</button>
+    </div>
+    <div class="sheet-body">
+      <label class="family-label" for="bud-month-amount">Montant</label>
+      <div class="bud-amount-wrap">
+        <input id="bud-month-amount" class="family-input bud-amount-input" inputmode="decimal" autocomplete="off" placeholder="Ex. 2 000" value="${escapeHtml(_centsToInput(budgetOfMonth(month)))}">
+        <span class="bud-amount-cur">€</span>
+      </div>
+      <span class="family-label">Pour</span>
+      <div class="cal-picks" id="bud-month-scope" data-value="${scope}">
+        <button type="button" class="cal-pick${scope === 'all' ? ' is-selected' : ''}" data-value="all" onclick="budPickSingle(this)">Tous les mois</button>
+        <button type="button" class="cal-pick${scope === 'month' ? ' is-selected' : ''}" data-value="month" onclick="budPickSingle(this)">${escapeHtml(_capitalize(name))} seulement</button>
+      </div>
+      <p class="family-hint">${usual ? `Budget habituel : ${escapeHtml(formatEuros(usual, true))} par mois.` : 'Aucun budget habituel pour l\'instant.'} Un budget propre à un mois le remplace ce mois-là (rentrée, vacances, fêtes…).</p>
+      <div class="sheet-actions">
+        ${own ? '<button class="btn-secondary" onclick="resetMonthBudget()">Revenir au budget habituel</button>' : ''}
+        <button class="btn-primary" onclick="saveMonthBudget()">Enregistrer</button>
+      </div>
+    </div>`);
+  setTimeout(() => { const el = document.getElementById('bud-month-amount'); if (el) el.focus(); }, 60);
+}
+window.openMonthBudgetSheet = openMonthBudgetSheet;
+
+function _budRemoveMonthBudget(month) {
+  const doc = budgetMonthDoc(month);
+  if (!doc) return false;
+  state.budgetMonths = state.budgetMonths.filter(b => b !== doc);
+  saveBudgetMonths();
+  markDirty('budget_months', doc.id);
+  return true;
+}
+
+function saveMonthBudget() {
+  const month = _budMonth();
+  const raw = document.getElementById('bud-month-amount').value.trim();
+  const cents = raw ? parseAmountToCents(raw) : 0;
+  if (raw && !cents) {
+    showToast('Montant invalide', 'error');
+    return;
+  }
+  const scope = document.getElementById('bud-month-scope').dataset.value;
+  const now = Date.now();
+  if (scope === 'month') {
+    if (!cents) {
+      _budRemoveMonthBudget(month); // vide : le mois reprend le budget habituel
+    } else {
+      const id = 'bm_' + month;
+      const doc = budgetMonthDoc(month);
+      if (doc) Object.assign(doc, { amountCents: cents, updatedAt: now });
+      else state.budgetMonths.push({ id, month, amountCents: cents, updatedAt: now });
+      saveBudgetMonths();
+      markDirty('budget_months', id);
+    }
+  } else {
+    if (cents !== (state.budgetSettings.monthlyBudgetCents || 0)) {
+      Object.assign(state.budgetSettings, { id: BUDGET_SETTINGS_ID, monthlyBudgetCents: cents, updatedAt: now });
+      saveBudgetSettings();
+      markDirty('budget_settings', BUDGET_SETTINGS_ID);
+    }
+    _budRemoveMonthBudget(month);
+  }
+  closeSheet('budget-month');
+  _budRefreshIfVisible();
+  showToast(scope === 'month' && cents ? `Budget ${_deMonth(_monthName(month))} : ${formatEuros(cents, true)} ✓`
+    : cents ? `Budget habituel : ${formatEuros(cents, true)} par mois ✓` : 'Budget retiré', 'success');
+}
+window.saveMonthBudget = saveMonthBudget;
+
+function resetMonthBudget() {
+  const month = _budMonth();
+  _budRemoveMonthBudget(month);
+  closeSheet('budget-month');
+  _budRefreshIfVisible();
+  const usual = state.budgetSettings.monthlyBudgetCents || 0;
+  showToast(usual ? `Budget habituel rétabli : ${formatEuros(usual, true)} ✓` : 'Budget du mois retiré', 'success');
+}
+window.resetMonthBudget = resetMonthBudget;

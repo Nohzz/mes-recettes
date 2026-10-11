@@ -10,12 +10,15 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
 
 ### 🏡 Accueil
 - **Carte « Aujourd'hui »** : événements et repas du jour, membres de la famille
+- **« Qui s'en occupe ? »** : les rendez-vous, activités ou sorties des 7 prochains jours que personne n'a pris en charge (pour un enfant, ou pour toute la famille). « 🙋 Moi » en un geste, « Choisir… » ou « Personne »
+- **Mémos** : petites notes partagées par la famille, avec un rappel facultatif à une date et une heure (en notification sur les téléphones concernés). Cocher un mémo le termine (« Annuler » quelques secondes)
 - **Tuiles** des sous-apps (Calendrier, Budget, Recettes) avec un résumé : prochain événement, reste du budget du mois
 - Chaque sous-app a sa propre barre du bas ; le bouton 🏠 ramène à l'accueil
 
 ### 📅 Calendrier familial
 - Vues **Jour**, **Semaine**, **Mois** et **À venir**
-- **Événements** : catégorie, participants (ou toute la famille), journée entière ou horaires, sur plusieurs jours, lieu, notes
+- **Événements** : catégorie, **pour qui** (ou toute la famille) et **qui s'en occupe** (il reçoit les rappels), journée entière ou horaires, sur plusieurs jours, lieu, notes
+- **Organisation d'un événement** (anniversaire, vacances, sortie…) : **liste de souhaits** (idées de cadeaux avec lien et prix, que chacun réserve pour éviter les doublons) et **dépenses partagées** (qui a payé quoi, partagé entre qui ; soldes et « qui doit quoi » avec le moins de remboursements possible)
 - **Récurrence** : chaque jour, chaque semaine, toutes les 2 semaines, chaque mois, chaque année (anniversaires). Modifier ou supprimer « cette fois » ou « toute la série »
 - **Rappels** : à l'heure, 15 min, 1 h, la veille ou 1 semaine avant
 - **Repas du planning** affichés dans le calendrier (ce sont les mêmes données que le planning de Recettes)
@@ -23,9 +26,12 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
 
 ### 💶 Budget familial
 - **Aperçu du mois** : dépensé, budget, reste, barres par catégorie (avec plafond facultatif) et répartition par membre
+- **Comparaison au mois précédent** (à la même date pour le mois en cours) et **projection de fin de mois** : dépenses déjà saisies, plus le rythme des dépenses ponctuelles prolongé jusqu'à la fin du mois (le loyer et les autres récurrentes ne sont pas extrapolés)
+- **Budget habituel** (chaque mois) ou **propre à un mois** (rentrée, vacances, fêtes) : « ✏️ Budget du mois » dans l'aperçu
 - **Dépenses** : liste groupée par jour, filtres par catégorie et par membre, **recherche texte** dans tous les mois (libellé, note, catégorie, membre, montant ; sans tenir compte des accents)
-- **Dépenses récurrentes** (loyer, charges, abonnements…) : ajoutées automatiquement chaque mois dès le 1er, datées de leur jour et marquées « prévue » jusque-là ; supprimer la dépense d'un mois ne touche pas aux autres. Création depuis la liste « 🔁 Dépenses récurrentes » ou par l'option « Chaque mois » d'une nouvelle dépense
-- **Catégories** par défaut (Courses, Logement, Transport, Santé, Enfants…) personnalisables, budget mensuel global
+- **Saisie rapide** : boutons +5 €, +10 €, +20 €, +50 €
+- **Dépenses récurrentes** **mensuelles** (loyer, charges, abonnements…) ou **annuelles** (assurance, taxe foncière…) : ajoutées automatiquement dès le 1er du mois concerné, datées de leur jour et marquées « prévue » jusque-là ; supprimer la dépense d'un mois ne touche pas aux autres. Création depuis la liste « 🔁 Dépenses récurrentes » ou par l'option « Se répète » d'une nouvelle dépense
+- **Catégories** par défaut (Courses, Logement, Transport, Santé, Enfants…) personnalisables
 
 ### 👪 Famille et rappels
 - **Famille partagée** : un lien d'invitation suffit pour relier les téléphones, sans email ni mot de passe. Voir [SYNC-GUIDE.md](./SYNC-GUIDE.md)
@@ -154,7 +160,7 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
 
 ### ☁️ Synchronisation de la famille (optionnelle)
 - Via votre propre projet Supabase gratuit — voir [SYNC-GUIDE.md](./SYNC-GUIDE.md)
-- Recettes, listes de courses, calendrier (repas compris), budget et membres sont partagés ; garde-manger et préférences restent sur chaque téléphone
+- Recettes, listes de courses, calendrier (repas compris), mémos, budget et membres sont partagés ; garde-manger et préférences restent sur chaque téléphone
 - **Base protégée** : chaque téléphone a une identité anonyme, et seuls les téléphones de la famille lisent ou modifient ses données (RLS)
 - **Hors ligne** : les modifications attendent et partent au retour du réseau ; la dernière modification d'un document l'emporte, selon l'horloge du serveur
 - **Données privées** : stockées localement par défaut, sur votre Supabase si la famille est créée. Les identifiants Supabase eux-mêmes sont obfusqués localement (voir Sécurité locale ci-dessus)
@@ -170,6 +176,8 @@ recettes-app/
 ├── hub.js              # Écran d'accueil
 ├── calendar.js         # Calendrier familial (événements, repas, récurrence, rappels)
 ├── budget.js           # Budget familial
+├── memos.js            # Mémos de l'accueil
+├── occasions.js        # Liste de souhaits et dépenses partagées d'un événement
 ├── family.js           # Membres et vue Famille
 ├── sync.js             # Synchronisation de la famille (Supabase)
 ├── reminders.js        # Rappels et notifications
@@ -249,7 +257,7 @@ Pour partager recettes, courses, calendrier et budget entre les téléphones de 
 Procédure complète : voir **[SYNC-GUIDE.md](./SYNC-GUIDE.md)** (~10 min de configuration, puis 10 min de plus pour les rappels en notification).
 
 La sync couvre :
-- **Recettes, listes de courses, événements et repas, dépenses, catégories, budget du mois, dépenses récurrentes, membres** : un document à la fois, la dernière modification l'emporte (horloge du serveur)
+- **Recettes, listes de courses, événements et repas, mémos, idées de cadeaux, dépenses partagées, dépenses, catégories, budgets, dépenses récurrentes, membres** : un document à la fois, la dernière modification l'emporte (horloge du serveur)
 - Lors de la première jonction d'un téléphone, ses données sont fusionnées avec celles de la famille (rien n'est perdu)
 - Les **rappels push** passent par une fonction Supabase planifiée chaque minute : 0 € sur le plan gratuit
 
@@ -304,7 +312,7 @@ Code librement réutilisable.
 
 ---
 
-**v4.0** — « La Maisonnée » : écran d'accueil et sous-apps · Calendrier familial (récurrence, rappels, repas du planning) · Budget familial · Famille partagée par lien d'invitation (sessions anonymes, base protégée) · Rappels en notification push, même app fermée, à 0 €
+**v4.0** — « La Maisonnée » : écran d'accueil et sous-apps · Calendrier familial (récurrence, rappels, repas du planning, « Qui s'en occupe ? », liste de souhaits et dépenses partagées) · Mémos · Budget familial (budget du mois, récurrentes annuelles, comparaison, projection) · Famille partagée par lien d'invitation (sessions anonymes, base protégée) · Rappels en notification push, même app fermée, à 0 €
 
 **v3.5** — Fiche recette refondue : sticky action bar (Mode cuisine + Courses) · Hero compact avec kebab Modifier/Supprimer · Photo pulse pour CTA · Crayon ✏️ d'édition inline · Bloc portions unifié · Meta-bar en 2 groupes (factuel/validation) · Chip cuisson par fraîcheur · Toasts cuisson contextuels (🎉 1ère fois, 🔥 5×, ⭐ 10×) · Pill « X à acheter » · Numérotation étapes en pop · Compteurs (N) dans les titres · Bouton retour intelligent — Bon appétit ! 🍅
 
