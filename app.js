@@ -8,6 +8,11 @@ const APP_NAME = 'La Maisonnée';
 const APP_VERSION = '4.0';
 const APP_BUILD_DATE = '2026-10-11';
 
+// App installée sur l'écran d'accueil d'un iPhone / iPad (navigator.standalone n'existe que sur iOS) :
+// depuis iOS 26, un effet « Liquid Glass » floute la bande sous la barre d'état, sans moyen de le
+// désactiver. styles.css (--top-clear) y laisse le fond de l'en-tête et place son contenu dessous.
+if (navigator.standalone === true) document.documentElement.classList.add('ios-standalone');
+
 // ============================================
 // OBFUSCATION DES SECRETS DANS LOCALSTORAGE
 // ============================================

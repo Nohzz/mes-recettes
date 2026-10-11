@@ -74,6 +74,7 @@
   /* Spacing */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --top-clear: 0px; /* bande floutée par iOS sous la barre d'état (html.ios-standalone, plus bas) */
   --header-h: 64px;
   --nav-h: 76px;
   --max-w: 480px;
@@ -541,7 +542,7 @@ a {
 
 .app-header {
   flex-shrink: 0;
-  padding-top: var(--safe-top);
+  padding-top: calc(var(--safe-top) + var(--top-clear));
   background: var(--color-bg);
   z-index: 10;
   border-bottom: 1px solid transparent;
@@ -1622,7 +1623,7 @@ a {
 
 .recipe-detail-back {
   position: absolute;
-  top: calc(var(--safe-top) + 12px);
+  top: calc(var(--safe-top) + var(--top-clear) + 12px);
   left: 12px;
   width: 40px;
   height: 40px;
@@ -1640,7 +1641,7 @@ a {
 
 .recipe-detail-actions {
   position: absolute;
-  top: calc(var(--safe-top) + 12px);
+  top: calc(var(--safe-top) + var(--top-clear) + 12px);
   right: 12px;
   display: flex;
   gap: 8px;
@@ -2712,7 +2713,7 @@ a {
   max-height: 100%;
   height: 100%;
   border-radius: 0;
-  padding-top: var(--safe-top);
+  padding-top: calc(var(--safe-top) + var(--top-clear));
 }
 
 @keyframes modalSlideUp {
@@ -4405,7 +4406,7 @@ body.is-drag-reordering textarea {
   z-index: 200;
   display: flex;
   flex-direction: column;
-  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  padding: calc(var(--safe-top) + var(--top-clear)) 0 var(--safe-bottom);
 }
 .cooking-mode.hidden { display: none; }
 .cooking-header {
@@ -4701,7 +4702,7 @@ body.is-drag-reordering textarea {
 [data-theme="dark"] .quick-filter:not(.active),
 [data-theme="dark"] .quick-filter-select,
 [data-theme="dark"] .shopping-list-tab:not(.active) {
-  background: #2a201a;
+  background-color: #2a201a;
   border-color: #3d2f25;
   color: #c5b6a3;
 }
@@ -8918,6 +8919,22 @@ input[type="search"]::-webkit-search-decoration {
   -webkit-appearance: none;
 }
 
+/* Listes déroulantes des recettes : sans rendu natif (Safari coupait le texte d'une liste de hauteur
+   fixe), flèche dessinée dans la couleur du texte */
+.quick-filter-select,
+.filters-drawer-select,
+.picker-sort-select {
+  -webkit-appearance: none;
+  appearance: none;
+  line-height: normal;
+  padding-right: 28px;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 11px) 50%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+
 /* Dates et heures : alignées à gauche, même hauteur qu'un champ texte (même vides, iOS les écrase),
    jamais plus larges que leur colonne */
 input:where([type="date"], [type="time"], [type="month"], [type="datetime-local"]) {
@@ -8973,6 +8990,19 @@ input::-webkit-date-and-time-value {
 }
 .nav-item:active svg {
   transform: scale(0.9);
+}
+
+/* App installée sur iPhone (iOS 26+) : l'effet « Liquid Glass » floute environ 40 px sous la barre
+   d'état (iOS ne permet pas de le désactiver). On y laisse le fond uni de l'en-tête ; titres et boutons
+   commencent dessous. En paysage, iOS masque la barre d'état : pas de décalage. Tout nouvel élément
+   collé en haut de l'écran doit utiliser calc(var(--safe-top) + var(--top-clear)). */
+html.ios-standalone {
+  --top-clear: 24px;
+}
+@media (orientation: landscape) and (max-height: 500px) {
+  html.ios-standalone {
+    --top-clear: 0px;
+  }
 }
 
 /* Fermeture d'une feuille : une copie inerte glisse vers le bas (openSheet / closeSheet) */
