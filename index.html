@@ -6,9 +6,9 @@
   <meta name="theme-color" content="#B5532A">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="Mes Recettes">
+  <meta name="apple-mobile-web-app-title" content="Maisonnée">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="description" content="Bibliothèque de recettes personnelle avec IA, filtres et liste de courses">
+  <meta name="description" content="La Maisonnée : l'organisation de la famille — calendrier, budget, recettes avec IA et liste de courses">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;500;600;700;900&family=Poppins:wght@600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
-  <title>Mes Recettes</title>
+  <title>La Maisonnée</title>
 </head>
 <body>
   <!-- Splash / Onboarding -->
@@ -32,8 +32,8 @@
           <circle cx="30" cy="28" r="1.8" fill="#FAEAD5"/>
         </svg>
       </div>
-      <h1 class="splash-title">Mes Recettes</h1>
-      <p class="splash-tagline">De l'inspiration à l'assiette</p>
+      <h1 class="splash-title">La Maisonnée</h1>
+      <p class="splash-tagline">La vie de famille, bien organisée</p>
       <div class="splash-loader"><div class="splash-loader-bar"></div></div>
     </div>
   </div>
@@ -46,8 +46,8 @@
           <path d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </div>
-      <h2>Bienvenue !</h2>
-      <p class="api-setup-desc">Pour utiliser l'assistant IA qui transforme vos liens et photos en recettes, vous avez besoin d'une clé API Claude (Anthropic).</p>
+      <h2>Bienvenue dans La Maisonnée</h2>
+      <p class="api-setup-desc">Dans l'espace Recettes, un assistant IA transforme vos liens et photos en recettes. Il a besoin d'une clé API Claude (Anthropic) — vous pourrez aussi l'ajouter plus tard dans les Paramètres.</p>
       <div class="api-setup-steps">
         <div class="api-setup-step">
           <span class="api-setup-step-num">1</span>
@@ -66,7 +66,8 @@
       </div>
       <input type="password" id="api-key-input" placeholder="sk-ant-api03-..." class="api-setup-input" autocomplete="off" autocapitalize="off" spellcheck="false">
       <button id="api-key-save" class="btn-primary">Commencer</button>
-      <button id="api-key-skip" class="btn-link">Continuer sans IA (mode démo)</button>
+      <button id="api-key-skip" class="btn-link">Plus tard (sans IA pour l'instant)</button>
+      <button id="api-setup-join" class="btn-link">👪 J'ai un lien d'invitation de ma famille</button>
     </div>
   </div>
 
@@ -75,7 +76,14 @@
     <!-- Header -->
     <header class="app-header">
       <div class="app-header-content">
-        <h1 id="page-title" class="app-title">Bibliothèque</h1>
+        <div class="app-header-left">
+          <button id="home-btn" class="icon-btn header-home-btn hidden" aria-label="Accueil">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M2.25 12l8.954-8.955a1.126 1.126 0 011.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <h1 id="page-title" class="app-title">La Maisonnée</h1>
+        </div>
         <span id="offline-badge" class="offline-badge hidden" aria-label="Hors ligne">📡 Hors ligne</span>
         <div class="app-header-actions">
           <button id="sync-indicator" class="sync-indicator hidden" aria-label="Statut de sync">
@@ -107,8 +115,28 @@
 
     <!-- Main Content Area -->
     <main id="main-content" class="main-content">
+      <!-- Accueil (hub La Maisonnée) : vue racine, rendue par renderHub() dans hub.js -->
+      <section id="view-hub" class="view active">
+        <div id="hub-content" class="hub"></div>
+      </section>
+
+      <!-- Famille : membres, création / jonction, invitation, appareils (family.js) -->
+      <section id="view-family" class="view">
+        <div id="family-content" class="family"></div>
+      </section>
+
+      <!-- Calendrier familial : section partagée par les vues Jour / Semaine / Mois / À venir (calendar.js) -->
+      <section id="view-calendar" class="view">
+        <div id="calendar-content" class="calendar"></div>
+      </section>
+
+      <!-- Budget familial : section partagée par les vues Aperçu / Dépenses (budget.js) -->
+      <section id="view-budget" class="view">
+        <div id="budget-content" class="calendar"></div>
+      </section>
+
       <!-- Library View -->
-      <section id="view-library" class="view active">
+      <section id="view-library" class="view">
         <div id="pull-refresh-indicator" class="pull-refresh-indicator hidden">
           <span class="pull-refresh-spinner"></span> Synchronisation…
         </div>
@@ -319,9 +347,51 @@
       </section>
     </main>
 
-    <!-- Bottom Navigation -->
-    <nav class="bottom-nav">
-      <button class="nav-item active" data-view="library">
+    <!-- Barre du bas de la sous-app Calendrier -->
+    <nav class="bottom-nav hidden" data-app="calendar">
+      <button class="nav-item" data-view="calendar-day">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5M12 12.75h.008v.008H12v-.008z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Jour</span>
+      </button>
+      <button class="nav-item" data-view="calendar-week">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Semaine</span>
+      </button>
+      <button class="nav-item nav-item-cta" onclick="openEventEditor()" aria-label="Nouvel événement">
+        <div class="nav-cta-circle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4.5v15m7.5-7.5h-15" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </button>
+      <button class="nav-item" data-view="calendar-month">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Mois</span>
+      </button>
+      <button class="nav-item" data-view="calendar-agenda">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>À venir</span>
+      </button>
+    </nav>
+
+    <!-- Barre du bas de la sous-app Budget -->
+    <nav class="bottom-nav hidden" data-app="budget">
+      <button class="nav-item" data-view="budget-overview">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Aperçu</span>
+      </button>
+      <button class="nav-item nav-item-cta" onclick="openExpenseEditor()" aria-label="Nouvelle dépense">
+        <div class="nav-cta-circle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4.5v15m7.5-7.5h-15" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </button>
+      <button class="nav-item" data-view="budget-expenses">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Dépenses</span>
+      </button>
+    </nav>
+
+    <!-- Barre du bas de la sous-app Recettes (une <nav data-app> par sous-app ; le hub n'en a pas) -->
+    <nav class="bottom-nav hidden" data-app="recipes">
+      <button class="nav-item" data-view="library">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
@@ -359,199 +429,279 @@
     </div>
   </div>
 
-  <!-- Settings Modal -->
+  <!-- Settings Modal : un menu par espace (accueil), puis une page par espace (openSettingsPage) -->
   <div id="settings-modal" class="modal hidden">
     <div class="modal-backdrop"></div>
     <div class="modal-content">
       <div class="modal-header">
-        <h2>Paramètres</h2>
+        <button id="settings-back" class="icon-btn icon-btn-light hidden" aria-label="Retour au menu des paramètres">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 19l-7-7 7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <h2 id="settings-title">Paramètres</h2>
         <button id="settings-close" class="icon-btn icon-btn-light" aria-label="Fermer">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round"/></svg>
         </button>
       </div>
       <div class="modal-body settings-body-v2">
 
-        <!-- 🔒 Sécurité -->
-        <h3 class="settings-group-title">🔒 Sécurité</h3>
-        <div class="settings-group">
-          <div class="settings-row settings-row-info">
-            <div class="settings-row-text">
-              <p class="settings-row-title">Vos clés API et identifiants Supabase sont obfusqués dans le stockage local.</p>
-              <p class="settings-row-hint">Cela les masque d'un regard sur l'onglet « Application » des devtools et d'extensions qui dumperaient localStorage. Ce n'est <strong>pas une protection forte</strong> : un attaquant qui exécute du JS dans la PWA peut toujours les lire.</p>
-            </div>
+        <!-- Accueil des Paramètres -->
+        <div id="settings-home" class="settings-page">
+          <div class="settings-group settings-menu">
+            <button class="settings-menu-item" data-settings-open="family">
+              <span class="settings-menu-icon" aria-hidden="true">👪</span>
+              <span class="settings-menu-text">
+                <span class="settings-menu-title">Famille &amp; synchronisation</span>
+                <span class="settings-menu-sub" id="settings-menu-sub-family">Relier les téléphones de la famille</span>
+              </span>
+              <span class="settings-menu-chevron" aria-hidden="true">›</span>
+            </button>
+            <button class="settings-menu-item" data-settings-open="recipes">
+              <span class="settings-menu-icon" aria-hidden="true">🍲</span>
+              <span class="settings-menu-text">
+                <span class="settings-menu-title">Recettes</span>
+                <span class="settings-menu-sub" id="settings-menu-sub-recipes">Assistant IA, menu IA, garde-manger</span>
+              </span>
+              <span class="settings-menu-chevron" aria-hidden="true">›</span>
+            </button>
+            <button class="settings-menu-item" data-settings-open="calendar">
+              <span class="settings-menu-icon" aria-hidden="true">📅</span>
+              <span class="settings-menu-text">
+                <span class="settings-menu-title">Calendrier</span>
+                <span class="settings-menu-sub" id="settings-menu-sub-calendar">Rappels et notifications</span>
+              </span>
+              <span class="settings-menu-chevron" aria-hidden="true">›</span>
+            </button>
+            <button class="settings-menu-item" data-settings-open="budget">
+              <span class="settings-menu-icon" aria-hidden="true">💶</span>
+              <span class="settings-menu-text">
+                <span class="settings-menu-title">Budget</span>
+                <span class="settings-menu-sub" id="settings-menu-sub-budget">Catégories, budget du mois, dépenses récurrentes</span>
+              </span>
+              <span class="settings-menu-chevron" aria-hidden="true">›</span>
+            </button>
+            <button class="settings-menu-item" data-settings-open="appearance">
+              <span class="settings-menu-icon" aria-hidden="true">🎨</span>
+              <span class="settings-menu-text">
+                <span class="settings-menu-title">Apparence</span>
+                <span class="settings-menu-sub" id="settings-menu-sub-appearance">Thème clair, sombre ou automatique</span>
+              </span>
+              <span class="settings-menu-chevron" aria-hidden="true">›</span>
+            </button>
+            <button class="settings-menu-item" data-settings-open="data">
+              <span class="settings-menu-icon" aria-hidden="true">💾</span>
+              <span class="settings-menu-text">
+                <span class="settings-menu-title">Données &amp; sauvegarde</span>
+                <span class="settings-menu-sub" id="settings-menu-sub-data">Espace utilisé, sauvegarde, import, mises à jour</span>
+              </span>
+              <span class="settings-menu-chevron" aria-hidden="true">›</span>
+            </button>
+          </div>
+
+          <!-- ℹ️ À propos -->
+          <div class="settings-section settings-about">
+            <p><strong>La Maisonnée</strong> · <span id="settings-version">v4.0</span></p>
+            <p class="settings-credit" id="settings-build">Build du 01/05/2026 · PWA · IA Claude</p>
           </div>
         </div>
 
-        <!-- 🎨 Apparence -->
-        <h3 class="settings-group-title">🎨 Apparence</h3>
-        <div class="settings-group">
-          <div class="settings-row settings-row-block">
-            <div class="settings-theme-row">
-              <button class="theme-option" data-theme="light">☀️ Clair</button>
-              <button class="theme-option" data-theme="dark">🌙 Sombre</button>
-              <button class="theme-option" data-theme="auto">⚙ Auto</button>
+        <!-- Pages des Paramètres (une seule visible à la fois) -->
+        <div id="settings-pages" class="hidden">
+          <div class="settings-page hidden" data-settings-page="family">
+            <!-- 👪 Famille & synchronisation (configuration dans la vue Famille, family.js) -->
+            <h3 class="settings-group-title">👪 Famille</h3>
+            <div class="settings-group">
+              <div class="settings-row settings-row-info">
+                <div class="settings-row-text">
+                  <p class="settings-row-title" id="settings-family-status">Cet appareil n'est relié à aucune famille.</p>
+                  <p class="settings-row-hint">Partagez recettes, courses, calendrier et budget entre les téléphones de la famille, via un projet Supabase gratuit. Chaque téléphone rejoint la famille avec un lien d'invitation.</p>
+                </div>
+              </div>
+              <div class="settings-row settings-row-block">
+                <button id="settings-open-family" class="btn-primary btn-block">Gérer la famille</button>
+                <button id="settings-sync-now" class="btn-secondary btn-block hidden">Synchroniser maintenant</button>
+              </div>
             </div>
           </div>
-        </div>
-
-        <!-- 🪄 IA & génération -->
-        <h3 class="settings-group-title">🪄 IA & génération</h3>
-        <div class="settings-group">
-          <div class="settings-row settings-row-block">
-            <label class="settings-row-label" for="settings-api-key">
-              Clé API Claude
-              <span class="settings-saved-badge" id="settings-api-key-badge" hidden>✓ Configurée</span>
-            </label>
-            <div class="settings-input-wrap">
-              <input type="password" id="settings-api-key" placeholder="sk-ant-api03-..." class="api-setup-input" autocapitalize="off" spellcheck="false">
-              <button type="button" class="settings-reveal-btn" data-reveal-target="settings-api-key" aria-label="Afficher la clé">👁️</button>
+          <div class="settings-page hidden" data-settings-page="recipes">
+            <!-- 🪄 IA & génération -->
+            <h3 class="settings-group-title">🪄 IA & génération</h3>
+            <div class="settings-group">
+              <div class="settings-row settings-row-block">
+                <label class="settings-row-label" for="settings-api-key">
+                  Clé API Claude
+                  <span class="settings-saved-badge" id="settings-api-key-badge" hidden>✓ Configurée</span>
+                </label>
+                <div class="settings-input-wrap">
+                  <input type="password" id="settings-api-key" placeholder="sk-ant-api03-..." class="api-setup-input" autocapitalize="off" spellcheck="false">
+                  <button type="button" class="settings-reveal-btn" data-reveal-target="settings-api-key" aria-label="Afficher la clé">👁️</button>
+                </div>
+                <button id="settings-save-key" class="btn-primary btn-block">Enregistrer la clé</button>
+              </div>
+              <div class="settings-row">
+                <label class="settings-toggle">
+                  <input type="checkbox" id="settings-web-search">
+                  <span>🌐 Activer Web Search <small class="settings-cost">💎 +0,01€ / recherche</small></span>
+                </label>
+              </div>
+              <div class="settings-row settings-row-block">
+                <button id="settings-recalc-all" class="btn-secondary btn-block">🪄 Recalculer toutes les recettes</button>
+                <p class="settings-hint">Demande à l'IA de réanalyser quel ingrédient est utilisé à chaque étape. Coût ~1 centime / recette.</p>
+              </div>
+              <div class="settings-row settings-row-block">
+                <button id="settings-recalc-fodmap" class="btn-secondary btn-block">🌾 Recalculer FODMAP & saisonnalité</button>
+                <p class="settings-hint">Recalcule les tags FODMAP et les mois de saisonnalité depuis les ingrédients. Local, gratuit, instantané.</p>
+              </div>
             </div>
-            <button id="settings-save-key" class="btn-primary btn-block">Enregistrer la clé</button>
-          </div>
-          <div class="settings-row">
-            <label class="settings-toggle">
-              <input type="checkbox" id="settings-web-search">
-              <span>🌐 Activer Web Search <small class="settings-cost">💎 +0,01€ / recherche</small></span>
-            </label>
-          </div>
-          <div class="settings-row settings-row-block">
-            <button id="settings-recalc-all" class="btn-secondary btn-block">🪄 Recalculer toutes les recettes</button>
-            <p class="settings-hint">Demande à l'IA de réanalyser quel ingrédient est utilisé à chaque étape. Coût ~1 centime / recette.</p>
-          </div>
-          <div class="settings-row settings-row-block">
-            <button id="settings-recalc-fodmap" class="btn-secondary btn-block">🌾 Recalculer FODMAP & saisonnalité</button>
-            <p class="settings-hint">Recalcule les tags FODMAP et les mois de saisonnalité depuis les ingrédients. Local, gratuit, instantané.</p>
-          </div>
-        </div>
 
-        <!-- 🍽️ Planning -->
-        <h3 class="settings-group-title">🍽️ Génération de menu IA</h3>
-        <div class="settings-group">
-          <div class="settings-row settings-row-info">
-            <p class="settings-row-hint">Règles appliquées par défaut quand l'IA génère un planning pour vous.</p>
-          </div>
-          <div class="settings-row">
-            <label class="settings-toggle">
-              <input type="checkbox" id="settings-planning-protein-daily">
-              <span>🥩 Protéine à chaque repas <small>(max 1 jour/semaine sans)</small></span>
-            </label>
-          </div>
-          <div class="settings-row">
-            <label class="settings-toggle">
-              <input type="checkbox" id="settings-planning-protein-sequencing">
-              <span>🔄 Pas 2× la même protéine sur 2 jours consécutifs</span>
-            </label>
-          </div>
-          <div class="settings-row">
-            <label class="settings-toggle">
-              <input type="checkbox" id="settings-planning-nutrition-quotas">
-              <span>⚖️ Quotas nutrition hebdo <small>(≥2 poissons, ≤2 viandes rouges, ≥1 plat végétal)</small></span>
-            </label>
-          </div>
-          <div class="settings-row">
-            <label class="settings-toggle">
-              <input type="checkbox" id="settings-planning-light-heavy">
-              <span>☯️ Équilibre lourd ↔ léger sur la journée</span>
-            </label>
-          </div>
-          <div class="settings-row">
-            <label class="settings-toggle">
-              <input type="checkbox" id="settings-planning-weekend">
-              <span>🏖️ Rapide en semaine, festif le weekend</span>
-            </label>
-          </div>
-          <div class="settings-row">
-            <label class="settings-toggle">
-              <input type="checkbox" id="settings-planning-batch">
-              <span>🍱 Batch cooking <small>(2 slots consécutifs avec la même recette)</small></span>
-            </label>
-          </div>
-        </div>
-
-        <!-- ☁️ Synchronisation -->
-        <h3 class="settings-group-title">☁️ Synchronisation</h3>
-        <div class="settings-group">
-          <div class="settings-row settings-row-info">
-            <p class="settings-row-hint">Partagez vos recettes entre plusieurs téléphones via Supabase. Saisissez les mêmes valeurs sur chaque appareil.</p>
-          </div>
-          <div class="settings-row settings-row-block">
-            <label class="settings-row-label" for="settings-sync-url">URL Supabase</label>
-            <div class="settings-input-wrap">
-              <input type="password" id="settings-sync-url" placeholder="https://xxxxx.supabase.co" class="api-setup-input" autocapitalize="off" spellcheck="false">
-              <button type="button" class="settings-reveal-btn" data-reveal-target="settings-sync-url" aria-label="Afficher l'URL">👁️</button>
+            <!-- 🍽️ Planning -->
+            <h3 class="settings-group-title">🍽️ Génération de menu IA</h3>
+            <div class="settings-group">
+              <div class="settings-row settings-row-info">
+                <p class="settings-row-hint">Règles appliquées par défaut quand l'IA génère un planning pour vous.</p>
+              </div>
+              <div class="settings-row">
+                <label class="settings-toggle">
+                  <input type="checkbox" id="settings-planning-protein-daily">
+                  <span>🥩 Protéine à chaque repas <small>(max 1 jour/semaine sans)</small></span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <label class="settings-toggle">
+                  <input type="checkbox" id="settings-planning-protein-sequencing">
+                  <span>🔄 Pas 2× la même protéine sur 2 jours consécutifs</span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <label class="settings-toggle">
+                  <input type="checkbox" id="settings-planning-nutrition-quotas">
+                  <span>⚖️ Quotas nutrition hebdo <small>(≥2 poissons, ≤2 viandes rouges, ≥1 plat végétal)</small></span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <label class="settings-toggle">
+                  <input type="checkbox" id="settings-planning-light-heavy">
+                  <span>☯️ Équilibre lourd ↔ léger sur la journée</span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <label class="settings-toggle">
+                  <input type="checkbox" id="settings-planning-weekend">
+                  <span>🏖️ Rapide en semaine, festif le weekend</span>
+                </label>
+              </div>
+              <div class="settings-row">
+                <label class="settings-toggle">
+                  <input type="checkbox" id="settings-planning-batch">
+                  <span>🍱 Batch cooking <small>(2 slots consécutifs avec la même recette)</small></span>
+                </label>
+              </div>
             </div>
-          </div>
-          <div class="settings-row settings-row-block">
-            <label class="settings-row-label" for="settings-sync-key">Clé publique anon</label>
-            <div class="settings-input-wrap">
-              <input type="password" id="settings-sync-key" placeholder="eyJhbGciOi..." class="api-setup-input" autocapitalize="off" spellcheck="false">
-              <button type="button" class="settings-reveal-btn" data-reveal-target="settings-sync-key" aria-label="Afficher la clé">👁️</button>
+
+            <!-- 📦 Garde-manger -->
+            <h3 class="settings-group-title">📦 Garde-manger</h3>
+            <div class="settings-group">
+              <div class="settings-row settings-row-block">
+                <label class="settings-row-label" for="settings-pantry-days">Durée par défaut avant qu'un ingrédient redevienne visible dans les courses</label>
+                <select id="settings-pantry-days" class="settings-select">
+                  <option value="3">3 jours</option>
+                  <option value="7">7 jours (1 semaine)</option>
+                  <option value="14">14 jours (2 semaines)</option>
+                  <option value="30">30 jours (1 mois)</option>
+                  <option value="60">60 jours (2 mois)</option>
+                </select>
+              </div>
             </div>
           </div>
-          <div class="settings-row settings-row-block">
-            <label class="settings-row-label" for="settings-sync-foyer">Code foyer</label>
-            <div class="settings-input-wrap">
-              <input type="password" id="settings-sync-foyer" placeholder="famille-dupont-2026" class="api-setup-input" autocapitalize="off" spellcheck="false">
-              <button type="button" class="settings-reveal-btn" data-reveal-target="settings-sync-foyer" aria-label="Afficher le code">👁️</button>
+          <div class="settings-page hidden" data-settings-page="calendar">
+            <!-- 🔔 Rappels du calendrier (reminders.js) -->
+            <h3 class="settings-group-title">🔔 Rappels et notifications</h3>
+            <div class="settings-group">
+              <div class="settings-row settings-row-info">
+                <div class="settings-row-text">
+                  <p class="settings-row-title" id="settings-push-status">Rappels affichés quand l'app est ouverte.</p>
+                  <p class="settings-row-hint">Pour recevoir les rappels app fermée, activez les notifications sur chaque téléphone. Sur iPhone : installez d'abord l'app sur l'écran d'accueil (iOS 16.4 ou plus).</p>
+                </div>
+              </div>
+              <div class="settings-row settings-row-block">
+                <button id="settings-push-enable" class="btn-primary btn-block">Activer les notifications sur cet appareil</button>
+                <button id="settings-push-disable" class="btn-secondary btn-block hidden">Désactiver les notifications sur cet appareil</button>
+                <button id="settings-push-test" class="btn-secondary btn-block">Tester une notification</button>
+              </div>
             </div>
           </div>
-          <div class="settings-row settings-row-block">
-            <button id="settings-save-sync" class="btn-primary btn-block">Activer la sync</button>
-            <button id="settings-sync-now" class="btn-secondary btn-block">Synchroniser maintenant</button>
-            <button id="settings-sync-disable" class="btn-link">Désactiver la synchronisation</button>
-          </div>
-        </div>
-
-        <!-- 📦 Garde-manger -->
-        <h3 class="settings-group-title">📦 Garde-manger</h3>
-        <div class="settings-group">
-          <div class="settings-row settings-row-block">
-            <label class="settings-row-label" for="settings-pantry-days">Durée par défaut avant qu'un ingrédient redevienne visible dans les courses</label>
-            <select id="settings-pantry-days" class="settings-select">
-              <option value="3">3 jours</option>
-              <option value="7">7 jours (1 semaine)</option>
-              <option value="14">14 jours (2 semaines)</option>
-              <option value="30">30 jours (1 mois)</option>
-              <option value="60">60 jours (2 mois)</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- 💾 Données -->
-        <h3 class="settings-group-title">💾 Données</h3>
-        <div class="settings-group">
-          <div class="settings-row settings-row-block">
-            <div id="settings-storage-stats" class="settings-storage-stats">Calcul de l'espace utilisé…</div>
-            <button id="settings-free-space" class="btn-secondary btn-block">🗜️ Libérer de l'espace (re-compresser les photos)</button>
-            <p class="settings-hint">Re-traite les grosses photos en 480px / qualité 55%. Aucune perte de recette, juste les images sont allégées.</p>
-          </div>
-          <div class="settings-row settings-row-block">
-            <button id="settings-export" class="btn-secondary btn-block">📤 Exporter mes recettes (JSON)</button>
-            <button id="settings-import" class="btn-secondary btn-block">📥 Importer des recettes</button>
-            <input type="file" id="settings-import-input" accept=".json" class="hidden">
-            <button id="settings-force-update" class="btn-secondary btn-block">🔄 Vérifier les mises à jour</button>
-          </div>
-        </div>
-
-        <!-- ⚠️ Zone dangereuse — masquée par défaut derrière un collapse pour éviter
-             les appuis accidentels. L'utilisateur doit explicitement la dérouler. -->
-        <details class="settings-danger-collapse">
-          <summary class="settings-danger-summary">
-            <span class="settings-danger-summary-text">⚠️ Actions avancées (masquées)</span>
-            <span class="settings-danger-summary-icon">▼</span>
-          </summary>
-          <div class="settings-group settings-group-danger">
-            <div class="settings-row settings-row-block">
-              <p class="settings-hint">Cette action supprime <strong>toutes</strong> vos recettes, listes, planning et préférences. Irréversible et non synchronisée vers les autres appareils tant que vous ne re-synchronisez pas manuellement.</p>
-              <button id="settings-clear" class="btn-danger btn-block">🗑️ Tout supprimer</button>
+          <div class="settings-page hidden" data-settings-page="budget">
+            <!-- 💶 Budget (budget.js) -->
+            <h3 class="settings-group-title">💶 Budget</h3>
+            <div class="settings-group">
+              <div class="settings-row settings-row-info">
+                <div class="settings-row-text">
+                  <p class="settings-row-title" id="settings-budget-status">Aucun budget mensuel défini</p>
+                  <p class="settings-row-hint">Les catégories, les budgets et les dépenses récurrentes sont partagés avec la famille.</p>
+                </div>
+              </div>
+              <div class="settings-row settings-row-block">
+                <button id="settings-budget-categories" class="btn-secondary btn-block">🏷️ Catégories et budget habituel</button>
+                <button id="settings-budget-recurring" class="btn-secondary btn-block">🔁 Dépenses récurrentes</button>
+              </div>
             </div>
           </div>
-        </details>
+          <div class="settings-page hidden" data-settings-page="appearance">
+            <!-- 🎨 Apparence -->
+            <h3 class="settings-group-title">🎨 Apparence</h3>
+            <div class="settings-group">
+              <div class="settings-row settings-row-block">
+                <div class="settings-theme-row">
+                  <button class="theme-option" data-theme="light">☀️ Clair</button>
+                  <button class="theme-option" data-theme="dark">🌙 Sombre</button>
+                  <button class="theme-option" data-theme="auto">⚙ Auto</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="settings-page hidden" data-settings-page="data">
+            <!-- 🔒 Sécurité -->
+            <h3 class="settings-group-title">🔒 Sécurité</h3>
+            <div class="settings-group">
+              <div class="settings-row settings-row-info">
+                <div class="settings-row-text">
+                  <p class="settings-row-title">Vos clés API et identifiants Supabase sont obfusqués dans le stockage local.</p>
+                  <p class="settings-row-hint">Cela les masque d'un regard sur l'onglet « Application » des devtools et d'extensions qui dumperaient localStorage. Ce n'est <strong>pas une protection forte</strong> : un attaquant qui exécute du JS dans la PWA peut toujours les lire.</p>
+                </div>
+              </div>
+            </div>
 
-        <!-- ℹ️ À propos -->
-        <div class="settings-section settings-about">
-          <p><strong>Mes Recettes</strong> · v2.0</p>
-          <p class="settings-credit" id="settings-build">Build du 01/05/2026 · PWA · IA Claude</p>
+            <!-- 💾 Données -->
+            <h3 class="settings-group-title">💾 Données</h3>
+            <div class="settings-group">
+              <div class="settings-row settings-row-block">
+                <div id="settings-storage-stats" class="settings-storage-stats">Calcul de l'espace utilisé…</div>
+                <button id="settings-free-space" class="btn-secondary btn-block">🗜️ Libérer de l'espace (re-compresser les photos)</button>
+                <p class="settings-hint">Re-traite les grosses photos en 480px / qualité 55%. Aucune perte de recette, juste les images sont allégées.</p>
+              </div>
+              <div class="settings-row settings-row-block">
+                <button id="settings-export-all" class="btn-secondary btn-block">💾 Sauvegarde complète (JSON)</button>
+                <button id="settings-export" class="btn-secondary btn-block">📤 Exporter mes recettes (JSON)</button>
+                <button id="settings-import" class="btn-secondary btn-block">📥 Importer des recettes</button>
+                <input type="file" id="settings-import-input" accept=".json" class="hidden">
+                <button id="settings-force-update" class="btn-secondary btn-block">🔄 Vérifier les mises à jour</button>
+              </div>
+            </div>
+
+            <!-- ⚠️ Zone dangereuse — masquée par défaut derrière un collapse pour éviter
+                 les appuis accidentels. L'utilisateur doit explicitement la dérouler. -->
+            <details class="settings-danger-collapse">
+              <summary class="settings-danger-summary">
+                <span class="settings-danger-summary-text">⚠️ Actions avancées (masquées)</span>
+                <span class="settings-danger-summary-icon">▼</span>
+              </summary>
+              <div class="settings-group settings-group-danger">
+                <div class="settings-row settings-row-block">
+                  <p class="settings-hint">Cette action supprime <strong>toutes</strong> les données de cet appareil : recettes, listes, calendrier, budget, garde-manger. Irréversible. Si l'appareil est relié à une famille, les données de la famille ne sont pas supprimées : elles reviennent à la synchronisation suivante.</p>
+                  <button id="settings-clear" class="btn-danger btn-block">🗑️ Tout supprimer</button>
+                </div>
+              </div>
+            </details>
+          </div>
         </div>
       </div>
     </div>
@@ -662,6 +812,14 @@
 
   <script src="data.js"></script>
   <script src="app.js"></script>
+  <script src="calendar.js"></script>
+  <script src="sync.js"></script>
+  <script src="family.js"></script>
+  <script src="budget.js"></script>
+  <script src="memos.js"></script>
+  <script src="occasions.js"></script>
+  <script src="reminders.js"></script>
+  <script src="hub.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {

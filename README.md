@@ -1,10 +1,42 @@
-# Mes Recettes 🍅
+# La Maisonnée 🏡
 
-Une PWA (Progressive Web App) installable pour gérer vos recettes au quotidien : création assistée par l'IA Claude, bibliothèque organisée par catégories et saison, planning des repas, liste de courses agrégée intelligente, garde-manger, mode cuisine plein écran avec minuteurs, et synchronisation multi-appareils.
+Une PWA (Progressive Web App) installable pour organiser la vie de famille : un écran d'accueil qui donne accès à trois sous-apps, **Recettes**, **Calendrier** familial et **Budget**, partagées entre les téléphones de la famille, avec des rappels qui arrivent même app fermée. Le tout gratuit, sans compte ni mot de passe.
+
+La sous-app Recettes est l'ancienne app « Mes Recettes » : création assistée par l'IA Claude, bibliothèque organisée par catégories et saison, planning des repas, liste de courses agrégée intelligente, garde-manger, mode cuisine plein écran avec minuteurs.
 
 Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#FFC994`), typographie Poppins + Lato.
 
 ## ✨ Fonctionnalités principales
+
+### 🏡 Accueil
+- **Carte « Aujourd'hui »** : événements et repas du jour, membres de la famille
+- **« Qui s'en occupe ? »** : les rendez-vous, activités ou sorties des 7 prochains jours que personne n'a pris en charge (pour un enfant, ou pour toute la famille). « 🙋 Moi » en un geste, « Choisir… » ou « Personne »
+- **Mémos** : petites notes partagées par la famille, avec un rappel facultatif à une date et une heure (en notification sur les téléphones concernés). Cocher un mémo le termine (« Annuler » quelques secondes)
+- **Tuiles** des sous-apps (Calendrier, Budget, Recettes) avec un résumé : prochain événement, reste du budget du mois
+- Chaque sous-app a sa propre barre du bas ; le bouton 🏠 ramène à l'accueil
+
+### 📅 Calendrier familial
+- Vues **Jour**, **Semaine**, **Mois** et **À venir**
+- **Événements** : catégorie, **pour qui** (ou toute la famille) et **qui s'en occupe** (il reçoit les rappels), journée entière ou horaires, sur plusieurs jours, lieu, notes
+- **Organisation d'un événement** (anniversaire, vacances, sortie…) : **liste de souhaits** (idées de cadeaux avec lien et prix, que chacun réserve pour éviter les doublons) et **dépenses partagées** (qui a payé quoi, partagé entre qui ; soldes et « qui doit quoi » avec le moins de remboursements possible)
+- **Récurrence** : chaque jour, chaque semaine, toutes les 2 semaines, chaque mois, chaque année (anniversaires). Modifier ou supprimer « cette fois » ou « toute la série »
+- **Rappels** : à l'heure, 15 min, 1 h, la veille ou 1 semaine avant
+- **Repas du planning** affichés dans le calendrier (ce sont les mêmes données que le planning de Recettes)
+- **Filtres** par membre et repas affichés ou non ; une couleur par membre
+
+### 💶 Budget familial
+- **Aperçu du mois** : dépensé, budget, reste, barres par catégorie (avec plafond facultatif) et répartition par membre
+- **Comparaison au mois précédent** (à la même date pour le mois en cours) et **projection de fin de mois** : dépenses déjà saisies, plus le rythme des dépenses ponctuelles prolongé jusqu'à la fin du mois (le loyer et les autres récurrentes ne sont pas extrapolés)
+- **Budget habituel** (chaque mois) ou **propre à un mois** (rentrée, vacances, fêtes) : « ✏️ Budget du mois » dans l'aperçu
+- **Dépenses** : liste groupée par jour, filtres par catégorie et par membre, **recherche texte** dans tous les mois (libellé, note, catégorie, membre, montant ; sans tenir compte des accents)
+- **Saisie rapide** : boutons +5 €, +10 €, +20 €, +50 €
+- **Dépenses récurrentes** **mensuelles** (loyer, charges, abonnements…) ou **annuelles** (assurance, taxe foncière…) : ajoutées automatiquement dès le 1er du mois concerné, datées de leur jour et marquées « prévue » jusque-là ; supprimer la dépense d'un mois ne touche pas aux autres. Création depuis la liste « 🔁 Dépenses récurrentes » ou par l'option « Se répète » d'une nouvelle dépense
+- **Catégories** par défaut (Courses, Logement, Transport, Santé, Enfants…) personnalisables
+
+### 👪 Famille et rappels
+- **Famille partagée** : un lien d'invitation suffit pour relier les téléphones, sans email ni mot de passe. Voir [SYNC-GUIDE.md](./SYNC-GUIDE.md)
+- **Membres** : prénom, couleur, emoji, même pour un enfant sans téléphone. Chaque téléphone indique à qui il appartient
+- **Rappels** : affichés par l'app quand elle est ouverte, et en **notification push même app fermée** (Android, iPhone avec l'app installée et iOS 16.4+), via un service gratuit de votre projet Supabase
 
 ### 📚 Bibliothèque
 - **Catégories** : Apéro, Entrée, Plat, Dessert, Goûter, Petit déjeuner, Boisson, Autre
@@ -40,8 +72,8 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
   - **Quantités partielles** : si un ingrédient est divisé (ex: 100g pour la pâte + 30g pour le moule), chaque étape affiche sa portion + note explicative
 - **Bouton 🪄 « Recalculer ingrédients-étapes »** :
   - Accessible via le menu kebab ⋮ à côté du titre « Étapes »
-  - Global dans Paramètres → Outils IA (toutes les recettes en une fois)
-  - Sauvegarde automatique de l'ancien état + bouton « ↶ Restaurer l'ancien » dans le même menu
+  - Global dans Paramètres → 🍲 Recettes → 🪄 Recalculer toutes les recettes (toutes les recettes en une fois)
+  - Sauvegarde automatique de l'ancien état + bouton « ↶ Restaurer l'ancien » dans le même menu (seulement les associations ; proposé tant que les étapes n'ont pas changé ; un ingrédient ajouté depuis garde les siennes, pour une sauvegarde faite depuis la v4.0 ; avec une sauvegarde plus ancienne, seules les associations d'avant le recalcul des ingrédients encore présents reviennent)
 - **Minuteurs intégrés aux étapes** : détection automatique des durées dans le texte ("Cuire 30 min", "Reposer 1h30", "1/2 heure"...), tap sur ⏱️ pour lancer
   - Overlay flottant avec affichage `MM:SS`, pause/reprendre/arrêter
   - Alarme à zéro : bips sonores + notification système + vibration
@@ -69,6 +101,7 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
 - **Libellé clair** : « ✓ J'ai cuisiné cette recette aujourd'hui » (au lieu du flou « J'ai fait cette recette »)
 
 ### 🗓 Planning des repas
+- **Les repas sont des événements du calendrier** : un repas planifié ici apparaît dans le Calendrier, et inversement
 - **Vue 1 ou 2 semaines** au choix (toggle segmenté avec navigation flèches adaptée)
 - **3 slots par jour** : ☀️ Midi, 🌙 Soir, 🥐 Autre (petit-déj/goûter/apéro...)
 - **Multi-recettes par slot** : plusieurs plats peuvent partager un repas
@@ -85,7 +118,7 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
   - ☯️ **Équilibre lourd ↔ léger** sur la journée
   - 🏖️ **Rapide en semaine, festif le weekend**
   - 🍱 **Batch cooking** : maximise les paires de slots consécutifs avec la même recette (badge automatique sur les slots concernés)
-- **Préférences persistantes** : les 6 toggles sont accessibles **à la fois dans Paramètres → 📅 Génération de menu IA** et dans la modal de génération (collapse « ⚡ Préférences d'optimisation »), synchronisés en temps réel
+- **Préférences persistantes** : les 6 toggles sont accessibles **à la fois dans Paramètres → 🍲 Recettes → 🍽️ Génération de menu IA** et dans la modal de génération (collapse « ⚡ Préférences d'optimisation »), synchronisés en temps réel
 - **Feedback de progression** : l'IA affiche des messages narratifs (« Analyse de vos recettes… », « Application des règles nutritionnelles… », « Optimisation des choix… ») pendant l'appel pour rendre l'attente moins anxiogène
 - **Validation pas-à-pas** : aperçu des recettes proposées, possibilité de remplacer chaque repas avant validation
 
@@ -112,35 +145,45 @@ Charte graphique terracotta (couleur principale `#B5532A`, accent pêche pop `#F
 - **Backup automatique** mensuel + export/import JSON
 
 ### ⚙️ Paramètres repensés
-- **Style mobile-first façon iOS** : sections regroupées en cartes blanches arrondies (🔒 Sécurité, 🎨 Apparence, 🪄 IA & génération, 🍽️ Génération de menu IA, ☁️ Synchronisation, 📦 Garde-manger, 💾 Données, ⚠️ Zone dangereuse)
+- **Un menu par espace** : 👪 Famille & synchronisation, 🍲 Recettes (IA, menu IA, garde-manger), 📅 Calendrier (rappels et notifications), 💶 Budget (catégories, budget du mois, dépenses récurrentes), 🎨 Apparence, 💾 Données & sauvegarde. Le bouton ⚙️ d'une sous-app ouvre directement sa page ; le retour ramène au menu
+- **Style mobile-first façon iOS** : sections regroupées en cartes blanches arrondies
 - **Titres de sections sticky** : restent figés en haut pendant le scroll pour aider l'orientation, avec ombre dynamique au sticking
-- **Champs sensibles masqués par défaut** : clé API et identifiants Supabase en `type="password"`, bouton 👁️ pour révéler temporairement
+- **Champs sensibles masqués par défaut** : clé API en `type="password"`, bouton 👁️ pour révéler temporairement
 - **Badge ✓ Configurée** : confirmation visuelle persistante à côté du label « Clé API Claude » quand une clé est saisie
 - **Compteur de caractères** sur le textarea de contraintes de la génération IA (max 500), passe en terracotta gras à 80%
 - **Zone dangereuse séparée** : le bouton « Tout supprimer » est isolé visuellement avec bordure rouge
 
 ### 🔒 Sécurité locale
-- **Obfuscation des secrets dans `localStorage`** : la clé API Anthropic et les identifiants Supabase (URL, clé anon, code foyer) sont stockés avec un XOR + base64 dérivé de `location.origin`. Préfixés par `enc1:`.
+- **Obfuscation des secrets dans `localStorage`** : la clé API Anthropic et les identifiants Supabase (URL du projet, clé publique, session anonyme du téléphone) sont stockés avec un XOR + base64 dérivé de `location.origin`. Préfixés par `enc1:`.
 - **Objectif** : empêcher la lecture en clair via l'onglet Application → Local Storage des devtools ou un dump d'extension navigateur. **Ce n'est pas une protection cryptographique forte** : un attaquant qui peut exécuter du JS dans l'origine peut toujours déchiffrer.
 - **Migration transparente** : au prochain démarrage, les valeurs précédemment en clair sont automatiquement ré-écrites en obfusqué. Aucune action utilisateur requise.
 
-### ☁️ Sync entre appareils (optionnel)
-- Via Supabase gratuit — voir [SYNC-GUIDE.md](./SYNC-GUIDE.md)
-- **Sync recettes** (full document)
-- **Sync planning** (cell-level, last-write-wins)
-- Foyer partagé : recettes et planning communs entre conjoint·e·s
-- **Données privées** : stockées localement par défaut, sur votre Supabase si sync activée. Les credentials Supabase eux-mêmes sont obfusqués localement (voir Sécurité locale ci-dessus)
+### ☁️ Synchronisation de la famille (optionnelle)
+- Via votre propre projet Supabase gratuit — voir [SYNC-GUIDE.md](./SYNC-GUIDE.md)
+- Recettes, listes de courses, calendrier (repas compris), mémos, budget et membres sont partagés ; garde-manger et préférences restent sur chaque téléphone
+- **Base protégée** : chaque téléphone a une identité anonyme, et seuls les téléphones de la famille lisent ou modifient ses données (RLS)
+- **Hors ligne** : les modifications attendent et partent au retour du réseau ; la dernière modification d'un document l'emporte, selon l'horloge du serveur
+- **Données privées** : stockées localement par défaut, sur votre Supabase si la famille est créée. Les identifiants Supabase eux-mêmes sont obfusqués localement (voir Sécurité locale ci-dessus)
 
 ## 📁 Structure du projet
 
 ```
 recettes-app/
 ├── index.html          # Structure HTML
-├── styles.css          # Design system terracotta (~6300 lignes)
-├── data.js             # Catégories, FODMAP, saisonnalité, conversions, protéines
-├── app.js              # Logique applicative (~8000 lignes)
+├── styles.css          # Design system terracotta (~8300 lignes)
+├── data.js             # Catégories, FODMAP, saisonnalité, conversions, protéines, couleurs des membres, catégories d'événements
+├── app.js              # Cœur (état, navigation) + sous-app Recettes (~9300 lignes)
+├── hub.js              # Écran d'accueil
+├── calendar.js         # Calendrier familial (événements, repas, récurrence, rappels)
+├── budget.js           # Budget familial
+├── memos.js            # Mémos de l'accueil
+├── occasions.js        # Liste de souhaits et dépenses partagées d'un événement
+├── family.js           # Membres et vue Famille
+├── sync.js             # Synchronisation de la famille (Supabase)
+├── reminders.js        # Rappels et notifications
 ├── manifest.json       # Configuration PWA
-├── sw.js               # Service Worker (offline + auto-update)
+├── sw.js               # Service Worker (offline + auto-update + notifications push)
+├── supabase/           # SQL à coller dans Supabase (schema.sql, push.sql) et fonction d'envoi des rappels
 └── icons/              # Icônes app (192, 512, maskable, etc.)
 ```
 
@@ -186,7 +229,7 @@ python3 -m http.server 8000
 
 ### Permissions à autoriser
 
-- **Notifications** (au premier minuteur déclenché) : autorise les alarmes de fin de cuisson en arrière-plan
+- **Notifications** (en activant les rappels dans ⚙️ Paramètres → 📅 Calendrier, ou au premier minuteur) : rappels du calendrier et alarmes de fin de cuisson. Sur iPhone, uniquement dans l'app installée sur l'écran d'accueil (iOS 16.4+)
 - **Caméra/Photos** (premier ajout de photo) : pour prendre/choisir la photo du plat
 
 ## 🔑 Configurer l'IA Claude
@@ -196,7 +239,7 @@ L'IA est **optionnelle**. L'app fonctionne en mode démo (création manuelle) si
 1. Créez un compte sur [console.anthropic.com](https://console.anthropic.com)
 2. **API Keys** → « Create Key »
 3. Copiez la clé (`sk-ant-api03-...`)
-4. Dans l'app : ⚙️ Paramètres → Clé API Claude → coller → Enregistrer
+4. Dans l'app : ⚙️ Paramètres → 🍲 Recettes → Clé API Claude → coller → Enregistrer la clé
 
 **Coûts indicatifs** :
 - ~0,02€ par création de recette
@@ -207,15 +250,16 @@ Anthropic offre du crédit gratuit à l'inscription.
 
 > 🔒 La clé est stockée uniquement dans le `localStorage` de votre navigateur. Elle n'est jamais envoyée ailleurs qu'à l'API Anthropic.
 
-## ☁️ Synchronisation entre appareils
+## ☁️ Synchronisation de la famille et rappels
 
-Pour partager vos recettes et votre planning entre plusieurs téléphones (ex: vous et votre conjoint·e), utilisez la sync Supabase gratuite.
+Pour partager recettes, courses, calendrier et budget entre les téléphones de la famille, créez la famille sur un projet Supabase gratuit puis invitez les autres téléphones avec un lien.
 
-Procédure complète : voir **[SYNC-GUIDE.md](./SYNC-GUIDE.md)** (~10 min de configuration).
+Procédure complète : voir **[SYNC-GUIDE.md](./SYNC-GUIDE.md)** (~10 min de configuration, puis 10 min de plus pour les rappels en notification).
 
 La sync couvre :
-- **Recettes** : full-document, last-write-wins par recette
-- **Planning** : cell-level, last-write-wins par case (jour × créneau)
+- **Recettes, listes de courses, événements et repas, mémos, idées de cadeaux, dépenses partagées, dépenses, catégories, budgets, dépenses récurrentes, membres** : un document à la fois, la dernière modification l'emporte (horloge du serveur)
+- Lors de la première jonction d'un téléphone, ses données sont fusionnées avec celles de la famille (rien n'est perdu)
+- Les **rappels push** passent par une fonction Supabase planifiée chaque minute : 0 € sur le plan gratuit
 
 ## 🎨 Charte graphique
 
@@ -250,13 +294,16 @@ L'app n'a aucune dépendance NPM. Modifiez les fichiers sources directement.
 - **Préfixes de mesure retirés du nom** (« gousses d'ail » → ail) → `data.js`, tableau `SHOPPING_MEASURE_PREFIXES`
 - **Variantes fusionnées / gardées à part** → `data.js`, `SHOPPING_VARIETY_ALIASES` (citron jaune = citron) et `SHOPPING_DISTINCT_STATES` (tomates pelées ≠ tomates)
 - **Régimes alimentaires** → `data.js`, tableau `DIET_TAGS`
+- **Catégories d'événements** → `data.js`, tableau `EVENT_CATEGORIES` ; **délais de rappel** → `EVENT_REMINDER_OPTIONS`
+- **Couleurs des membres** → `data.js`, tableau `MEMBER_COLORS` (et tokens `--member-*` de `styles.css`)
+- **Catégories de budget par défaut** → `budget.js`, tableau `BUDGET_DEFAULT_CATEGORIES`
 
 ## 🆘 Mises à jour
 
 L'app utilise un Service Worker en mode **network-first** : les fichiers se mettent à jour automatiquement à chaque ouverture si vous avez du réseau.
 
 Si vous ne voyez pas la dernière version :
-- ⚙️ Paramètres → 🔄 « Vérifier les mises à jour »
+- ⚙️ Paramètres → 💾 Données & sauvegarde → 🔄 « Vérifier les mises à jour »
 - Ou désinstallez/réinstallez l'app pour mettre à jour aussi l'icône (limitation PWA)
 
 ## 📜 Licence
@@ -264,6 +311,8 @@ Si vous ne voyez pas la dernière version :
 Code librement réutilisable.
 
 ---
+
+**v4.0** — « La Maisonnée » : écran d'accueil et sous-apps · Calendrier familial (récurrence, rappels, repas du planning, « Qui s'en occupe ? », liste de souhaits et dépenses partagées) · Mémos · Budget familial (budget du mois, récurrentes annuelles, comparaison, projection) · Famille partagée par lien d'invitation (sessions anonymes, base protégée) · Rappels en notification push, même app fermée, à 0 €
 
 **v3.5** — Fiche recette refondue : sticky action bar (Mode cuisine + Courses) · Hero compact avec kebab Modifier/Supprimer · Photo pulse pour CTA · Crayon ✏️ d'édition inline · Bloc portions unifié · Meta-bar en 2 groupes (factuel/validation) · Chip cuisson par fraîcheur · Toasts cuisson contextuels (🎉 1ère fois, 🔥 5×, ⭐ 10×) · Pill « X à acheter » · Numérotation étapes en pop · Compteurs (N) dans les titres · Bouton retour intelligent — Bon appétit ! 🍅
 

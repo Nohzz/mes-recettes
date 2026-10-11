@@ -1,6 +1,12 @@
 // ============================================
-// MES RECETTES — App JS
+// LA MAISONNÉE — App JS (cœur + sous-app Recettes)
 // ============================================
+
+// Identité de l'app, affichée dans « À propos ».
+// ⚠️ À chaque déploiement, bumper aussi CACHE_VERSION dans sw.js.
+const APP_NAME = 'La Maisonnée';
+const APP_VERSION = '4.0';
+const APP_BUILD_DATE = '2026-10-11';
 
 // ============================================
 // OBFUSCATION DES SECRETS DANS LOCALSTORAGE
@@ -113,11 +119,12 @@ const state = {
   activeShoppingListId: '',
   shoppingChecked: new Set(),
   pantry: [], // [{name, until: timestamp}]
-  // Planning : { 'YYYY-MM-DD-midi': {recipeId, servings}, 'YYYY-MM-DD-soir': {...} }
-  planning: {},
+  // Calendrier (calendar.js) : { [id]: événement }. Les repas du planning sont des événements
+  // type 'meal' d'id `meal-YYYY-MM-DD-<créneau>` (cf. getMealRecipes / setMealRecipes).
+  events: {},
   pendingRecipesQueue: [], // file d'attente quand l'IA renvoie plusieurs recettes
   apiKey: '',
-  currentView: 'library',
+  currentView: 'hub',
   currentRecipe: null,
   searchQuery: '',
   monthFilter: 'all',
@@ -131,10 +138,15 @@ const state = {
   chatAttachments: [], // base64 images
   pendingRecipe: null,
   editingRecipeId: null,
-  // Sync
+  // Membres de la famille (family.js) : [{ id, name, color: 'm1'…'m8', emoji, updatedAt }]
+  members: [],
+  // Sync famille (sync.js). url/key = projet Supabase ; foyer = code de l'ANCIENNE sync (import seulement) ;
+  // enabled = famille configurée sur cet appareil (cf. syncEnabled()).
   sync: {
-    url: '', key: '', foyer: '', enabled: false,
-    status: 'idle', lastSync: 0
+    url: '', key: '', foyer: '', enabled: false, legacyEnabled: false,
+    status: 'idle', statusMessage: '', lastSync: 0,
+    householdId: '', householdName: '', role: '', memberId: '',
+    inviteCode: '', inviteExpiresAt: '', userId: '', cursor: ''
   },
   // Préférences
   prefs: {
@@ -213,8 +225,15 @@ function loadState() {
         if (raw && !raw.startsWith(_OBF_PREFIX)) setSecret(k, v);
       }
     });
-    state.sync.enabled = localStorage.getItem(STORAGE_KEYS.syncEnabled) === '1';
+    // Ancienne sync « code foyer » (remplacée par la sync famille) : gardée pour l'import
+    state.sync.legacyEnabled = localStorage.getItem(STORAGE_KEYS.syncEnabled) === '1';
     state.sync.lastSync = Number(localStorage.getItem(STORAGE_KEYS.lastSync)) || 0;
+    // Famille, session, outbox (sync.js), membres (family.js) et budget (budget.js)
+    loadSyncState();
+    loadMembers();
+    loadBudget();
+    loadMemos();     // memos.js
+    loadOccasions(); // occasions.js
 
     // Listes de courses (avec migration depuis l'ancienne liste unique)
     const lists = localStorage.getItem(STORAGE_KEYS.shoppingLists);
@@ -254,25 +273,8 @@ function loadState() {
     const now = Date.now();
     state.pantry = state.pantry.filter(p => !p.until || p.until > now);
 
-    // Planning
-    const planning = localStorage.getItem(STORAGE_KEYS.planning);
-    state.planning = planning ? JSON.parse(planning) : {};
-    // Migration douce : ancienne version sans updatedAt → ajouter
-    for (const key of Object.keys(state.planning)) {
-      const entry = state.planning[key];
-      if (entry && typeof entry === 'object' && entry.updatedAt === undefined) {
-        entry.updatedAt = now;
-        entry.deletedAt = entry.deletedAt || null;
-      }
-    }
-    // Nettoyer les entrées trop anciennes (> 30 jours dans le passé)
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - 30);
-    const cutoffStr = formatPlanningDate(cutoffDate);
-    for (const key of Object.keys(state.planning)) {
-      const dateStr = key.split('-').slice(0, 3).join('-');
-      if (dateStr < cutoffStr) delete state.planning[key];
-    }
+    // Calendrier + repas du planning (calendar.js) : migre l'ancien planning une fois, purge les vieux repas
+    loadEvents();
 
     // Préférence d'affichage du planning (week / 2weeks)
     const savedView = localStorage.getItem('mr_planning_view');
@@ -281,29 +283,7 @@ function loadState() {
     }
 
     // Préférences
-    state.prefs.theme = localStorage.getItem(STORAGE_KEYS.theme) || 'auto';
-    state.prefs.enableWebSearch = localStorage.getItem(STORAGE_KEYS.enableWebSearch) === '1';
-    state.prefs.voiceMode = localStorage.getItem(STORAGE_KEYS.voiceMode) || 'claude';
-    state.prefs.sortMode = localStorage.getItem(STORAGE_KEYS.sortMode) || 'recent';
-    const presetsStr = localStorage.getItem(STORAGE_KEYS.servingsPresets);
-    if (presetsStr) {
-      try { state.prefs.servingsPresets = JSON.parse(presetsStr); } catch {}
-    }
-    // Préférences de génération de menu (merge avec les défauts pour gérer l'ajout futur de toggles)
-    const planningPrefsStr = localStorage.getItem(STORAGE_KEYS.planningPrefs);
-    if (planningPrefsStr) {
-      try {
-        const saved = JSON.parse(planningPrefsStr);
-        state.prefs.planning = { ...state.prefs.planning, ...saved };
-      } catch {}
-    }
-    const synonymsStr = localStorage.getItem(STORAGE_KEYS.ingredientSynonyms);
-    if (synonymsStr) {
-      try {
-        const saved = JSON.parse(synonymsStr);
-        if (saved && typeof saved === 'object') state.prefs.ingredientSynonyms = saved;
-      } catch {}
-    }
+    loadPrefs();
 
     // S'assurer que chaque recette a tous les champs des nouvelles features (migration douce)
     state.recipes = state.recipes.map(r => ({
@@ -467,7 +447,7 @@ function safeSave(storageKey, value, label) {
       if (Date.now() - _quotaErrorShownAt > 30000) {
         _quotaErrorShownAt = Date.now();
         if (typeof showToast === 'function') {
-          showToast('⚠️ Stockage plein. Paramètres → 💾 Données → Libérer l\'espace', 'error');
+          showToast('⚠️ Stockage plein. Paramètres → 💾 Données & sauvegarde → Libérer l\'espace', 'error');
         }
       }
     } else {
@@ -478,7 +458,7 @@ function safeSave(storageKey, value, label) {
 }
 
 function saveRecipes() {
-  safeSave(STORAGE_KEYS.recipes, state.recipes, 'recettes');
+  return safeSave(STORAGE_KEYS.recipes, state.recipes, 'recettes');
 }
 
 function saveShopping() {
@@ -489,38 +469,18 @@ function saveShopping() {
     active.checked = [...state.shoppingChecked];
     active.updatedAt = Date.now();
     safeSave(STORAGE_KEYS.shoppingLists, state.shoppingLists, 'listes de courses');
-    syncShoppingList(active.id);
+    markDirty('shopping_lists', active.id);
   }
 }
 
 function saveShoppingLists() {
-  safeSave(STORAGE_KEYS.shoppingLists, state.shoppingLists, 'listes de courses');
-  localStorage.setItem(STORAGE_KEYS.activeShoppingList, state.activeShoppingListId);
+  const ok = safeSave(STORAGE_KEYS.shoppingLists, state.shoppingLists, 'listes de courses');
+  safeSave(STORAGE_KEYS.activeShoppingList, state.activeShoppingListId, 'liste active');
+  return ok;
 }
 
 function savePantry() {
   safeSave(STORAGE_KEYS.pantry, state.pantry, 'garde-manger');
-}
-
-// savePlanning() debounced : si on drag plusieurs slots rapidement, on n'écrit qu'une fois.
-let _savePlanningTimer = null;
-function savePlanning() {
-  // Note : la sync Supabase du planning se fait via syncPlanningEntry() pour les
-  // modifs immédiates, et via performSync() pour la fusion complète au démarrage.
-  if (_savePlanningTimer) clearTimeout(_savePlanningTimer);
-  _savePlanningTimer = setTimeout(() => {
-    _savePlanningTimer = null;
-    safeSave(STORAGE_KEYS.planning, state.planning, 'planning');
-  }, 200);
-}
-
-// Variante immédiate (utilisée par les actions critiques avant fermeture/navigation)
-function savePlanningImmediate() {
-  if (_savePlanningTimer) {
-    clearTimeout(_savePlanningTimer);
-    _savePlanningTimer = null;
-  }
-  safeSave(STORAGE_KEYS.planning, state.planning, 'planning');
 }
 
 // Format YYYY-MM-DD pour les clés du planning
@@ -529,6 +489,34 @@ function formatPlanningDate(d) {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+// Préférences. Relues aussi quand l'autre instance de l'app (onglet + app installée) les enregistre :
+// sinon son prochain savePrefs() réécrirait toutes les préférences avec sa copie du démarrage.
+function loadPrefs() {
+  state.prefs.theme = localStorage.getItem(STORAGE_KEYS.theme) || 'auto';
+  state.prefs.enableWebSearch = localStorage.getItem(STORAGE_KEYS.enableWebSearch) === '1';
+  state.prefs.voiceMode = localStorage.getItem(STORAGE_KEYS.voiceMode) || 'claude';
+  state.prefs.sortMode = localStorage.getItem(STORAGE_KEYS.sortMode) || 'recent';
+  const presetsStr = localStorage.getItem(STORAGE_KEYS.servingsPresets);
+  if (presetsStr) {
+    try { state.prefs.servingsPresets = JSON.parse(presetsStr); } catch {}
+  }
+  // Préférences de génération de menu (merge avec les défauts pour gérer l'ajout futur de toggles)
+  const planningPrefsStr = localStorage.getItem(STORAGE_KEYS.planningPrefs);
+  if (planningPrefsStr) {
+    try {
+      const saved = JSON.parse(planningPrefsStr);
+      state.prefs.planning = { ...state.prefs.planning, ...saved };
+    } catch {}
+  }
+  const synonymsStr = localStorage.getItem(STORAGE_KEYS.ingredientSynonyms);
+  if (synonymsStr) {
+    try {
+      const saved = JSON.parse(synonymsStr);
+      if (saved && typeof saved === 'object') state.prefs.ingredientSynonyms = saved;
+    } catch {}
+  }
 }
 
 function savePrefs() {
@@ -546,502 +534,27 @@ function saveApiKey(key) {
   setSecret(STORAGE_KEYS.apiKey, key);
 }
 
-function saveSyncConfig(config) {
-  state.sync.url = config.url || '';
-  state.sync.key = config.key || '';
-  state.sync.foyer = config.foyer || '';
-  state.sync.enabled = !!(config.url && config.key && config.foyer);
-
-  setSecret(STORAGE_KEYS.syncUrl, state.sync.url);
-  setSecret(STORAGE_KEYS.syncKey, state.sync.key);
-  setSecret(STORAGE_KEYS.syncFoyer, state.sync.foyer);
-  localStorage.setItem(STORAGE_KEYS.syncEnabled, state.sync.enabled ? '1' : '0');
-}
-
-// ============================================
-// SYNC SUPABASE
-// ============================================
-//
-// Architecture:
-// - Une table "recipes" avec colonnes: id, foyer, data (JSONB), updated_at, deleted_at
-// - Chaque recette est un row, lié au foyer
-// - Sync = pull tous les rows du foyer + merge local (last-write-wins par updated_at)
-// - Push = upsert chaque recette modifiée en local
-//
-// La clé "anon" Supabase n'a accès qu'aux foyers via Row-Level Security (configurée dans Supabase)
-//
-
-const SYNC_TABLE = 'recipes';
-const SYNC_PLANNING_TABLE = 'planning';
-const SYNC_SHOPPING_TABLE = 'shopping_lists';
-
-function setSyncStatus(status) {
-  state.sync.status = status;
-  updateSyncIndicator();
-}
-
-function updateSyncIndicator() {
-  const indicator = document.getElementById('sync-indicator');
-  if (!indicator) return;
-
-  if (!state.sync.enabled) {
-    indicator.classList.add('hidden');
-    return;
-  }
-
-  indicator.classList.remove('hidden');
-  indicator.className = 'sync-indicator sync-' + state.sync.status;
-
-  const messages = {
-    idle: '',
-    syncing: 'Synchronisation…',
-    synced: 'Synchronisé ✓',
-    error: 'Erreur de sync',
-    offline: 'Hors ligne'
-  };
-  indicator.title = messages[state.sync.status] || '';
-}
-
-async function supabaseRequest(method, path, body, extraHeaders) {
-  if (!state.sync.url || !state.sync.key) throw new Error('Sync non configurée');
-
-  const url = state.sync.url.replace(/\/$/, '') + '/rest/v1/' + path;
-  const headers = {
-    'apikey': state.sync.key,
-    'Authorization': 'Bearer ' + state.sync.key,
-    'Content-Type': 'application/json',
-    'Prefer': 'return=representation',
-    ...(extraHeaders || {})
-  };
-
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error('Supabase error:', response.status, errText);
-    throw new Error('Sync error ' + response.status);
-  }
-
-  if (response.status === 204) return null;
-  const text = await response.text();
-  return text ? JSON.parse(text) : null;
-}
-
-async function syncPull() {
-  // Récupère toutes les recettes du foyer
-  const path = `${SYNC_TABLE}?foyer=eq.${encodeURIComponent(state.sync.foyer)}&select=*`;
-  const remote = await supabaseRequest('GET', path);
-  return remote;
-}
-
-async function syncPush(recipe, isDelete) {
-  // Upsert d'une recette
-  const row = {
-    id: recipe.id,
-    foyer: state.sync.foyer,
-    data: isDelete ? null : recipe,
-    deleted_at: isDelete ? new Date().toISOString() : null,
-    updated_at: new Date().toISOString()
-  };
-
-  await supabaseRequest('POST', SYNC_TABLE, [row], {
-    'Prefer': 'resolution=merge-duplicates,return=minimal'
-  });
-}
-
-// ===== Sync du PLANNING =====
-
-// Récupère toutes les entrées de planning du foyer
-async function syncPlanningPull() {
-  const path = `${SYNC_PLANNING_TABLE}?foyer=eq.${encodeURIComponent(state.sync.foyer)}&select=*`;
-  return await supabaseRequest('GET', path);
-}
-
-// Push une entrée de planning (insert ou update via merge)
-// debounced pour éviter de spammer en cas de modifs rapides
-const _pendingPlanningSync = new Map();
-let _planningSyncTimer = null;
-
-function syncPlanningEntry(key) {
-  if (!state.sync.enabled || !navigator.onLine) return;
-  _pendingPlanningSync.set(key, state.planning[key]);
-
-  // Debounce : on attend 800ms avant d'envoyer pour grouper les modifs rapides
-  if (_planningSyncTimer) clearTimeout(_planningSyncTimer);
-  _planningSyncTimer = setTimeout(flushPlanningSync, 800);
-}
-
-async function flushPlanningSync() {
-  if (_pendingPlanningSync.size === 0) return;
-  if (!state.sync.enabled || !navigator.onLine) {
-    _pendingPlanningSync.clear();
-    return;
-  }
-
-  const rows = [];
-  for (const [key, entry] of _pendingPlanningSync.entries()) {
-    if (!entry) continue;
-    rows.push({
-      slot_key: key,
-      foyer: state.sync.foyer,
-      recipe_id: entry.recipeId || null,
-      servings: entry.servings || null,
-      updated_at: new Date(entry.updatedAt || Date.now()).toISOString(),
-      deleted_at: entry.deletedAt ? new Date(entry.deletedAt).toISOString() : null
-    });
-  }
-  _pendingPlanningSync.clear();
-
-  if (rows.length === 0) return;
-
-  try {
-    await supabaseRequest('POST', SYNC_PLANNING_TABLE, rows, {
-      'Prefer': 'resolution=merge-duplicates,return=minimal'
-    });
-  } catch (e) {
-    console.warn('Sync planning push échouée:', e);
-    // En cas d'échec, on remet les entrées en pending pour réessayer plus tard
-    for (const row of rows) {
-      const entry = state.planning[row.slot_key];
-      if (entry) _pendingPlanningSync.set(row.slot_key, entry);
+const _PREF_STORAGE_KEYS = [STORAGE_KEYS.theme, STORAGE_KEYS.enableWebSearch, STORAGE_KEYS.voiceMode, STORAGE_KEYS.sortMode,
+  STORAGE_KEYS.servingsPresets, STORAGE_KEYS.planningPrefs, STORAGE_KEYS.ingredientSynonyms];
+window.addEventListener('storage', (e) => {
+  if (e.storageArea !== localStorage) return;
+  if (e.key === null || _PREF_STORAGE_KEYS.includes(e.key)) {
+    loadPrefs();
+    _resetShoppingProductCache();
+    applyTheme();
+    // Regroupement des courses ou tri de la bibliothèque changés : l'écran suit (sinon une coche partirait
+    // sur une ancienne clé produit)
+    if (e.key === null || e.key === STORAGE_KEYS.ingredientSynonyms || e.key === STORAGE_KEYS.sortMode) {
+      const sel = document.getElementById('filter-sort');
+      if (sel) sel.value = state.prefs.sortMode;
+      if (typeof _rerenderCurrentView === 'function') _rerenderCurrentView();
     }
   }
-}
-
-// ===== Sync des LISTES DE COURSES =====
-
-async function syncShoppingPull() {
-  const path = `${SYNC_SHOPPING_TABLE}?foyer=eq.${encodeURIComponent(state.sync.foyer)}&select=*`;
-  return await supabaseRequest('GET', path);
-}
-
-// Debounce : plusieurs modifs rapides (checked, ajout recette…) → 1 push
-const _pendingShoppingSync = new Map();
-let _shoppingSyncTimer = null;
-
-function syncShoppingList(listId) {
-  if (!state.sync.enabled || !navigator.onLine) return;
-  const list = state.shoppingLists.find(l => l.id === listId);
-  if (!list) return;
-  _pendingShoppingSync.set(listId, list);
-  if (_shoppingSyncTimer) clearTimeout(_shoppingSyncTimer);
-  _shoppingSyncTimer = setTimeout(flushShoppingSync, 800);
-}
-
-async function flushShoppingSync() {
-  if (_pendingShoppingSync.size === 0) return;
-  if (!state.sync.enabled || !navigator.onLine) {
-    _pendingShoppingSync.clear();
-    return;
-  }
-  const rows = [];
-  for (const [id, list] of _pendingShoppingSync.entries()) {
-    if (!list) continue;
-    rows.push({
-      id: list.id,
-      foyer: state.sync.foyer,
-      name: list.name || '',
-      items: list.items || [],
-      checked: list.checked || [],
-      updated_at: new Date(list.updatedAt || Date.now()).toISOString(),
-      deleted_at: list.deletedAt ? new Date(list.deletedAt).toISOString() : null
-    });
-  }
-  _pendingShoppingSync.clear();
-  if (rows.length === 0) return;
-  try {
-    await supabaseRequest('POST', SYNC_SHOPPING_TABLE, rows, {
-      'Prefer': 'resolution=merge-duplicates,return=minimal'
-    });
-  } catch (e) {
-    console.warn('Sync shopping push échouée:', e);
-    for (const row of rows) {
-      const list = state.shoppingLists.find(l => l.id === row.id);
-      if (list) _pendingShoppingSync.set(list.id, list);
-    }
-  }
-}
-
-async function performSync(silent) {
-  if (!state.sync.enabled) return;
-  if (!navigator.onLine) {
-    setSyncStatus('offline');
-    return;
-  }
-
-  setSyncStatus('syncing');
-
-  try {
-    // 1. Pull remote
-    const remote = await syncPull();
-
-    // 2. Merge: pour chaque recette remote, si plus récente que locale OU pas locale -> remplace
-    //    Pour chaque recette locale qui n'est pas remote -> push
-    const remoteById = {};
-    for (const row of remote || []) {
-      remoteById[row.id] = row;
-    }
-
-    const localById = {};
-    for (const r of state.recipes) {
-      localById[r.id] = r;
-    }
-
-    // Recettes remote -> local
-    for (const id in remoteById) {
-      const row = remoteById[id];
-      const local = localById[id];
-      const remoteUpdatedAt = new Date(row.updated_at).getTime();
-
-      if (row.deleted_at) {
-        // Recette supprimée distante : on la retire localement
-        if (local) {
-          state.recipes = state.recipes.filter(r => r.id !== id);
-          state.shopping = state.shopping.filter(s => s.recipeId !== id);
-        }
-        continue;
-      }
-
-      const remoteRecipe = row.data;
-      if (!local) {
-        // Nouvelle recette distante
-        state.recipes.push(remoteRecipe);
-      } else {
-        // Si remote plus récente que local
-        const localUpdatedAt = local.updatedAt || local.createdAt || 0;
-        if (remoteUpdatedAt > localUpdatedAt) {
-          // Remplace
-          state.recipes = state.recipes.map(r => r.id === id ? remoteRecipe : r);
-        }
-      }
-    }
-
-    // Recettes locales pas dans remote -> push
-    const toPush = [];
-    for (const r of state.recipes) {
-      if (!remoteById[r.id]) {
-        toPush.push(r);
-      }
-    }
-
-    if (toPush.length > 0) {
-      const rows = toPush.map(r => ({
-        id: r.id,
-        foyer: state.sync.foyer,
-        data: r,
-        deleted_at: null,
-        updated_at: new Date(r.updatedAt || r.createdAt || Date.now()).toISOString()
-      }));
-      await supabaseRequest('POST', SYNC_TABLE, rows, {
-        'Prefer': 'resolution=merge-duplicates,return=minimal'
-      });
-    }
-
-    // ===== Sync du PLANNING (fusion par cellule, last-modified-wins) =====
-    let planningChangedFromRemote = false;
-    try {
-      const remotePlanning = await syncPlanningPull() || [];
-
-      // Map des entrées remote par clé
-      const remoteByKey = {};
-      for (const row of remotePlanning) {
-        remoteByKey[row.slot_key] = row;
-      }
-
-      // 1) Pour chaque entrée remote, comparer à locale et garder la plus récente
-      for (const key in remoteByKey) {
-        const row = remoteByKey[key];
-        const remoteUpdated = new Date(row.updated_at).getTime();
-        const local = state.planning[key];
-        const localUpdated = local && local.updatedAt ? local.updatedAt : 0;
-
-        if (remoteUpdated > localUpdated) {
-          // Remote plus récent : adopter
-          state.planning[key] = {
-            recipeId: row.recipe_id,
-            servings: row.servings,
-            updatedAt: remoteUpdated,
-            deletedAt: row.deleted_at ? new Date(row.deleted_at).getTime() : null
-          };
-          planningChangedFromRemote = true;
-        }
-      }
-
-      // 2) Entrées locales qui n'existent pas en remote → push
-      const planningToPush = [];
-      for (const key in state.planning) {
-        if (!remoteByKey[key]) {
-          const entry = state.planning[key];
-          if (entry && entry.updatedAt) {
-            planningToPush.push({
-              slot_key: key,
-              foyer: state.sync.foyer,
-              recipe_id: entry.recipeId || null,
-              servings: entry.servings || null,
-              updated_at: new Date(entry.updatedAt).toISOString(),
-              deleted_at: entry.deletedAt ? new Date(entry.deletedAt).toISOString() : null
-            });
-          }
-        }
-      }
-
-      if (planningToPush.length > 0) {
-        await supabaseRequest('POST', SYNC_PLANNING_TABLE, planningToPush, {
-          'Prefer': 'resolution=merge-duplicates,return=minimal'
-        });
-      }
-
-      savePlanning();
-    } catch (planErr) {
-      console.warn('Sync planning erreur (non bloquant):', planErr);
-      // Si la table planning n'existe pas encore côté Supabase, on continue sans bloquer la sync des recettes
-    }
-
-    // ===== Sync des LISTES DE COURSES (last-modified-wins par liste) =====
-    let shoppingChangedFromRemote = false;
-    try {
-      const remoteShopping = await syncShoppingPull() || [];
-      const remoteShoppingById = {};
-      for (const row of remoteShopping) remoteShoppingById[row.id] = row;
-
-      // Remote → local
-      for (const id in remoteShoppingById) {
-        const row = remoteShoppingById[id];
-        const remoteUpdated = new Date(row.updated_at).getTime();
-        const local = state.shoppingLists.find(l => l.id === id);
-
-        if (row.deleted_at) {
-          if (local) {
-            state.shoppingLists = state.shoppingLists.filter(l => l.id !== id);
-            shoppingChangedFromRemote = true;
-          }
-          continue;
-        }
-
-        if (!local) {
-          state.shoppingLists.push({
-            id: row.id,
-            name: row.name || 'Ma liste',
-            items: Array.isArray(row.items) ? row.items : [],
-            checked: Array.isArray(row.checked) ? row.checked : [],
-            createdAt: remoteUpdated,
-            updatedAt: remoteUpdated
-          });
-          shoppingChangedFromRemote = true;
-        } else {
-          const localUpdated = local.updatedAt || 0;
-          if (remoteUpdated > localUpdated) {
-            local.name = row.name || local.name;
-            local.items = Array.isArray(row.items) ? row.items : [];
-            local.checked = Array.isArray(row.checked) ? row.checked : [];
-            local.updatedAt = remoteUpdated;
-            local.deletedAt = null;
-            shoppingChangedFromRemote = true;
-          }
-        }
-      }
-
-      // Local → remote (listes inconnues du serveur ou plus récentes localement)
-      const shoppingToPush = [];
-      for (const l of state.shoppingLists) {
-        const remote = remoteShoppingById[l.id];
-        const localUpdated = l.updatedAt || l.createdAt || 0;
-        if (!remote || new Date(remote.updated_at).getTime() < localUpdated) {
-          shoppingToPush.push({
-            id: l.id,
-            foyer: state.sync.foyer,
-            name: l.name || '',
-            items: l.items || [],
-            checked: l.checked || [],
-            updated_at: new Date(localUpdated || Date.now()).toISOString(),
-            deleted_at: null
-          });
-        }
-      }
-      if (shoppingToPush.length > 0) {
-        await supabaseRequest('POST', SYNC_SHOPPING_TABLE, shoppingToPush, {
-          'Prefer': 'resolution=merge-duplicates,return=minimal'
-        });
-      }
-
-      // Ré-align liste active + Set de checked si la liste courante a été modifiée à distance
-      if (!state.shoppingLists.find(l => l.id === state.activeShoppingListId)) {
-        state.activeShoppingListId = state.shoppingLists[0]?.id || 'default';
-      }
-      const active = getActiveShoppingList();
-      if (active) {
-        state.shopping = active.items;
-        state.shoppingChecked = new Set(active.checked || []);
-      }
-      // Un appareil pas encore à jour peut avoir renvoyé des cases cochées à l'ancien format
-      try {
-        migrateShoppingCheckedKeys();
-      } catch (e) {
-        console.warn('Migration des cases cochées ignorée :', e);
-      }
-      saveShoppingLists();
-    } catch (shopErr) {
-      console.warn('Sync shopping erreur (non bloquant):', shopErr);
-    }
-
-    // Save local (le bloc shopping ci-dessus a déjà appelé saveShoppingLists)
-    saveRecipes();
-    state.sync.lastSync = Date.now();
-    localStorage.setItem(STORAGE_KEYS.lastSync, String(state.sync.lastSync));
-
-    setSyncStatus('synced');
-    if (!silent) {
-      const msg = toPush.length > 0
-        ? `Synchronisé ✓ (${toPush.length} envoyée${toPush.length > 1 ? 's' : ''})`
-        : 'Synchronisé ✓';
-      showToast(msg, 'success');
-    }
-
-    // Re-render current view
-    if (state.currentView === 'library') renderLibrary();
-    if (state.currentView === 'shopping' || shoppingChangedFromRemote) renderShopping();
-    if (state.currentView === 'planning' || planningChangedFromRemote) renderPlanning();
-    updateShoppingBadge();
-
-    // Auto-clear status after 3s
-    setTimeout(() => {
-      if (state.sync.status === 'synced') setSyncStatus('idle');
-    }, 3000);
-  } catch (e) {
-    console.error('Sync error:', e);
-    setSyncStatus('error');
-    if (!silent) showToast('Erreur de synchronisation', 'error');
-  }
-}
-
-async function syncRecipeAfterChange(recipe, isDelete) {
-  if (!state.sync.enabled || !navigator.onLine) return;
-  try {
-    setSyncStatus('syncing');
-    await syncPush(recipe, isDelete);
-    state.sync.lastSync = Date.now();
-    localStorage.setItem(STORAGE_KEYS.lastSync, String(state.sync.lastSync));
-    setSyncStatus('synced');
-    setTimeout(() => {
-      if (state.sync.status === 'synced') setSyncStatus('idle');
-    }, 2000);
-  } catch (e) {
-    console.error('Sync push error:', e);
-    setSyncStatus('error');
-  }
-}
-
-// Online/offline detection
-window.addEventListener('online', () => {
-  if (state.sync.enabled) performSync(true);
+  if (e.key === null || e.key === STORAGE_KEYS.apiKey) state.apiKey = getSecret(STORAGE_KEYS.apiKey);
 });
-window.addEventListener('offline', () => {
-  if (state.sync.enabled) setSyncStatus('offline');
-});
+
+// La synchronisation famille (Supabase) est dans sync.js : appeler markDirty(kind, id) après
+// chaque modification d'un document synchronisé ; performSync() force un échange immédiat.
 
 // ============================================
 // UTILITIES
@@ -1086,7 +599,12 @@ function showToast(message, type = '') {
 // ============================================
 // Promesse résolue par "OK" ou null pour "Annuler" (prompt) / true/false (confirm) / undefined (alert)
 
+// Boîte en attente de réponse : toute nouvelle boîte la remplace, et elle est alors fermée sans choix
+// (sa promesse est résolue comme pour un toucher sur le fond, ses écouteurs retirés)
+let _dialogPendingCancel = null;
+
 function _ensureDialogModal() {
+  if (_dialogPendingCancel) _dialogPendingCancel();
   let modal = document.getElementById('ui-dialog-modal');
   if (modal) return modal;
   modal = document.createElement('div');
@@ -1100,10 +618,31 @@ function _ensureDialogModal() {
   return modal;
 }
 
-function _showDialog({ type, message, title, defaultValue, confirmLabel, cancelLabel, danger }) {
+// dismissValue : valeur rendue quand la boîte est fermée sans choisir (fond, Échap, autre boîte), si
+// elle ne doit pas valoir « Annuler » (ex. bouton d'annulation qui est lui-même une action)
+// Boîte personnalisée (photo, ingrédient, étape) : fermée sans choix (fond, autre boîte qui s'ouvre),
+// elle résout null. Renvoie sa fonction de fermeture, qui retire aussi l'écouteur du fond partagé.
+function _customDialogClose(modal, resolve) {
+  const backdrop = modal.querySelector('.ui-dialog-backdrop');
+  const dismiss = () => {
+    cleanup();
+    resolve(null);
+  };
+  const cleanup = () => {
+    modal.classList.add('hidden');
+    backdrop.removeEventListener('click', dismiss);
+    if (_dialogPendingCancel === dismiss) _dialogPendingCancel = null;
+  };
+  backdrop.addEventListener('click', dismiss);
+  _dialogPendingCancel = dismiss;
+  return cleanup;
+}
+
+function _showDialog({ type, message, title, defaultValue, confirmLabel, cancelLabel, danger, dismissValue }) {
   return new Promise(resolve => {
     const modal = _ensureDialogModal();
     const content = modal.querySelector('.ui-dialog-content');
+    const backdrop = modal.querySelector('.ui-dialog-backdrop');
 
     const titleHtml = title ? `<h2 class="ui-dialog-title">${escapeHtml(title)}</h2>` : '';
     const messageHtml = `<p class="ui-dialog-message">${escapeHtml(message).replace(/\n/g, '<br>')}</p>`;
@@ -1141,7 +680,9 @@ function _showDialog({ type, message, title, defaultValue, confirmLabel, cancelL
 
     const cleanup = () => {
       modal.classList.add('hidden');
-      modal.removeEventListener('keydown', onKey);
+      document.removeEventListener('keydown', onKey);
+      backdrop.removeEventListener('click', dismiss);
+      if (_dialogPendingCancel === dismiss) _dialogPendingCancel = null;
       if (state._uiDialogOverlayPushed) {
         state._uiDialogOverlayPushed = false;
       }
@@ -1153,7 +694,7 @@ function _showDialog({ type, message, title, defaultValue, confirmLabel, cancelL
         confirm();
       } else if (e.key === 'Escape') {
         e.preventDefault();
-        cancel();
+        dismiss();
       }
     };
 
@@ -1178,13 +719,17 @@ function _showDialog({ type, message, title, defaultValue, confirmLabel, cancelL
       resolve(result);
     };
 
+    const dismiss = dismissValue === undefined ? cancel : () => {
+      cleanup();
+      resolve(dismissValue);
+    };
+
     document.getElementById('ui-dialog-confirm').addEventListener('click', confirm);
     const cancelEl = document.getElementById('ui-dialog-cancel');
     if (cancelEl) cancelEl.addEventListener('click', cancel);
-    modal.querySelector('.ui-dialog-backdrop').addEventListener('click', cancel, { once: true });
+    backdrop.addEventListener('click', dismiss);
     document.addEventListener('keydown', onKey);
-    // Cleanup listener clavier en plus du reste
-    const oldCleanup = cleanup;
+    _dialogPendingCancel = dismiss;
   });
 }
 
@@ -1242,50 +787,141 @@ function getCurrentMonth() {
 }
 
 // ============================================
-// NAVIGATION
+// NAVIGATION & HISTORIQUE (hub + sous-apps, bouton retour Android)
 // ============================================
+// Modèle : hub (racine) → onglet d'une sous-app → détails et overlays.
+// - Passer d'un onglet à l'autre de la même sous-app REMPLACE l'entrée d'historique :
+//   le retour ramène au hub au lieu de remonter tous les onglets visités.
+// - Ouvrir un détail (fiche recette, planning…) ou un overlay EMPILE une entrée.
+// - Chaque entrée porte sa profondeur (depth, 0 = hub) : goHome() revient au hub en un saut.
 
-// ============================================
-// NAVIGATION & HISTORIQUE (back button Android + swipe iOS)
-// ============================================
-// Chaque "écran" (vue, modal, drawer) est poussé dans history.state
-// Sur popstate (retour OS), on agit selon le type d'état
+// Sous-apps affichées sur le hub. `home` = vue ouverte depuis la tuile.
+// Registres sans prototype : une clé venue de l'URL (?view=constructor…) ne matche rien d'hérité.
+const APPS = Object.assign(Object.create(null), {
+  hub: { title: APP_NAME, home: 'hub' },
+  recipes: { title: 'Recettes', home: 'library' },
+  calendar: { title: 'Calendrier', home: null, soon: true },
+  budget: { title: 'Budget', home: null, soon: true }
+});
 
-// Indique si la prochaine modif d'historique est une navigation interne (true)
-// ou un retour utilisateur (false)
-let _ignoreNextPop = false;
+// Registre des vues : une section #view-<id> dans index.html par entrée (ou #view-<section> si
+// section est donné : plusieurs vues partagent alors la même section).
+// app = sous-app (pilote la barre du bas et le header) ; tab = onglet de la barre ;
+// keepScroll = mémoriser la position de scroll ; hideHeader = vue plein écran.
+// Les modules (calendar.js, budget.js…) ajouteront leurs propres vues ici.
+const VIEWS = Object.assign(Object.create(null), {
+  hub: { app: 'hub', title: APP_NAME, keepScroll: true, render: () => renderHub() },
+  library: { app: 'recipes', tab: true, title: 'Bibliothèque', keepScroll: true, render: () => renderLibrary() },
+  chat: { app: 'recipes', tab: true, title: 'Assistant IA' },
+  shopping: { app: 'recipes', tab: true, title: 'Liste de courses', keepScroll: true, render: () => renderShopping() },
+  planning: { app: 'recipes', title: 'Planning des repas', keepScroll: true, render: () => renderPlanning() },
+  recipe: { app: 'recipes', title: '', hideHeader: true, render: (data) => { if (data) renderRecipeDetail(data); } }
+});
+
+// Profondeur de l'entrée d'historique courante (0 = hub)
+let _historyDepth = 0;
+
+// Actions à exécuter une fois le prochain retour (history.back) traité — cf. _closeOverlayThen
+const _afterPopQueue = [];
+
+// Ferme un overlay via l'historique PUIS exécute `then`. history.back() est asynchrone : naviguer
+// tout de suite réécrirait l'entrée de l'overlay (encore courante) au lieu de celle de la vue en dessous.
+function _closeOverlayThen(overlayName, closeFn, then) {
+  if (!_isOverlayOpen(overlayName)) { then(); return; }
+  _afterPopQueue.push({ fn: then, at: Date.now() });
+  closeFn();
+}
+
+// Redessine la vue courante après un changement de données (import, recalcul…)
+function _rerenderCurrentView() {
+  const def = VIEWS[state.currentView];
+  if (def && def.render && state.currentView !== 'recipe') def.render();
+}
 
 function _pushState(type, payload) {
-  const entry = { type, payload, at: Date.now() };
-  history.pushState(entry, '');
+  _historyDepth += 1;
+  history.pushState({ type, payload, depth: _historyDepth, at: Date.now() }, '');
 }
 
 function _replaceState(type, payload) {
-  const entry = { type, payload, at: Date.now() };
-  history.replaceState(entry, '');
+  history.replaceState({ type, payload, depth: _historyDepth, at: Date.now() }, '');
 }
 
 function navigateTo(view, data) {
-  // Si on navigue vers la même vue, ne rien faire
+  if (!VIEWS[view]) {
+    console.warn('Vue inconnue :', view);
+    return;
+  }
+  // Même vue : rien à faire (sauf la fiche recette, qui peut changer de recette)
   if (state.currentView === view && view !== 'recipe') return;
-  // Pousse un nouvel état dans l'historique (sauf pour la première vue racine)
-  if (state.currentView !== view || view === 'recipe') {
-    _pushState('view', { view, recipeId: data?.id });
+  const from = VIEWS[state.currentView];
+  const to = VIEWS[view];
+  const payload = { view, recipeId: data?.id };
+  if (from && from.tab && to.tab && from.app === to.app) {
+    _replaceState('view', payload); // simple changement d'onglet
+  } else {
+    _pushState('view', payload);
   }
   _renderView(view, data);
 }
 
 window.navigateTo = navigateTo;
 
+// Ouvre une sous-app depuis le hub (tuile)
+function openApp(appId) {
+  const app = APPS[appId];
+  if (!app) return;
+  if (app.soon || !app.home) {
+    showToast(`${app.title} arrive bientôt 🙂`);
+    return;
+  }
+  navigateTo(app.home);
+}
+window.openApp = openApp;
+
+// Bouton « Accueil » du header : retour au hub en dépilant l'historique (pas de nouvelle entrée)
+function goHome() {
+  if (state.currentView === 'hub') return;
+  if (_historyDepth > 0) {
+    history.go(-_historyDepth); // le popstate qui suit affiche le hub
+  } else {
+    _replaceState('view', { view: 'hub' });
+    _renderView('hub');
+  }
+}
+window.goHome = goHome;
+
+// Habillage propre à la sous-app de la vue : barre du bas, bouton Accueil, actions du header, titres
+function _applyAppChrome(view) {
+  const def = VIEWS[view] || VIEWS.hub;
+  const app = def.app;
+  document.body.dataset.app = app;
+  document.querySelectorAll('.bottom-nav[data-app]').forEach(nav => {
+    nav.classList.toggle('hidden', nav.dataset.app !== app);
+  });
+  const homeBtn = document.getElementById('home-btn');
+  if (homeBtn) homeBtn.classList.toggle('hidden', app === 'hub');
+  const planningBtn = document.getElementById('planning-btn');
+  if (planningBtn) planningBtn.classList.toggle('hidden', app !== 'recipes');
+  const pageTitle = document.getElementById('page-title');
+  if (pageTitle) pageTitle.textContent = def.title || '';
+  const header = document.querySelector('.app-header');
+  if (header) header.style.display = def.hideHeader ? 'none' : '';
+  document.title = (app === 'hub' || !def.title) ? APP_NAME : `${def.title} · ${APP_NAME}`;
+}
+
 // Rendu pur de la vue, sans toucher à l'historique
 function _renderView(view, data) {
+  if (!VIEWS[view]) view = 'hub';
+  const def = VIEWS[view];
+
   // Mémoriser la position de scroll de la vue qu'on quitte (pour la restaurer au retour)
-  // On ne mémorise QUE pour les vues "liste" qui ont du scroll utile (library, planning, shopping)
+  // On ne mémorise QUE pour les vues "liste" qui ont du scroll utile (keepScroll dans VIEWS)
   const mainContent = document.getElementById('main-content');
   const previousView = state.currentView;
   if (mainContent && previousView && previousView !== view) {
     if (!state._viewScrolls) state._viewScrolls = {};
-    if (['library', 'planning', 'shopping'].includes(previousView)) {
+    if (VIEWS[previousView] && VIEWS[previousView].keepScroll) {
       state._viewScrolls[previousView] = mainContent.scrollTop;
     }
   }
@@ -1298,22 +934,14 @@ function _renderView(view, data) {
 
   state.currentView = view;
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.getElementById('view-' + view).classList.add('active');
+  // Plusieurs vues peuvent partager une section (ex. les 4 modes du calendrier : def.section = 'calendar')
+  const section = document.getElementById('view-' + (def.section || view));
+  if (section) section.classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n => {
     n.classList.toggle('active', n.dataset.view === view);
   });
 
-  const titles = {
-    library: 'Bibliothèque',
-    chat: 'Assistant IA',
-    shopping: 'Liste de courses',
-    planning: 'Planning des repas',
-    recipe: ''
-  };
-  const pageTitle = document.getElementById('page-title');
-  pageTitle.textContent = titles[view] || '';
-  const header = document.querySelector('.app-header');
-  header.style.display = view === 'recipe' ? 'none' : '';
+  _applyAppChrome(view);
 
   // Restaurer le scroll si on revient sur une vue déjà visitée, sinon remonter en haut
   const savedScroll = state._viewScrolls && state._viewScrolls[view];
@@ -1328,10 +956,7 @@ function _renderView(view, data) {
     mainContent.scrollTo({ top: 0, behavior: 'instant' });
   }
 
-  if (view === 'library') renderLibrary();
-  if (view === 'shopping') renderShopping();
-  if (view === 'planning') renderPlanning();
-  if (view === 'recipe' && data) renderRecipeDetail(data);
+  if (def.render) def.render(data);
 }
 
 // Gestion du retour OS : ferme les overlays prioritaires, sinon revient à la vue précédente
@@ -1341,16 +966,19 @@ function handleBack() {
     _exitCookingModeNoHistory();
     return true;
   }
+  // Priorité 1b : feuilles des modules (famille, calendrier, budget…), la plus récente d'abord
+  if (_closeTopSheet()) return true;
   // Priorité 2 : Modal de validation/édition de recette
   const valModal = document.getElementById('validation-modal');
   if (valModal && !valModal.classList.contains('hidden')) {
     closeValidationModal(true);
     return true;
   }
-  // Priorité 3 : Modal Paramètres
+  // Priorité 3 : Modal Paramètres (une page d'espace ouverte : retour au menu des Paramètres)
   const settingsModal = document.getElementById('settings-modal');
   if (settingsModal && !settingsModal.classList.contains('hidden')) {
-    hideSettings(true);
+    if (_isOverlayOpen('settings-page')) closeSettingsPage(true);
+    else hideSettings(true);
     return true;
   }
   // Priorité 4 : Modal historique cuisson
@@ -1405,43 +1033,200 @@ function handleBack() {
   return false;
 }
 
-// Listener global popstate
-window.addEventListener('popstate', (event) => {
-  // Si un overlay est ouvert, on le ferme et on consomme le retour
-  if (handleBack()) {
-    // On a fermé quelque chose, mais le browser a déjà déclenché popstate
-    // On pousse un nouvel état pour pouvoir capter le prochain retour
-    _pushState('overlay-closed', {});
-    return;
-  }
-
-  // Sinon, on regarde l'état de la pile
+// Traite un retour. Renvoie true si un nouveau history.back() a été lancé (entrée sautée) :
+// l'historique n'est alors pas encore stabilisé.
+function _handlePopState(event) {
   const st = event.state;
-  if (st && st.type === 'view') {
-    // Naviguer vers cette vue (sans pousser dans l'historique)
-    if (st.payload.view === 'recipe' && st.payload.recipeId) {
-      const r = state.recipes.find(x => x.id === st.payload.recipeId);
-      if (r) {
-        state.currentRecipe = { ...r, currentServings: r.baseServings };
-        _renderView('recipe', r);
-        return;
-      }
+  _historyDepth = (st && typeof st.depth === 'number') ? st.depth : 0;
+
+  // 1. Un overlay est ouvert : le retour le ferme. Le navigateur vient déjà de dépiler
+  //    l'entrée « overlay » : on est revenu sur l'entrée en dessous, rien à empiler.
+  //    Si cette entrée est elle-même celle d'un overlay déjà fermé, on la saute aussi.
+  if (handleBack()) {
+    if (st && st.type === 'overlay' && !_isOverlayOpen(st.payload && st.payload.name)) {
+      history.back();
+      return true;
     }
-    _renderView(st.payload.view || 'library');
-    return;
+    return false;
   }
 
-  // État manquant : retour à la bibliothèque (état initial)
-  _renderView('library');
-});
+  // 2. Entrée de vue : on l'affiche (sans toucher à l'historique)
+  if (st && st.type === 'view') {
+    const view = st.payload && st.payload.view;
+    if (view === 'recipe') {
+      const r = st.payload.recipeId && state.recipes.find(x => x.id === st.payload.recipeId);
+      if (!r) {
+        history.back(); // recette supprimée entre-temps : on saute cette entrée
+        return true;
+      }
+      state.currentRecipe = { ...r, currentServings: r.baseServings };
+      _renderView('recipe', r);
+      return false;
+    }
+    _renderView(VIEWS[view] ? view : 'hub');
+    return false;
+  }
 
-// Initialiser l'historique avec l'état "library" au démarrage
-function initHistory() {
-  _replaceState('view', { view: 'library' });
+  // 3. Entrée d'overlay orpheline (overlay déjà fermé sans repasser par l'historique,
+  //    ou ancien état « overlay-closed ») : on la saute.
+  if (st && (st.type === 'overlay' || st.type === 'overlay-closed')) {
+    history.back();
+    return true;
+  }
+
+  // 4. État inconnu : retour à l'accueil
+  _renderView('hub');
+  return false;
 }
 
-// Helpers pour pousser des états "overlay" qui peuvent être fermés par retour
+// Listener global popstate
+window.addEventListener('popstate', (event) => {
+  if (_handlePopState(event)) return; // entrée sautée : on attend le popstate suivant
+  // Actions différées par _closeOverlayThen (récentes uniquement : une action orpheline est ignorée)
+  const pending = _afterPopQueue.splice(0);
+  for (const a of pending) {
+    if (Date.now() - a.at < 3000) a.fn();
+  }
+});
+
+// Initialiser l'historique au démarrage : le hub est la racine (profondeur 0)
+function initHistory() {
+  _historyDepth = 0;
+  _replaceState('view', { view: 'hub' });
+}
+
+// Raccourcis du manifest et liens directs : ?app=recipes|calendar|budget ou ?view=chat|shopping|…
+// La vue s'affiche tout de suite, mais son entrée n'est empilée au-dessus du hub qu'au premier geste :
+// un pushState sans geste utilisateur ferait sauter le hub par le bouton retour de Chrome Android.
+function _handleLaunchParams() {
+  let params;
+  try { params = new URLSearchParams(location.search); } catch (e) { return; }
+  const view = params.get('view');
+  const appId = params.get('app');
+  if (!view && !appId) return;
+  // Nettoyer l'URL pour qu'un rechargement ne rejoue pas le raccourci
+  history.replaceState(history.state, '', location.pathname + location.hash);
+  let target = null;
+  if (view && VIEWS[view] && view !== 'hub' && view !== 'recipe') {
+    target = view;
+  } else if (appId && APPS[appId] && appId !== 'hub') {
+    if (APPS[appId].soon || !APPS[appId].home) { openApp(appId); return; } // « bientôt » : on reste sur le hub
+    target = APPS[appId].home;
+  }
+  if (!target) return;
+  _showLaunchView(target);
+}
+
+// Helpers pour pousser des états "overlay" qui peuvent être fermés par retour.
+// Convention des fonctions close…(skipHistory) / hideSettings(skipHistory) : elles ne sautent
+// l'historique que si on passe explicitement `true` (appel depuis handleBack). Elles servent aussi
+// de handlers de clic, qui reçoivent un objet événement : sans ce test strict, le modal se fermait
+// sans dépiler son entrée et l'appui retour suivant ne faisait rien.
+
+// Élément DOM de chaque overlay inscrit dans l'historique (pour savoir s'il est encore ouvert)
+const _OVERLAY_ELEMENT_IDS = {
+  settings: 'settings-modal',
+  'settings-page': 'settings-pages', // page d'un espace dans les Paramètres (retour → menu des Paramètres)
+  validation: 'validation-modal',
+  'cooked-history': 'cooked-history-modal',
+  changelog: 'changelog-modal',
+  'diet-tags': 'diet-tags-modal',
+  source: 'source-modal',
+  'planning-picker': 'planning-picker-modal',
+  'planning-menu-gen': 'planning-menu-gen-modal',
+  'planning-menu-preview': 'planning-menu-preview-modal',
+  'filters-drawer': 'filters-drawer'
+};
+
+function _isOverlayOpen(name) {
+  if (name === 'cooking') return !!(state.cookingMode && state.cookingMode.active);
+  const el = document.getElementById(_OVERLAY_ELEMENT_IDS[name] || '');
+  return !!el && !el.classList.contains('hidden');
+}
+
+// ============================================
+// FEUILLES MODALES DES MODULES (famille, calendrier, budget…)
+// ============================================
+// Bottom-sheet réutilisable, intégré au bouton retour : openSheet(nom, html) / closeSheet(nom).
+// Les feuilles ouvertes forment une pile ; le retour ferme la plus récente.
+const _sheetStack = [];
+const _sheetCloseHooks = {}; // opts.onClose : appelé une fois la feuille fermée (y compris par le retour)
+
+function openSheet(name, innerHtml, opts) {
+  const id = 'sheet-' + name;
+  _sheetCloseHooks[name] = (opts && opts.onClose) || null;
+  let el = document.getElementById(id);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = id;
+    el.className = 'modal sheet hidden';
+    el.innerHTML = '<div class="modal-backdrop"></div><div class="modal-content sheet-content"></div>';
+    el.querySelector('.modal-backdrop').addEventListener('click', () => closeSheet(name));
+    document.body.appendChild(el);
+    _OVERLAY_ELEMENT_IDS[name] = id;
+  }
+  el.querySelector('.sheet-content').innerHTML = innerHtml;
+  if (el.classList.contains('hidden')) {
+    document.body.appendChild(el); // les feuilles ont le même z-index : la dernière du DOM passe devant
+    el.classList.remove('hidden');
+    _sheetStack.push(name);
+    pushOverlay(name);
+  }
+  return el;
+}
+window.openSheet = openSheet;
+
+function closeSheet(name, skipHistory) {
+  const el = document.getElementById('sheet-' + name);
+  if (!el || el.classList.contains('hidden')) return;
+  if (skipHistory !== true) {
+    history.back(); // le popstate (handleBack) fera la fermeture
+    return;
+  }
+  el.classList.add('hidden');
+  const i = _sheetStack.lastIndexOf(name);
+  if (i >= 0) _sheetStack.splice(i, 1);
+  const hook = _sheetCloseHooks[name];
+  _sheetCloseHooks[name] = null;
+  if (hook) hook();
+}
+window.closeSheet = closeSheet;
+
+// Ferme la feuille ouverte la plus récente (appelé par handleBack)
+function _closeTopSheet() {
+  while (_sheetStack.length) {
+    const name = _sheetStack[_sheetStack.length - 1];
+    const el = document.getElementById('sheet-' + name);
+    if (el && !el.classList.contains('hidden')) {
+      closeSheet(name, true);
+      return true;
+    }
+    _sheetStack.pop(); // feuille déjà fermée autrement
+  }
+  return false;
+}
+
+// Vue affichée au démarrage par un raccourci ou un lien (?view=, #join=…) : affichée tout de suite,
+// mais empilée au-dessus du hub seulement au premier geste (un pushState sans geste utilisateur ferait
+// sauter le hub par le bouton retour de Chrome Android).
+function _showLaunchView(target) {
+  _renderView(target);
+  const placeHubBelow = () => {
+    document.removeEventListener('pointerdown', placeHubBelow, true);
+    if (_historyDepth === 0 && state.currentView === target) _pushState('view', { view: target });
+  };
+  document.addEventListener('pointerdown', placeHubBelow, true);
+}
+
 function pushOverlay(name) {
+  const cur = history.state;
+  // L'entrée courante appartient à un overlay déjà fermé sans repasser par l'historique
+  // (ex. génération de menu → aperçu) : on la réutilise au lieu d'empiler une entrée morte.
+  if (cur && cur.type === 'overlay' && cur.payload &&
+      (cur.payload.name === name || !_isOverlayOpen(cur.payload.name))) {
+    _replaceState('overlay', { name });
+    return;
+  }
   _pushState('overlay', { name });
 }
 
@@ -2513,21 +2298,13 @@ function _ringTimer() {
   // Sonner avec WebAudio (cycles de bips)
   _playTimerSound();
 
-  // Notification système si autorisée
-  if ('Notification' in window && Notification.permission === 'granted') {
-    try {
-      const n = new Notification('Mes Recettes — Minuteur terminé', {
-        body: `Le minuteur "${label}" est arrivé à zéro.`,
-        icon: '/icons/icon-192.png',
-        tag: 'mr-timer',
-        renotify: true,
-        requireInteraction: true
-      });
-      n.onclick = () => { window.focus(); n.close(); };
-    } catch (e) {
-      console.warn('Notification failed', e);
-    }
-  }
+  // Notification système si autorisée (via le service worker : Android refuse new Notification())
+  showLocalNotification(`${APP_NAME} — Minuteur terminé`, {
+    body: `Le minuteur "${label}" est arrivé à zéro.`,
+    tag: 'mr-timer',
+    renotify: true,
+    requireInteraction: true
+  });
 
   // Vibration sur mobile
   if (navigator.vibrate) {
@@ -2654,7 +2431,7 @@ function _updateTimerDisplay() {
 function openStepsKebabMenu(id) {
   const recipe = state.recipes.find(r => r.id === id);
   if (!recipe) return;
-  const hasBackup = recipe._stepsBackup?.lastRecalc;
+  const hasBackup = _stepsBackupRestorable(recipe);
   let menu = document.getElementById('recipe-kebab-menu');
   if (menu) menu.remove();
   menu = document.createElement('div');
@@ -2735,15 +2512,17 @@ async function confirmDeleteRecipe(id) {
   if (!(await uiConfirm('Supprimer cette recette ?', { confirmLabel: 'Supprimer', danger: true }))) return;
   const deletedRecipe = state.recipes.find(r => r.id === id);
   state.recipes = state.recipes.filter(r => r.id !== id);
+  const shoppingBefore = state.shopping.length;
   state.shopping = state.shopping.filter(s => s.recipeId !== id);
   saveRecipes();
-  saveShopping();
-  // Sync delete
-  if (state.sync.enabled && deletedRecipe) {
-    syncRecipeAfterChange(deletedRecipe, true);
-  }
+  // La liste n'est renvoyée à la famille que si elle a changé (sinon on écraserait ses derniers ajouts)
+  if (state.shopping.length !== shoppingBefore) saveShopping();
+  // Sync : la recette n'existe plus localement → le push enverra une suppression
+  if (deletedRecipe) markDirty('recipes', id);
   showToast('Recette supprimée');
-  navigateTo('library');
+  // Depuis la fiche : on revient à l'écran d'origine (dépile la fiche, pas d'entrée morte)
+  if (state.currentView === 'recipe') recipeDetailBack();
+  else navigateTo('library');
   updateShoppingBadge();
 }
 
@@ -2790,7 +2569,27 @@ window.createManualRecipe = createManualRecipe;
 // FEATURES RECETTE : favoris, cooked, notes, photo, tags
 // ============================================
 
+// Une recette (ou l'un de ses ingrédients / étapes) gardée pendant un dialogue a pu être supprimée ou
+// remplacée entre-temps (« Tout supprimer », version venue d'un autre téléphone, formulaire complet) :
+// on vérifie avant d'écrire, et on abandonne proprement plutôt que d'écrire dans un objet détaché.
+function _recipeStillCurrent(recipe, listKey, idx, item) {
+  const live = state.recipes.find(r => r.id === recipe.id);
+  if (live === recipe && (!listKey || (Array.isArray(recipe[listKey]) && recipe[listKey][idx] === item))) return true;
+  showToast('La recette a changé entre-temps (autre téléphone ou autre écran) : recommence', 'error');
+  if (live && state.currentView === 'recipe' && state.currentRecipe && state.currentRecipe.id === live.id) {
+    state.currentRecipe = { ...live, currentServings: state.currentRecipe.currentServings || live.baseServings };
+    renderRecipeDetail(live);
+  }
+  return false;
+}
+
 function updateRecipeAndSync(recipe, action) {
+  // Recette supprimée ou remplacée entre-temps : rien n'est enregistré (sinon on enverrait une
+  // suppression à la famille, ou on écraserait une version plus récente)
+  if (state.recipes.find(r => r.id === recipe.id) !== recipe) {
+    showToast('Recette modifiée ou supprimée entre-temps : modification non enregistrée', 'error');
+    return false;
+  }
   recipe.updatedAt = Date.now();
   if (!recipe.changeLog) recipe.changeLog = [];
   if (action) {
@@ -2799,14 +2598,15 @@ function updateRecipeAndSync(recipe, action) {
     if (recipe.changeLog.length > 20) recipe.changeLog = recipe.changeLog.slice(-20);
   }
   saveRecipes();
-  if (state.sync.enabled) syncRecipeAfterChange(recipe, false);
+  markDirty('recipes', recipe.id);
+  return true;
 }
 
 function toggleFavorite(id) {
   const recipe = state.recipes.find(r => r.id === id);
   if (!recipe) return;
   recipe.favorite = !recipe.favorite;
-  updateRecipeAndSync(recipe, recipe.favorite ? 'favoris ajouté' : 'favoris retiré');
+  if (!updateRecipeAndSync(recipe, recipe.favorite ? 'favoris ajouté' : 'favoris retiré')) return;
   if (state.currentView === 'library') renderLibrary();
   if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
     state.currentRecipe.favorite = recipe.favorite;
@@ -2822,7 +2622,7 @@ function markAsCooked(id) {
   recipe.cookedHistory.push(Date.now());
   // Garde les 50 derniers
   if (recipe.cookedHistory.length > 50) recipe.cookedHistory = recipe.cookedHistory.slice(-50);
-  updateRecipeAndSync(recipe, 'cuisiné');
+  if (!updateRecipeAndSync(recipe, 'cuisiné')) return;
   // Toast contextuel qui change selon le nombre de fois cuisinée
   const count = recipe.cookedHistory.length;
   let msg;
@@ -2845,7 +2645,7 @@ function undoCooked(id) {
   const recipe = state.recipes.find(r => r.id === id);
   if (!recipe || !recipe.cookedHistory || !recipe.cookedHistory.length) return;
   recipe.cookedHistory.pop();
-  updateRecipeAndSync(recipe, 'annulation cuisson');
+  if (!updateRecipeAndSync(recipe, 'annulation cuisson')) return;
   showToast('Annulé');
   if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
     state.currentRecipe.cookedHistory = recipe.cookedHistory;
@@ -2963,7 +2763,7 @@ async function openSeasonalityDetail(id) {
     if (e.target === menu.querySelector('.recipe-kebab-backdrop') && changed) {
       const sorted = [...selected].sort((a, b) => a - b);
       recipe.months = sorted;
-      updateRecipeAndSync(recipe, 'mois modifiés');
+      if (!updateRecipeAndSync(recipe, 'mois modifiés')) return;
       if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
         state.currentRecipe.months = sorted;
         renderRecipeDetail(recipe);
@@ -3032,7 +2832,7 @@ window.openChangeLog = openChangeLog;
 function closeChangeLog(skipHistory) {
   const modal = document.getElementById('changelog-modal');
   if (!modal || modal.classList.contains('hidden')) return;
-  if (!skipHistory) {
+  if (skipHistory !== true) {
     history.back();
     return;
   }
@@ -3096,8 +2896,11 @@ async function recalculateRecipeSteps(recipeId, options = {}) {
   if (!state.apiKey) return { ok: false, error: 'Clé API Claude requise' };
   if (!recipe.steps || recipe.steps.length === 0) return { ok: false, error: 'Pas d\'étapes' };
 
-  // Sauvegarder l'état actuel des steps pour permettre un éventuel rollback
-  const originalSteps = JSON.parse(JSON.stringify(recipe.steps));
+  // Sauvegarder l'état actuel des steps pour permettre un éventuel rollback, et pour détecter une
+  // modification pendant l'appel à l'IA (étape déplacée, ingrédients ou minuteur saisis, autre téléphone)
+  const stepsJsonBefore = JSON.stringify(recipe.steps);
+  const originalSteps = JSON.parse(stepsJsonBefore);
+  let applied = false;
 
   // Construire le prompt utilisateur
   const userPrompt = `Voici la recette à recalculer :
@@ -3125,16 +2928,23 @@ Renvoie le bloc <steps>...</steps> avec les ingredientUses pour chaque étape.`;
     }
     const cleanJson = match[1].trim().replace(/^```json\s*/i, '').replace(/```$/, '').trim();
     const stepsArr = JSON.parse(cleanJson);
+    // Recette supprimée ou étapes modifiées pendant l'appel : on n'écrase rien
+    if (state.recipes.find(r => r.id === recipeId) !== recipe || JSON.stringify(recipe.steps) !== stepsJsonBefore) {
+      return { ok: false, error: 'Recette modifiée entre-temps : relance le recalcul' };
+    }
     if (!Array.isArray(stepsArr) || stepsArr.length !== recipe.steps.length) {
       return { ok: false, error: `L'IA a renvoyé ${stepsArr?.length} étapes au lieu de ${recipe.steps.length}` };
     }
 
     // Appliquer : on garde le texte, on remplace ingredientUses
     const ingredientIdSet = new Set(recipe.ingredients.map(i => i.id));
+    applied = true;
     recipe.steps = recipe.steps.map((step, i) => {
       const newUses = (stepsArr[i].ingredientUses || []).filter(u => u && u.id && ingredientIdSet.has(u.id));
+      // Autres champs conservés (durée de minuteur corrigée…) ; l'ancien format ingredientIds est retiré
+      const { ingredientIds, ...rest } = step;
       return {
-        text: step.text,
+        ...rest,
         ingredientUses: newUses.map(u => {
           const cleaned = { id: u.id };
           if (u.amount != null && !isNaN(Number(u.amount))) cleaned.amount = Number(u.amount);
@@ -3154,18 +2964,31 @@ Renvoie le bloc <steps>...</steps> avec les ingredientUses pour chaque étape.`;
     if (!recipe._stepsBackup) recipe._stepsBackup = {};
     recipe._stepsBackup.lastRecalc = {
       at: Date.now(),
-      steps: originalSteps
+      steps: originalSteps,
+      // Ingrédients de ce moment-là (id → nom) : « Restaurer » ne rend une association qu'à l'ingrédient
+      // qui porte encore cet id ET ce nom
+      ingredients: (recipe.ingredients || []).map(i => ({ id: i.id, name: i.name }))
     };
 
-    updateRecipeAndSync(recipe, 'ingrédients-étapes recalculés par IA');
+    if (!updateRecipeAndSync(recipe, 'ingrédients-étapes recalculés par IA')) {
+      return { ok: false, error: 'Recette modifiée entre-temps : relance le recalcul' };
+    }
     return { ok: true };
   } catch (e) {
-    // Restaurer si erreur
-    recipe.steps = originalSteps;
+    // Restaurer si l'erreur survient après nos propres modifications des étapes
+    if (applied) recipe.steps = originalSteps;
     return { ok: false, error: e.message };
   }
 }
 window.recalculateRecipeSteps = recalculateRecipeSteps;
+
+// Sauvegarde du dernier recalcul encore applicable : mêmes étapes (nombre et textes) qu'à ce moment-là
+function _stepsBackupRestorable(recipe) {
+  const backup = recipe && recipe._stepsBackup && recipe._stepsBackup.lastRecalc && recipe._stepsBackup.lastRecalc.steps;
+  const steps = (recipe && recipe.steps) || [];
+  return Array.isArray(backup) && backup.length === steps.length &&
+    backup.every((b, i) => (b && b.text) === (steps[i] && steps[i].text));
+}
 
 // Restaure les ingredientUses précédant le dernier recalcul
 function restoreRecipeSteps(recipeId) {
@@ -3174,9 +2997,35 @@ function restoreRecipeSteps(recipeId) {
     showToast('Aucune sauvegarde à restaurer', 'error');
     return false;
   }
-  recipe.steps = JSON.parse(JSON.stringify(recipe._stepsBackup.lastRecalc.steps));
+  // Seules les associations sont restaurées : textes, ordre et minuteurs modifiés depuis le recalcul
+  // sont gardés. Si les étapes ont changé depuis, on ne peut plus les apparier : on refuse.
+  if (!_stepsBackupRestorable(recipe)) {
+    showToast('Étapes modifiées depuis le recalcul : restauration impossible', 'error');
+    return false;
+  }
+  const backup = recipe._stepsBackup.lastRecalc.steps;
+  const snapshot = recipe._stepsBackup.lastRecalc.ingredients;
+  const norm = s => String(s || '').toLowerCase().replace(/œ/g, 'oe').replace(/æ/g, 'ae')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+  const nowName = new Map((recipe.ingredients || []).map(i => [i.id, norm(i.name)]));
+  const thenName = Array.isArray(snapshot) ? new Map(snapshot.map(i => [i.id, norm(i.name)])) : null;
+  // Ingrédient présent au recalcul et inchangé depuis : il reprend ses associations d'avant le recalcul.
+  // Ingrédient ajouté (ou renommé) depuis : il garde ses associations actuelles. Sauvegarde d'avant la
+  // v4.0, sans liste d'ingrédients : seuls les ingrédients encore présents reprennent leurs associations
+  // (un ingrédient ajouté depuis perd les siennes, un id réutilisé avant la mise à jour est indétectable).
+  // Elle est complétée au premier changement d'ingrédient (_freezeStepsBackupIngredients).
+  const unchanged = id => nowName.has(id) && (!thenName || thenName.get(id) === nowName.get(id));
+  const addedSince = id => !!thenName && nowName.has(id) && thenName.get(id) !== nowName.get(id);
+  const usesOf = step => (Array.isArray(step.ingredientUses) && step.ingredientUses.length
+    ? step.ingredientUses : (step.ingredientIds || []).map(id => ({ id: String(id) }))).filter(u => u && u.id);
+  recipe.steps = recipe.steps.map((s, i) => {
+    const { ingredientUses, ingredientIds, ...rest } = s;
+    const before = usesOf(backup[i] || {}).filter(u => unchanged(u.id));
+    const kept = usesOf(s).filter(u => addedSince(u.id));
+    return { ...rest, ingredientUses: JSON.parse(JSON.stringify([...before, ...kept])) };
+  });
   delete recipe._stepsBackup;
-  updateRecipeAndSync(recipe, 'ingrédients-étapes restaurés');
+  if (!updateRecipeAndSync(recipe, 'ingrédients-étapes restaurés')) return;
   if (state.currentView === 'recipe' && state.currentRecipe?.id === recipeId) {
     state.currentRecipe = { ...recipe, currentServings: state.currentRecipe?.currentServings || recipe.baseServings };
     renderRecipeDetail(recipe);
@@ -3191,7 +3040,7 @@ function toggleVerifiedByHuman(recipeId) {
   const recipe = state.recipes.find(r => r.id === recipeId);
   if (!recipe) return;
   recipe.verifiedByHuman = !recipe.verifiedByHuman;
-  updateRecipeAndSync(recipe, recipe.verifiedByHuman ? 'marquée vérifiée par humain' : 'vérification humain retirée');
+  if (!updateRecipeAndSync(recipe, recipe.verifiedByHuman ? 'marquée vérifiée par humain' : 'vérification humain retirée')) return;
   if (state.currentView === 'recipe' && state.currentRecipe?.id === recipeId) {
     state.currentRecipe = { ...recipe, currentServings: state.currentRecipe?.currentServings || recipe.baseServings };
     renderRecipeDetail(recipe);
@@ -3263,9 +3112,17 @@ async function recalcAllRecipes() {
   for (let i = 0; i < state.recipes.length; i++) {
     if (cancelled) break;
     const recipe = state.recipes[i];
-    document.getElementById('recalc-progress-text').textContent = `${i + 1} / ${count} — ${recipe.title}`;
-    document.getElementById('recalc-progress-fill').style.width = `${((i) / count) * 100}%`;
-    document.getElementById('recalc-progress-detail').textContent = `Réussies : ${ok} · Échecs : ${ko}`;
+    const text = document.getElementById('recalc-progress-text');
+    const fill = document.getElementById('recalc-progress-fill');
+    const detail = document.getElementById('recalc-progress-detail');
+    // Une autre boîte a pris la place de la progression (bouton « Arrêter » inaccessible) : on s'arrête
+    if (!text || !fill || !detail) {
+      cancelled = true;
+      break;
+    }
+    text.textContent = `${i + 1} / ${count} — ${recipe.title}`;
+    fill.style.width = `${((i) / count) * 100}%`;
+    detail.textContent = `Réussies : ${ok} · Échecs : ${ko}`;
 
     try {
       const result = await recalculateRecipeSteps(recipe.id);
@@ -3275,10 +3132,16 @@ async function recalcAllRecipes() {
     }
   }
 
+  const summary = `${ok} recette${ok > 1 ? 's' : ''} recalculée${ok > 1 ? 's' : ''} avec succès${ko > 0 ? `, ${ko} échec${ko > 1 ? 's' : ''}` : ''}.`;
+  // Progression remplacée par une autre boîte : le bilan s'affiche en toast, sans l'écraser
+  if (!document.getElementById('recalc-cancel-btn')) {
+    showToast(`${cancelled ? 'Recalcul arrêté' : 'Recalcul terminé'} : ${summary}`, ko ? 'error' : 'success');
+    return;
+  }
   modal.querySelector('.ui-dialog-content').innerHTML = `
     <div class="ui-dialog-body">
       <h2 class="ui-dialog-title">${cancelled ? 'Recalcul arrêté' : 'Recalcul terminé'}</h2>
-      <p class="ui-dialog-message">${ok} recette${ok > 1 ? 's' : ''} recalculée${ok > 1 ? 's' : ''} avec succès${ko > 0 ? `, ${ko} échec${ko > 1 ? 's' : ''}` : ''}.</p>
+      <p class="ui-dialog-message">${summary}</p>
     </div>
     <div class="ui-dialog-actions">
       <button class="btn-primary" id="recalc-done-btn" style="flex:1">OK</button>
@@ -3332,7 +3195,7 @@ async function recalcAllFodmapAndSeasonality() {
     if (canSeason) localStorage.setItem('mr_seasonality_version', 'greenpeace-2026');
   } catch {}
   hideSettings();
-  renderLibrary();
+  _rerenderCurrentView();
   const parts = [];
   if (canFodmap) parts.push(`FODMAP ${high} high / ${low} low`);
   if (canSeason) parts.push(`saisonnalité ${monthsChanged} mise${monthsChanged > 1 ? 's' : ''} à jour`);
@@ -3382,7 +3245,7 @@ function formatRelativeDate(date) {
 function closeCookedHistoryModal(skipHistory) {
   const modal = document.getElementById('cooked-history-modal');
   if (!modal || modal.classList.contains('hidden')) return;
-  if (!skipHistory) {
+  if (skipHistory !== true) {
     history.back();
     return;
   }
@@ -3405,7 +3268,7 @@ async function addCookedDate(id) {
   if (!recipe.cookedHistory) recipe.cookedHistory = [];
   recipe.cookedHistory.push(ts);
   recipe.cookedHistory.sort((a, b) => a - b);
-  updateRecipeAndSync(recipe, 'date cuisson ajoutée');
+  if (!updateRecipeAndSync(recipe, 'date cuisson ajoutée')) return;
   if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
     state.currentRecipe.cookedHistory = recipe.cookedHistory;
     renderRecipeDetail(recipe);
@@ -3420,7 +3283,7 @@ async function removeCookedDate(id, ts) {
   if (!recipe || !recipe.cookedHistory) return;
   if (!(await uiConfirm('Supprimer cette date ?', { confirmLabel: 'Supprimer', danger: true }))) return;
   recipe.cookedHistory = recipe.cookedHistory.filter(t => t !== ts);
-  updateRecipeAndSync(recipe, 'date cuisson supprimée');
+  if (!updateRecipeAndSync(recipe, 'date cuisson supprimée')) return;
   if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
     state.currentRecipe.cookedHistory = recipe.cookedHistory;
     renderRecipeDetail(recipe);
@@ -3437,7 +3300,7 @@ async function editPersonalNotes(id) {
   const newValue = await uiPrompt('Vos notes personnelles (astuces, variantes, retours d\'expérience) :', current);
   if (newValue === null) return;
   recipe.personalNotes = newValue.trim();
-  updateRecipeAndSync(recipe, 'notes modifiées');
+  if (!updateRecipeAndSync(recipe, 'notes modifiées')) return;
   if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
     state.currentRecipe.personalNotes = recipe.personalNotes;
     renderRecipeDetail(recipe);
@@ -3478,7 +3341,7 @@ async function attachRecipePhoto(id) {
       // visuelle équivalente sur smartphone. Important : localStorage limité ~5-10 MB.
       const dataUrl = await processImageToDataUrl(file, PHOTO_MAX_WIDTH, PHOTO_QUALITY);
       recipe.photo = dataUrl;
-      updateRecipeAndSync(recipe, 'photo ajoutée');
+      if (!updateRecipeAndSync(recipe, 'photo ajoutée')) return;
       if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
         state.currentRecipe.photo = dataUrl;
         renderRecipeDetail(recipe);
@@ -3533,7 +3396,7 @@ function _showPhotoSourceDialog(hasExistingPhoto) {
     `;
     modal.classList.remove('hidden');
 
-    const cleanup = () => modal.classList.add('hidden');
+    const cleanup = _customDialogClose(modal, resolve);
 
     document.getElementById('photo-src-camera').addEventListener('click', () => {
       cleanup();
@@ -3553,10 +3416,6 @@ function _showPhotoSourceDialog(hasExistingPhoto) {
       cleanup();
       resolve(null);
     });
-    modal.querySelector('.ui-dialog-backdrop').addEventListener('click', () => {
-      cleanup();
-      resolve(null);
-    }, { once: true });
   });
 }
 
@@ -3588,7 +3447,7 @@ function _showChatPhotoSourceDialog() {
       </div>
     `;
     modal.classList.remove('hidden');
-    const cleanup = () => modal.classList.add('hidden');
+    const cleanup = _customDialogClose(modal, resolve);
     document.getElementById('chat-photo-src-camera').addEventListener('click', () => {
       cleanup(); resolve('camera');
     });
@@ -3598,9 +3457,6 @@ function _showChatPhotoSourceDialog() {
     document.getElementById('chat-photo-src-cancel').addEventListener('click', () => {
       cleanup(); resolve(null);
     });
-    modal.querySelector('.ui-dialog-backdrop').addEventListener('click', () => {
-      cleanup(); resolve(null);
-    }, { once: true });
   });
 }
 
@@ -3609,7 +3465,7 @@ async function removeRecipePhoto(id) {
   if (!recipe || !recipe.photo) return;
   if (!(await uiConfirm('Supprimer la photo ?', { confirmLabel: 'Supprimer', danger: true }))) return;
   recipe.photo = null;
-  updateRecipeAndSync(recipe, 'photo retirée');
+  if (!updateRecipeAndSync(recipe, 'photo retirée')) return;
   if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
     state.currentRecipe.photo = null;
     renderRecipeDetail(recipe);
@@ -3624,7 +3480,7 @@ async function editRecipeTags(id) {
   const newValue = await uiPrompt('Tags séparés par des virgules (ex: rapide, kids-friendly, comfort food) :', current);
   if (newValue === null) return;
   recipe.tags = newValue.split(',').map(t => t.trim().toLowerCase()).filter(Boolean).slice(0, 8);
-  updateRecipeAndSync(recipe, 'tags modifiés');
+  if (!updateRecipeAndSync(recipe, 'tags modifiés')) return;
   if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
     state.currentRecipe.tags = recipe.tags;
     renderRecipeDetail(recipe);
@@ -3771,7 +3627,7 @@ window.openDietTagsEditor = openDietTagsEditor;
 function closeDietTagsEditor(skipHistory) {
   const modal = document.getElementById('diet-tags-modal');
   if (!modal || modal.classList.contains('hidden')) return;
-  if (!skipHistory) {
+  if (skipHistory !== true) {
     history.back();
     return;
   }
@@ -3788,7 +3644,7 @@ function saveDietTags(id) {
     selected.push(input.dataset.dietId);
   });
   recipe.dietTags = selected;
-  updateRecipeAndSync(recipe, 'régimes modifiés');
+  if (!updateRecipeAndSync(recipe, 'régimes modifiés')) return;
   closeDietTagsEditor();
   if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
     state.currentRecipe.dietTags = recipe.dietTags;
@@ -3922,7 +3778,7 @@ window.openSourceEditor = openSourceEditor;
 function closeSourceEditor(skipHistory) {
   const modal = document.getElementById('source-modal');
   if (!modal || modal.classList.contains('hidden')) return;
-  if (!skipHistory) {
+  if (skipHistory !== true) {
     history.back();
     return;
   }
@@ -3967,7 +3823,7 @@ function saveSource(id) {
   }
 
   recipe.source = source;
-  updateRecipeAndSync(recipe, 'source modifiée');
+  if (!updateRecipeAndSync(recipe, 'source modifiée')) return;
   closeSourceEditor();
   if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
     state.currentRecipe.source = source;
@@ -3982,7 +3838,7 @@ async function clearSource(id) {
   const recipe = state.recipes.find(r => r.id === id);
   if (!recipe) return;
   recipe.source = null;
-  updateRecipeAndSync(recipe, 'source supprimée');
+  if (!updateRecipeAndSync(recipe, 'source supprimée')) return;
   closeSourceEditor();
   if (state.currentView === 'recipe' && state.currentRecipe?.id === id) {
     state.currentRecipe.source = null;
@@ -4144,7 +4000,7 @@ async function shareRecipe(id) {
   recipe.steps.forEach((s, i) => {
     text += `${i + 1}. ${s.text}\n`;
   });
-  text += `\n— Partagée depuis Mes Recettes`;
+  text += `\n— Partagée depuis ${APP_NAME}`;
 
   if (navigator.share) {
     try {
@@ -4367,15 +4223,20 @@ function createShoppingList(name) {
   state.shopping = list.items;
   state.shoppingChecked = new Set();
   saveShoppingLists();
-  syncShoppingList(list.id);
+  markDirty('shopping_lists', list.id);
   return list;
 }
 
 function switchShoppingList(id) {
   const list = state.shoppingLists.find(l => l.id === id);
   if (!list) return;
-  // Sauve la liste courante (items + checked) avant de switch
-  saveShopping();
+  // Recopie la liste courante (items + cases cochées) avant de changer, sans la dater ni la renvoyer
+  // à la famille : elle n'a pas changé, et une copie un peu ancienne écraserait les ajouts des autres
+  const current = getActiveShoppingList();
+  if (current) {
+    current.items = state.shopping;
+    current.checked = [...state.shoppingChecked];
+  }
   state.activeShoppingListId = id;
   state.shopping = list.items;
   state.shoppingChecked = new Set(list.checked || []);
@@ -4391,14 +4252,8 @@ async function deleteShoppingList(id) {
     return;
   }
   if (!(await uiConfirm('Supprimer cette liste ?', { confirmLabel: 'Supprimer', danger: true }))) return;
-  const list = state.shoppingLists.find(l => l.id === id);
-  if (list) {
-    // Tombstone : marque comme supprimée pour propager la suppression via sync
-    list.deletedAt = Date.now();
-    list.updatedAt = Date.now();
-    syncShoppingList(id);
-  }
   state.shoppingLists = state.shoppingLists.filter(l => l.id !== id);
+  markDirty('shopping_lists', id); // la liste n'existe plus localement → suppression envoyée à la famille
   if (state.activeShoppingListId === id) {
     state.activeShoppingListId = state.shoppingLists[0].id;
     state.shopping = state.shoppingLists[0].items;
@@ -4418,7 +4273,7 @@ async function renameShoppingList(id) {
   list.name = newName.trim();
   list.updatedAt = Date.now();
   saveShoppingLists();
-  syncShoppingList(id);
+  markDirty('shopping_lists', id);
   renderShopping();
 }
 window.renameShoppingList = renameShoppingList;
@@ -4538,7 +4393,8 @@ async function openPantryItemActions(name) {
     title: '📦 Garde-manger',
     confirmLabel: 'Étendre +7j',
     cancelLabel: 'Supprimer',
-    danger: false
+    danger: false,
+    dismissValue: null // fermer la boîte sans choisir ne supprime rien
   });
   if (result === true) {
     extendPantryItem(name, 7);
@@ -4631,12 +4487,9 @@ async function quickEditField(field, recipeId) {
     showToast('Le titre ne peut pas être vide', 'error');
     return;
   }
+  if (!_recipeStillCurrent(recipe)) return;
   recipe[field] = trimmed;
-  recipe.updatedAt = Date.now();
-  saveRecipes();
-  if (state.sync.enabled) {
-    syncRecipeAfterChange(recipe, false);
-  }
+  if (!updateRecipeAndSync(recipe, field === 'title' ? 'titre modifié' : 'description modifiée')) return;
   // Mettre à jour la vue active
   state.currentRecipe = { ...recipe, currentServings: state.currentRecipe?.currentServings || recipe.baseServings };
   renderRecipeDetail(recipe);
@@ -4663,20 +4516,23 @@ async function editIngredientInline(recipeId, idx) {
     unit: ing.unit,
     showDelete: recipe.ingredients.length > 1
   });
-  if (!result) return;
+  if (!result || !_recipeStillCurrent(recipe, 'ingredients', idx, ing)) return;
 
   if (result.action === 'delete') {
     if (!(await uiConfirm(`Supprimer "${ing.name}" ?`, { confirmLabel: 'Supprimer', danger: true }))) return;
+    if (!_recipeStillCurrent(recipe, 'ingredients', idx, ing)) return;
     // Supprimer aussi des références dans les étapes (ancien et nouveau format)
     const removedId = ing.id;
+    _freezeStepsBackupIngredients(recipe);
     recipe.ingredients.splice(idx, 1);
     recipe.steps = (recipe.steps || []).map(s => ({
       ...s,
       ingredientIds: (s.ingredientIds || []).filter(id => id !== removedId),
       ingredientUses: (s.ingredientUses || []).filter(u => u.id !== removedId)
     }));
-    updateRecipeAndSync(recipe, `ingrédient "${ing.name}" supprimé`);
+    if (!updateRecipeAndSync(recipe, `ingrédient "${ing.name}" supprimé`)) return;
   } else {
+    _freezeStepsBackupIngredients(recipe);
     ing.name = result.name;
     ing.amount = result.amount;
     ing.unit = result.unit;
@@ -4688,7 +4544,7 @@ async function editIngredientInline(recipeId, idx) {
     if (typeof calculateSeasonality === 'function') {
       recipe.months = calculateSeasonality(recipe.ingredients);
     }
-    updateRecipeAndSync(recipe, `ingrédient "${ing.name}" modifié`);
+    if (!updateRecipeAndSync(recipe, `ingrédient "${ing.name}" modifié`)) return;
   }
 
   // Re-render la vue
@@ -4697,6 +4553,27 @@ async function editIngredientInline(recipeId, idx) {
   showToast('Modifié ✓', 'success');
 }
 window.editIngredientInline = editIngredientInline;
+
+// Sauvegarde du dernier recalcul faite avant la v4.0 (sans liste d'ingrédients) : on y fige la liste
+// actuelle avant de la modifier, pour que « Restaurer » reconnaisse les ingrédients ajoutés ou renommés
+function _freezeStepsBackupIngredients(recipe) {
+  const last = recipe._stepsBackup && recipe._stepsBackup.lastRecalc;
+  if (last && !Array.isArray(last.ingredients)) last.ingredients = (recipe.ingredients || []).map(i => ({ id: i.id, name: i.name }));
+}
+
+// Ids d'ingrédients cités dans une recette : ingrédients, étapes et sauvegarde du dernier recalcul
+function _ingredientIdsInUse(recipe) {
+  const used = new Set((recipe.ingredients || []).map(i => String(i.id)));
+  const last = recipe._stepsBackup && recipe._stepsBackup.lastRecalc;
+  const steps = [...(recipe.steps || []), ...(last && Array.isArray(last.steps) ? last.steps : [])];
+  for (const s of steps) {
+    if (!s) continue;
+    (s.ingredientIds || []).forEach(id => used.add(String(id)));
+    (s.ingredientUses || []).forEach(u => { if (u) used.add(String(u.id)); });
+  }
+  ((last && last.ingredients) || []).forEach(x => { if (x) used.add(String(x.id)); });
+  return used;
+}
 
 async function addIngredientInline(recipeId) {
   const recipe = state.recipes.find(r => r.id === recipeId);
@@ -4713,10 +4590,12 @@ async function addIngredientInline(recipeId) {
     showToast('Le nom est requis', 'error');
     return;
   }
-  // Générer un id unique
-  const usedIds = new Set(recipe.ingredients.map(i => i.id));
+  // Id jamais vu dans cette recette (ni ingrédient, ni étape, ni sauvegarde du dernier recalcul) : sinon
+  // « Restaurer » attribuerait à ce nouvel ingrédient les associations d'un ingrédient supprimé
+  const usedIds = _ingredientIdsInUse(recipe);
   let i = 1;
   while (usedIds.has('ing' + i)) i++;
+  _freezeStepsBackupIngredients(recipe);
   recipe.ingredients.push({
     id: 'ing' + i,
     name: result.name.trim(),
@@ -4730,7 +4609,7 @@ async function addIngredientInline(recipeId) {
   if (typeof calculateSeasonality === 'function') {
     recipe.months = calculateSeasonality(recipe.ingredients);
   }
-  updateRecipeAndSync(recipe, `ingrédient "${result.name}" ajouté`);
+  if (!updateRecipeAndSync(recipe, `ingrédient "${result.name}" ajouté`)) return;
   state.currentRecipe = { ...recipe, currentServings: state.currentRecipe?.currentServings || recipe.baseServings };
   renderRecipeDetail(recipe);
   showToast('Ajouté ✓', 'success');
@@ -4778,7 +4657,7 @@ function _showIngredientEditDialog({ title, name, amount, unit, showDelete }) {
       if (nameInput) { nameInput.focus(); nameInput.select(); }
     }, 50);
 
-    const cleanup = () => modal.classList.add('hidden');
+    const cleanup = _customDialogClose(modal, resolve);
 
     document.getElementById('ui-ing-confirm').addEventListener('click', () => {
       const n = document.getElementById('ui-ing-name').value;
@@ -4798,10 +4677,6 @@ function _showIngredientEditDialog({ title, name, amount, unit, showDelete }) {
         resolve({ action: 'delete' });
       });
     }
-    modal.querySelector('.ui-dialog-backdrop').addEventListener('click', () => {
-      cleanup();
-      resolve(null);
-    }, { once: true });
   });
 }
 
@@ -4824,6 +4699,7 @@ async function openStepTimerEdit(recipeId, stepIdx, originalLabel) {
     { confirmLabel: 'Enregistrer', cancelLabel: 'Annuler' }
   );
   if (result === null || result === undefined || result === '') return;
+  if (!_recipeStillCurrent(recipe, 'steps', stepIdx, step)) return;
   const minutes = Number(String(result).replace(',', '.'));
   if (!isFinite(minutes) || minutes <= 0) {
     showToast('Durée invalide', 'error');
@@ -4842,7 +4718,7 @@ async function openStepTimerEdit(recipeId, stepIdx, originalLabel) {
   // Remplacer ou ajouter l'override
   step.timerOverrides = step.timerOverrides.filter(o => o.originalLabel !== originalLabel);
   step.timerOverrides.push({ originalLabel, minutes, label: newLabel });
-  updateRecipeAndSync(recipe, `durée étape ${stepIdx + 1} modifiée`);
+  if (!updateRecipeAndSync(recipe, `durée étape ${stepIdx + 1} modifiée`)) return;
   if (state.currentView === 'recipe' && state.currentRecipe?.id === recipeId) {
     state.currentRecipe.steps = recipe.steps;
     renderRecipeDetail(recipe);
@@ -4869,10 +4745,13 @@ function openStepIngredientUsesDialog(recipeId, idx) {
     }
   }
 
+  // Copie de travail : la recette n'est modifiée qu'à « Enregistrer »
+  const uses = JSON.parse(JSON.stringify(step.ingredientUses));
+
   // Construire la liste des ingrédients NON encore référencés (pour le sélecteur d'ajout)
   const renderRows = () => {
-    const usedIds = new Set(step.ingredientUses.map(u => u.id));
-    const rowsHtml = step.ingredientUses.map((use, useIdx) => {
+    const usedIds = new Set(uses.map(u => u.id));
+    const rowsHtml = uses.map((use, useIdx) => {
       const ing = recipe.ingredients.find(i => i.id === use.id);
       if (!ing) return '';
       const placeholderQty = ing.amount != null ? `Total recette : ${ing.amount} ${ing.unit || ''}`.trim() : 'ex: 50';
@@ -4922,7 +4801,7 @@ function openStepIngredientUsesDialog(recipeId, idx) {
   const syncFromInputs = () => {
     menu.querySelectorAll('.step-uses-row').forEach(row => {
       const useIdx = Number(row.dataset.useIdx);
-      const use = step.ingredientUses[useIdx];
+      const use = uses[useIdx];
       if (!use) return;
       row.querySelectorAll('.step-uses-input').forEach(inp => {
         const field = inp.dataset.field;
@@ -4941,7 +4820,7 @@ function openStepIngredientUsesDialog(recipeId, idx) {
         syncFromInputs();
         const row = btn.closest('.step-uses-row');
         const useIdx = Number(row.dataset.useIdx);
-        step.ingredientUses.splice(useIdx, 1);
+        uses.splice(useIdx, 1);
         menu.querySelector('.step-uses-panel').innerHTML = renderRows();
         rebind();
       });
@@ -4951,7 +4830,7 @@ function openStepIngredientUsesDialog(recipeId, idx) {
       btn.addEventListener('click', e => {
         e.preventDefault();
         syncFromInputs();
-        step.ingredientUses.push({ id: btn.dataset.addId });
+        uses.push({ id: btn.dataset.addId });
         menu.querySelector('.step-uses-panel').innerHTML = renderRows();
         rebind();
       });
@@ -4960,11 +4839,15 @@ function openStepIngredientUsesDialog(recipeId, idx) {
     menu.querySelector('.step-uses-cancel').addEventListener('click', close);
     menu.querySelector('.step-uses-save').addEventListener('click', () => {
       syncFromInputs();
+      if (!_recipeStillCurrent(recipe, 'steps', idx, step)) {
+        close();
+        return;
+      }
       // Nettoyer les use vides (id manquant)
-      step.ingredientUses = step.ingredientUses.filter(u => u && u.id);
+      step.ingredientUses = uses.filter(u => u && u.id);
       // Compat : on retire ingredientIds (ancien format) pour éviter incohérence
       delete step.ingredientIds;
-      updateRecipeAndSync(recipe, `ingrédients étape ${idx + 1} modifiés`);
+      if (!updateRecipeAndSync(recipe, `ingrédients étape ${idx + 1} modifiés`)) return;
       if (state.currentView === 'recipe' && state.currentRecipe?.id === recipeId) {
         state.currentRecipe.steps = recipe.steps;
         renderRecipeDetail(recipe);
@@ -4991,24 +4874,25 @@ async function editStepInline(recipeId, idx) {
     canMoveUp: idx > 0,
     canMoveDown: idx < recipe.steps.length - 1
   });
-  if (!result) return;
+  if (!result || !_recipeStillCurrent(recipe, 'steps', idx, step)) return;
 
   if (result.action === 'delete') {
     if (!(await uiConfirm(`Supprimer cette étape ?`, { confirmLabel: 'Supprimer', danger: true }))) return;
+    if (!_recipeStillCurrent(recipe, 'steps', idx, step)) return;
     recipe.steps.splice(idx, 1);
-    updateRecipeAndSync(recipe, `étape ${idx + 1} supprimée`);
+    if (!updateRecipeAndSync(recipe, `étape ${idx + 1} supprimée`)) return;
   } else if (result.action === 'moveUp') {
     [recipe.steps[idx - 1], recipe.steps[idx]] = [recipe.steps[idx], recipe.steps[idx - 1]];
-    updateRecipeAndSync(recipe, `étape ${idx + 1} déplacée`);
+    if (!updateRecipeAndSync(recipe, `étape ${idx + 1} déplacée`)) return;
   } else if (result.action === 'moveDown') {
     [recipe.steps[idx], recipe.steps[idx + 1]] = [recipe.steps[idx + 1], recipe.steps[idx]];
-    updateRecipeAndSync(recipe, `étape ${idx + 1} déplacée`);
+    if (!updateRecipeAndSync(recipe, `étape ${idx + 1} déplacée`)) return;
   } else {
     step.text = result.text;
     if (typeof enrichStepIngredientIds === 'function') {
       recipe.steps = enrichStepIngredientIds(recipe.steps, recipe.ingredients);
     }
-    updateRecipeAndSync(recipe, `étape ${idx + 1} modifiée`);
+    if (!updateRecipeAndSync(recipe, `étape ${idx + 1} modifiée`)) return;
   }
   state.currentRecipe = { ...recipe, currentServings: state.currentRecipe?.currentServings || recipe.baseServings };
   renderRecipeDetail(recipe);
@@ -5034,7 +4918,7 @@ async function addStepInline(recipeId) {
   if (typeof enrichStepIngredientIds === 'function') {
     recipe.steps = enrichStepIngredientIds(recipe.steps, recipe.ingredients);
   }
-  updateRecipeAndSync(recipe, 'étape ajoutée');
+  if (!updateRecipeAndSync(recipe, 'étape ajoutée')) return;
   state.currentRecipe = { ...recipe, currentServings: state.currentRecipe?.currentServings || recipe.baseServings };
   renderRecipeDetail(recipe);
   showToast('Étape ajoutée ✓', 'success');
@@ -5074,7 +4958,7 @@ function _showStepEditDialog({ title, text, canDelete, canMoveUp, canMoveDown })
       if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
     }, 50);
 
-    const cleanup = () => modal.classList.add('hidden');
+    const cleanup = _customDialogClose(modal, resolve);
 
     document.getElementById('ui-step-confirm').addEventListener('click', () => {
       const v = document.getElementById('ui-step-text').value;
@@ -5103,10 +4987,6 @@ function _showStepEditDialog({ title, text, canDelete, canMoveUp, canMoveDown })
         resolve({ action: 'moveDown' });
       });
     }
-    modal.querySelector('.ui-dialog-backdrop').addEventListener('click', () => {
-      cleanup();
-      resolve(null);
-    }, { once: true });
   });
 }
 
@@ -7373,9 +7253,7 @@ function saveValidatedRecipe() {
   showToast(existing ? 'Recette modifiée ✓' : 'Recette sauvegardée ✓', 'success');
 
   // Sync push
-  if (state.sync.enabled) {
-    syncRecipeAfterChange(recipe, false);
-  }
+  markDirty('recipes', recipe.id);
 
   if (existing) {
     state.editingRecipeId = null;
@@ -7392,9 +7270,9 @@ function saveValidatedRecipe() {
     // Dernière recette : reset complet
     state.pendingRecipesTotal = null;
     state.pendingRecipe = null;
-    closeValidationModal();
     resetChatView();
-    navigateTo('library');
+    // Naviguer APRÈS le retour qui ferme la modale (sinon l'entrée de la modale serait réécrite)
+    _closeOverlayThen('validation', closeValidationModal, () => navigateTo('library'));
   }
 }
 window.saveValidatedRecipe = saveValidatedRecipe;
@@ -7402,7 +7280,7 @@ window.saveValidatedRecipe = saveValidatedRecipe;
 async function closeValidationModal(skipHistory) {
   const modal = document.getElementById('validation-modal');
   if (modal.classList.contains('hidden')) return;
-  if (!skipHistory) {
+  if (skipHistory !== true) {
     // Si on est au milieu d'une file multi-recettes, prévenir l'utilisateur
     if (state.pendingRecipesQueue && state.pendingRecipesQueue.length > 0) {
       if (!(await uiConfirm(`Il reste ${state.pendingRecipesQueue.length} recette(s) à valider. Annuler tout ?`))) return;
@@ -7495,6 +7373,7 @@ async function freeStorageSpace() {
         r.photo = newDataUrl;
         bytesSaved += (oldSize - newDataUrl.length);
         processed++;
+        markDirty('recipes', r.id); // la famille reçoit aussi la photo allégée
       }
     } catch (e) {
       console.warn('Recompression échouée pour', r.title, e);
@@ -7535,11 +7414,78 @@ async function _recompressDataUrl(dataUrl, maxSize, quality) {
   });
 }
 
-function showSettings() {
+// ============================================
+// PARAMÈTRES : un menu par espace, puis une page par espace
+// ============================================
+const SETTINGS_PAGES = {
+  family: 'Famille & synchronisation',
+  recipes: 'Recettes',
+  calendar: 'Calendrier',
+  budget: 'Budget',
+  appearance: 'Apparence',
+  data: 'Données & sauvegarde'
+};
+// Page ouverte directement depuis chaque sous-app (le retour mène au menu des Paramètres)
+const SETTINGS_PAGE_OF_APP = { recipes: 'recipes', calendar: 'calendar', budget: 'budget', family: 'family' };
+
+// Résumés du menu des Paramètres
+function _renderSettingsHome() {
+  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  set('settings-menu-sub-family', syncEnabled() ? `Famille « ${state.sync.householdName || 'Ma famille'} »` : 'Relier les téléphones de la famille');
+  set('settings-menu-sub-recipes', state.apiKey ? 'Assistant IA, menu IA, garde-manger' : 'Clé IA à configurer · menu IA, garde-manger');
+  set('settings-menu-sub-calendar', typeof _pushActiveHere === 'function' && _pushActiveHere()
+    ? 'Rappels : notifications activées sur cet appareil' : 'Rappels et notifications');
+  const n = typeof _allRecurring === 'function' ? _allRecurring().length : (state.budgetRecurring || []).length;
+  const budget = typeof budgetOfMonth === 'function' ? budgetOfMonth(formatPlanningDate(new Date()).slice(0, 7)) : 0;
+  set('settings-menu-sub-budget', `${budget && typeof formatEuros === 'function' ? 'Budget du mois : ' + formatEuros(budget, true) : 'Catégories, budget du mois'} · ${n ? `${n} dépense${n > 1 ? 's' : ''} récurrente${n > 1 ? 's' : ''}` : 'dépenses récurrentes'}`);
+}
+
+// Affiche le menu (page null) ou la page d'un espace, sans toucher à l'historique
+function _settingsShowPage(page) {
+  const known = !!(page && SETTINGS_PAGES[page]);
+  const home = document.getElementById('settings-home');
+  const pages = document.getElementById('settings-pages');
+  if (!home || !pages) return;
+  home.classList.toggle('hidden', known);
+  pages.classList.toggle('hidden', !known);
+  pages.querySelectorAll('.settings-page').forEach(p => p.classList.toggle('hidden', p.dataset.settingsPage !== page));
+  document.getElementById('settings-title').textContent = known ? SETTINGS_PAGES[page] : 'Paramètres';
+  document.getElementById('settings-back').classList.toggle('hidden', !known);
+  if (!known) _renderSettingsHome();
+  const body = document.querySelector('#settings-modal .modal-body');
+  if (body) body.scrollTop = 0;
+}
+
+// Ouvre la page d'un espace (entrée d'historique : le retour ramène au menu des Paramètres)
+function openSettingsPage(page) {
+  if (!SETTINGS_PAGES[page] || !_isOverlayOpen('settings')) return;
+  const wasOpen = _isOverlayOpen('settings-page');
+  _settingsShowPage(page);
+  if (!wasOpen) pushOverlay('settings-page');
+}
+window.openSettingsPage = openSettingsPage;
+
+// Retour au menu des Paramètres. skipHistory : appel depuis handleBack (l'entrée est déjà dépilée)
+function closeSettingsPage(skipHistory) {
+  if (!_isOverlayOpen('settings-page')) return;
+  if (skipHistory !== true) {
+    history.back(); // le popstate (handleBack) fera le retour au menu
+    return;
+  }
+  _settingsShowPage(null);
+}
+window.closeSettingsPage = closeSettingsPage;
+
+// page : page à ouvrir ; sinon celle de la sous-app affichée (bouton ⚙️), ou le menu depuis l'accueil.
+// (Appelée aussi comme gestionnaire de clic : un objet événement n'est pas une page.)
+function showSettings(page) {
   document.getElementById('settings-api-key').value = state.apiKey || '';
-  document.getElementById('settings-sync-url').value = state.sync.url || '';
-  document.getElementById('settings-sync-key').value = state.sync.key || '';
-  document.getElementById('settings-sync-foyer').value = state.sync.foyer || '';
+  // Section Famille : statut de la famille et de la sync (family.js)
+  renderSettingsFamilySection();
+  // Section Rappels : notifications push de cet appareil (reminders.js)
+  renderSettingsPushSection();
+  // Section Budget : budget du mois, dépenses récurrentes (budget.js)
+  if (typeof renderSettingsBudgetSection === 'function') renderSettingsBudgetSection();
   // Badge ✓ Configurée si la clé API est déjà saisie
   const apiBadge = document.getElementById('settings-api-key-badge');
   if (apiBadge) apiBadge.hidden = !state.apiKey;
@@ -7569,9 +7515,22 @@ function showSettings() {
   });
   // Stats de stockage (taille totale + photos lourdes)
   _updateStorageStatsDisplay();
+  // À propos : version et date de build
+  const versionEl = document.getElementById('settings-version');
+  if (versionEl) versionEl.textContent = 'v' + APP_VERSION;
+  const buildEl = document.getElementById('settings-build');
+  if (buildEl) {
+    const [y, m, d] = APP_BUILD_DATE.split('-');
+    buildEl.textContent = `Build du ${d}/${m}/${y} · PWA · IA Claude`;
+  }
 
-  document.getElementById('settings-modal').classList.remove('hidden');
-  pushOverlay('settings');
+  const modal = document.getElementById('settings-modal');
+  const wasOpen = !modal.classList.contains('hidden');
+  if (!wasOpen) _settingsShowPage(null);
+  modal.classList.remove('hidden');
+  if (!wasOpen) pushOverlay('settings');
+  const target = typeof page === 'string' ? page : SETTINGS_PAGE_OF_APP[(VIEWS[state.currentView] || {}).app];
+  if (target) openSettingsPage(target);
 }
 
 // Mise à jour d'un toggle des préférences planning (depuis settings ou modal de génération)
@@ -7585,10 +7544,17 @@ window.setPlanningPref = setPlanningPref;
 function hideSettings(skipHistory) {
   const modal = document.getElementById('settings-modal');
   if (modal.classList.contains('hidden')) return;
-  if (!skipHistory) {
-    history.back();
+  if (skipHistory !== true) {
+    if (_isOverlayOpen('settings-page')) {
+      // Page d'un espace ouverte : son entrée et celle des Paramètres sont dépilées d'un coup
+      _settingsShowPage(null);
+      history.go(-2);
+    } else {
+      history.back();
+    }
     return;
   }
+  _settingsShowPage(null);
   modal.classList.add('hidden');
 }
 
@@ -7616,12 +7582,13 @@ function importData(file) {
       if (!data.recipes || !Array.isArray(data.recipes)) throw new Error('Format invalide');
       // Merge (avoid duplicates by id)
       const existing = new Set(state.recipes.map(r => r.id));
-      const toAdd = data.recipes.filter(r => !existing.has(r.id));
+      const toAdd = data.recipes.filter(r => r && r.id && r.title && !existing.has(r.id));
       state.recipes = [...state.recipes, ...toAdd];
       saveRecipes();
+      toAdd.forEach(r => markDirty('recipes', r.id));
       showToast(`${toAdd.length} recette${toAdd.length > 1 ? 's' : ''} importée${toAdd.length > 1 ? 's' : ''}`, 'success');
       hideSettings();
-      renderLibrary();
+      _rerenderCurrentView();
     } catch (err) {
       showToast('Fichier invalide', 'error');
     }
@@ -7631,8 +7598,11 @@ function importData(file) {
 
 async function clearAllData() {
   // 1ère confirmation : intention
+  const familyNote = syncEnabled()
+    ? `\n\nCet appareil est relié à la famille « ${state.sync.householdName} » : les données de la famille ne sont PAS supprimées, elles reviendront à la prochaine synchronisation.`
+    : '';
   if (!(await uiConfirm(
-    `Supprimer TOUTES vos données ? Cela inclut :\n• ${state.recipes.length} recette${state.recipes.length > 1 ? 's' : ''}\n• Vos listes de courses, planning, garde-manger\n• Vos préférences (thème, génération IA…)\n\nCette action est IRRÉVERSIBLE.`,
+    `Supprimer toutes les données de CET APPAREIL ? Cela inclut :\n• ${state.recipes.length} recette${state.recipes.length > 1 ? 's' : ''}\n• Vos listes de courses, planning, calendrier, mémos, budget, garde-manger, membres\n\nVos réglages (thème, clé IA, famille) sont conservés. Cette action est IRRÉVERSIBLE.${familyNote}`,
     { title: 'Suppression définitive', confirmLabel: 'Continuer', danger: true }
   ))) return;
   // 2ème confirmation : saisie d'un mot-clé (anti-doigt qui glisse)
@@ -7646,17 +7616,80 @@ async function clearAllData() {
     showToast('Mot-clé incorrect — suppression annulée', 'error');
     return;
   }
-  // 3ème étape : action
+  // 3ème étape : action, sur cet appareil uniquement (rien n'est envoyé à la famille)
+  const list = { id: uid(), name: 'Ma liste', items: [], checked: [], createdAt: Date.now(), updatedAt: Date.now() };
   state.recipes = [];
-  state.shopping = [];
-  state.shoppingChecked.clear();
+  state.events = {};
+  state.pantry = [];
+  state.members = [];
+  state.expenses = [];
+  state.budgetCategories = [];
+  state.budgetSettings = { id: 'settings', monthlyBudgetCents: 0 };
+  state.budgetMonths = [];
+  state.budgetRecurring = [];
+  state.budgetYearly = [];
+  state.memos = [];
+  state.wishes = [];
+  state.sharedExpenses = [];
+  state.shoppingLists = [list];
+  state.activeShoppingListId = list.id;
+  state.shopping = list.items;
+  state.shoppingChecked = new Set();
+  // Famille : on oublie les envois en attente et on repart de zéro → tout revient au prochain échange.
+  // D'abord : une autre instance de l'app renonce ainsi à ses envois avant de relire les collections vidées.
+  resetSyncData();
   saveRecipes();
-  saveShopping();
-  hideSettings();
+  saveEventsNow();
+  savePantry();
+  saveMembers();
+  saveExpenses();
+  saveBudgetCategories();
+  saveBudgetSettings();
+  saveBudgetMonths();
+  saveBudgetRecurring();
+  saveBudgetYearly();
+  saveMemos();
+  saveWishes();
+  saveSharedExpenses();
+  saveShoppingLists();
   updateShoppingBadge();
-  navigateTo('library');
-  showToast('Toutes les données ont été supprimées', 'success');
+  _closeOverlayThen('settings', hideSettings, () => navigateTo('library'));
+  showToast('Les données de cet appareil ont été supprimées', 'success');
+  if (syncEnabled()) setTimeout(() => performSync(true), 500);
 }
+
+// Sauvegarde complète (recettes, listes, planning, garde-manger, membres, préférences) en JSON
+function exportAllData() {
+  const data = {
+    app: APP_NAME,
+    version: 3,
+    exportedAt: new Date().toISOString(),
+    recipes: state.recipes,
+    shoppingLists: state.shoppingLists,
+    events: state.events,
+    pantry: state.pantry,
+    members: state.members,
+    expenses: state.expenses,
+    budgetCategories: state.budgetCategories,
+    budgetSettings: state.budgetSettings,
+    budgetMonths: state.budgetMonths,
+    budgetRecurring: state.budgetRecurring,
+    budgetYearly: state.budgetYearly,
+    memos: state.memos,
+    wishes: state.wishes,
+    sharedExpenses: state.sharedExpenses,
+    prefs: state.prefs
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'la-maisonnee-sauvegarde-' + formatPlanningDate(new Date()) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Sauvegarde complète téléchargée', 'success');
+}
+window.exportAllData = exportAllData;
 
 async function forceUpdate() {
   if (!(await uiConfirm('Vider le cache et recharger l\'app ? Vos recettes ne seront PAS supprimées.'))) return;
@@ -7667,12 +7700,13 @@ async function forceUpdate() {
       const keys = await caches.keys();
       await Promise.all(keys.map(k => caches.delete(k)));
     }
-    // 2. Demander au SW de skip waiting + désinscrire
+    // 2. Mettre à jour le service worker SANS le désinscrire : une désinscription supprimerait
+    //    l'abonnement aux notifications push de ce téléphone
     if ('serviceWorker' in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations();
       for (const r of regs) {
+        try { await r.update(); } catch (e) { /* hors ligne : le cache vidé suffit */ }
         if (r.waiting) r.waiting.postMessage({ type: 'SKIP_WAITING' });
-        await r.unregister();
       }
     }
     showToast('Cache vidé, rechargement…', 'success');
@@ -7728,7 +7762,8 @@ function getPlanningDays() {
   return days;
 }
 
-// Lit les recettes d'un slot, en gérant l'ancien et le nouveau format
+// Lit les recettes d'une entrée de l'ANCIEN planning (avant les événements), anciens et nouveaux formats.
+// Ne sert plus qu'aux migrations / imports (le planning vit dans state.events : cf. getMealRecipes).
 // Ancien : { recipeId, servings, ... }
 // Nouveau : { recipeIds: [{id, servings}, ...], ... }
 // Retourne toujours un tableau [{id, servings}, ...] (vide si slot vide ou soft-deleted)
@@ -7757,8 +7792,7 @@ function detectPlanningBatches(days) {
     const dateStr = formatPlanningDate(d);
     for (const slotId of ['midi', 'soir']) {
       const key = `${dateStr}-${slotId}`;
-      const entry = state.planning[key];
-      const ids = new Set(getSlotRecipes(entry).map(r => r.id));
+      const ids = new Set(getMealRecipes(key).map(r => r.id));
       sequence.push({ key, ids });
     }
   }
@@ -7829,8 +7863,7 @@ function renderPlanning() {
 
       for (const slot of MEAL_SLOTS) {
         const key = `${dateStr}-${slot.id}`;
-        const entry = state.planning[key];
-        const recipes = getSlotRecipes(entry);
+        const recipes = getMealRecipes(key);
 
         if (recipes.length === 0) {
           html += `<div class="planning-slot is-empty" onclick="openPlanningSlot('${dateStr}', '${slot.id}')">
@@ -8164,7 +8197,7 @@ function pickRecipeForPlanning(recipeId) {
   }
 
   // Interception : si on est en édition d'une proposition de menu IA
-  if (state._menuPreviewIntercept && state._menuPreviewEditingIdx != null) {
+  if (state._menuPreviewIntercept && state._menuPreviewEditingIdx != null && state._pendingMenuProposal) {
     const idx = state._menuPreviewEditingIdx;
     if (state._pendingMenuProposal && state._pendingMenuProposal[idx]) {
       state._pendingMenuProposal[idx].recipe = recipe;
@@ -8178,9 +8211,8 @@ function pickRecipeForPlanning(recipeId) {
   }
 
   const key = `${dateStr}-${slotId}`;
-  const existing = state.planning[key];
   // Liste actuelle des recettes du slot
-  let currentRecipes = getSlotRecipes(existing);
+  const currentRecipes = getMealRecipes(key);
 
   // Si la recette y est déjà : pas de doublon
   if (currentRecipes.some(r => r.id === recipeId)) {
@@ -8190,16 +8222,7 @@ function pickRecipeForPlanning(recipeId) {
 
   // Ajout
   currentRecipes.push({ id: recipeId, servings: recipe.baseServings });
-
-  state.planning[key] = {
-    ...(existing && !existing.deletedAt ? existing : {}),
-    recipeIds: currentRecipes,
-    recipeId: null, // on nettoie l'ancien format
-    updatedAt: Date.now(),
-    deletedAt: null
-  };
-  savePlanning();
-  syncPlanningEntry(key);
+  setMealRecipes(key, currentRecipes);
   renderPlanning();
 
   // Notifier l'utilisateur sans forcément fermer le picker (pour ajouts multiples rapides)
@@ -8212,42 +8235,25 @@ window.pickRecipeForPlanning = pickRecipeForPlanning;
 function closePlanningSlotPicker(skipHistory) {
   const modal = document.getElementById('planning-picker-modal');
   if (!modal || modal.classList.contains('hidden')) return;
-  if (!skipHistory) {
+  if (skipHistory !== true) {
     history.back();
     return;
   }
   modal.classList.add('hidden');
+  // Picker ouvert depuis l'aperçu du menu IA puis fermé sans choix : lever l'interception,
+  // sinon le prochain choix dans un picker ordinaire repartirait vers l'aperçu (déjà fermé).
+  state._menuPreviewIntercept = false;
+  state._menuPreviewEditingIdx = null;
 }
 window.closePlanningSlotPicker = closePlanningSlotPicker;
 
 // Retire UNE recette d'un slot (laisse les autres)
 function removeRecipeFromSlot(dateStr, slotId, recipeId) {
   const key = `${dateStr}-${slotId}`;
-  const entry = state.planning[key];
-  if (!entry) return;
-  const current = getSlotRecipes(entry);
-  const filtered = current.filter(r => r.id !== recipeId);
-
-  if (filtered.length === 0) {
-    // Plus aucune recette : soft delete
-    state.planning[key] = {
-      ...entry,
-      recipeIds: [],
-      recipeId: null,
-      deletedAt: Date.now(),
-      updatedAt: Date.now()
-    };
-  } else {
-    state.planning[key] = {
-      ...entry,
-      recipeIds: filtered,
-      recipeId: null,
-      deletedAt: null,
-      updatedAt: Date.now()
-    };
-  }
-  savePlanning();
-  syncPlanningEntry(key);
+  const current = getMealRecipes(key);
+  if (current.length === 0) return;
+  // Plus aucune recette → le repas est supprimé (setMealRecipes avec une liste vide)
+  setMealRecipes(key, current.filter(r => r.id !== recipeId));
   renderPlanning();
 }
 window.removeRecipeFromSlot = removeRecipeFromSlot;
@@ -8255,9 +8261,8 @@ window.removeRecipeFromSlot = removeRecipeFromSlot;
 // Remplace une recette précise d'un slot par une autre (préserve les portions et la position dans la liste)
 function replaceRecipeInSlot(dateStr, slotId, oldRecipeId, newRecipeId) {
   const key = `${dateStr}-${slotId}`;
-  const entry = state.planning[key];
-  if (!entry) return;
-  const current = getSlotRecipes(entry);
+  const current = getMealRecipes(key);
+  if (current.length === 0) return;
   const idx = current.findIndex(r => r.id === oldRecipeId);
   if (idx < 0) return;
   // Évite les doublons si la nouvelle recette est déjà dans le slot ailleurs
@@ -8267,15 +8272,7 @@ function replaceRecipeInSlot(dateStr, slotId, oldRecipeId, newRecipeId) {
     return false;
   }
   current[idx] = { ...current[idx], id: newRecipeId };
-  state.planning[key] = {
-    ...entry,
-    recipeIds: current,
-    recipeId: null,
-    deletedAt: null,
-    updatedAt: Date.now()
-  };
-  savePlanning();
-  syncPlanningEntry(key);
+  setMealRecipes(key, current);
   renderPlanning();
   return true;
 }
@@ -8289,9 +8286,17 @@ function openPlanningRecipeDetail(dateStr, slotId, recipeId) {
     mode: 'current',
     dateStr,
     slotId,
-    originalRecipeId: recipeId
+    originalRecipeId: recipeId,
+    planningDepth: _historyDepth // profondeur de l'entrée du planning, pour y revenir en dépilant
   };
   openRecipe(recipeId);
+}
+
+// Retour au planning en dépilant la fiche (et l'éventuel picker) au lieu d'empiler une nouvelle entrée
+function _returnToPlanning(ctx) {
+  const depth = ctx && typeof ctx.planningDepth === 'number' ? ctx.planningDepth : null;
+  if (depth !== null && depth < _historyDepth) history.go(depth - _historyDepth);
+  else navigateTo('planning');
 }
 window.openPlanningRecipeDetail = openPlanningRecipeDetail;
 
@@ -8305,8 +8310,9 @@ window.changePlanningRecipe = changePlanningRecipe;
 
 // Bouton "Valider le choix" sur la fiche du slot (équivaut à un retour planning)
 function confirmPlanningCurrent() {
+  const ctx = state._planningContext;
   state._planningContext = null;
-  navigateTo('planning');
+  _returnToPlanning(ctx);
 }
 window.confirmPlanningCurrent = confirmPlanningCurrent;
 
@@ -8334,23 +8340,15 @@ function confirmPlanningCandidate() {
   const recipe = state.recipes.find(r => r.id === ctx.candidateRecipeId);
   if (recipe) showToast(`${recipe.title} remplace l'ancienne ✓`, 'success');
   state._planningContext = null;
-  navigateTo('planning');
+  _returnToPlanning(ctx);
 }
 window.confirmPlanningCandidate = confirmPlanningCandidate;
 
 // Vide tout un slot (compat avec ancien removeFromPlanning)
 function removeFromPlanning(dateStr, slotId) {
   const key = `${dateStr}-${slotId}`;
-  if (!state.planning[key] || state.planning[key].deletedAt) return;
-  state.planning[key] = {
-    ...state.planning[key],
-    recipeIds: [],
-    recipeId: null,
-    deletedAt: Date.now(),
-    updatedAt: Date.now()
-  };
-  savePlanning();
-  syncPlanningEntry(key);
+  if (getMealRecipes(key).length === 0) return;
+  setMealRecipes(key, []);
   renderPlanning();
 }
 window.removeFromPlanning = removeFromPlanning;
@@ -8359,27 +8357,13 @@ async function clearPlanning() {
   const periodLabel = _planningView === '2weeks' ? '2 semaines' : 'semaine';
   if (!(await uiConfirm(`Vider tout le planning de la ${periodLabel} affichée ?`))) return;
   const days = getPlanningDays();
-  const now = Date.now();
-  const keysToSync = [];
   for (const d of days) {
     const dateStr = formatPlanningDate(d);
     for (const slot of MEAL_SLOTS) {
       const key = `${dateStr}-${slot.id}`;
-      const entry = state.planning[key];
-      if (entry && !entry.deletedAt && getSlotRecipes(entry).length > 0) {
-        state.planning[key] = {
-          ...entry,
-          recipeIds: [],
-          recipeId: null,
-          deletedAt: now,
-          updatedAt: now
-        };
-        keysToSync.push(key);
-      }
+      if (getMealRecipes(key).length > 0) setMealRecipes(key, []);
     }
   }
-  savePlanning();
-  keysToSync.forEach(syncPlanningEntry);
   renderPlanning();
   showToast('Planning vidé');
 }
@@ -8398,8 +8382,7 @@ function planningToShopping() {
     const dateStr = formatPlanningDate(d);
     if (dateStr < today) continue;
     for (const slot of MEAL_SLOTS) {
-      const entry = state.planning[`${dateStr}-${slot.id}`];
-      const recipes = getSlotRecipes(entry);
+      const recipes = getMealRecipes(`${dateStr}-${slot.id}`);
       for (const rr of recipes) {
         const recipe = state.recipes.find(r => r.id === rr.id);
         if (!recipe) continue;
@@ -8506,7 +8489,7 @@ function openPlanningMenuGenerator() {
         </button>
         <div id="planning-menu-gen-optim" class="planning-menu-gen-optim hidden" style="margin-top:8px">
           ${optimOptions}
-          <p class="settings-hint" style="margin-top:6px">Ces préférences sont aussi modifiables dans <strong>Paramètres → Génération de menu IA</strong>.</p>
+          <p class="settings-hint" style="margin-top:6px">Ces préférences sont aussi modifiables dans <strong>Paramètres → 🍲 Recettes → Génération de menu IA</strong>.</p>
         </div>
       </div>
 
@@ -8585,7 +8568,7 @@ window.openPlanningMenuGenerator = openPlanningMenuGenerator;
 function closePlanningMenuGenerator(skipHistory) {
   const modal = document.getElementById('planning-menu-gen-modal');
   if (!modal || modal.classList.contains('hidden')) return;
-  if (!skipHistory) {
+  if (skipHistory !== true) {
     history.back();
     return;
   }
@@ -8628,8 +8611,8 @@ async function runPlanningMenuGenerator() {
   for (const dateStr of dates) {
     for (const slot of slotIds) {
       const key = `${dateStr}-${slot}`;
-      const entry = state.planning[key];
-      const isEmpty = !entry || !entry.recipeId || entry.deletedAt;
+      // (l'ancien test ne voyait que l'ancien format : un créneau rempli via le picker passait pour vide)
+      const isEmpty = getMealRecipes(key).length === 0;
       if (startMode === 'next-empty' && !isEmpty) continue;
       targetSlots.push({ dateStr, slot, key });
     }
@@ -8875,7 +8858,7 @@ function formatPreviewDate(dateStr) {
 function closePlanningMenuPreview(skipHistory) {
   const modal = document.getElementById('planning-menu-preview-modal');
   if (!modal || modal.classList.contains('hidden')) return;
-  if (!skipHistory) {
+  if (skipHistory !== true) {
     history.back();
     return;
   }
@@ -8899,20 +8882,13 @@ window.changePreviewRecipe = changePreviewRecipe;
 function confirmPlanningMenu() {
   const proposal = state._pendingMenuProposal;
   if (!proposal) return;
-  const now = Date.now();
   let count = 0;
   for (const p of proposal) {
-    state.planning[p.key] = {
-      recipeId: p.recipe.id,
-      servings: p.recipe.baseServings,
-      updatedAt: now + count, // léger décalage pour préserver l'ordre
-      deletedAt: null
-    };
-    syncPlanningEntry(p.key);
+    // Le menu IA remplace le contenu du créneau par la recette proposée
+    setMealRecipes(p.key, [{ id: p.recipe.id, servings: p.recipe.baseServings }]);
     count++;
   }
-  savePlanning();
-  closePlanningMenuPreview(true);
+  closePlanningMenuPreview(); // via l'historique : dépile l'entrée de l'aperçu
   renderPlanning();
   showToast(`${count} repas planifié${count > 1 ? 's' : ''} ✓`, 'success');
 }
@@ -8923,8 +8899,8 @@ window.confirmPlanningMenu = confirmPlanningMenu;
 // ============================================
 
 async function bindEvents() {
-  // Bottom nav
-  document.querySelectorAll('.nav-item').forEach(btn => {
+  // Bottom nav (les boutons « + » des sous-apps n'ont pas de data-view : ils ont leur propre onclick)
+  document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
     btn.addEventListener('click', () => navigateTo(btn.dataset.view));
   });
 
@@ -9123,6 +9099,10 @@ async function bindEvents() {
   // Settings
   document.getElementById('settings-btn').addEventListener('click', showSettings);
 
+  // Accueil (hub) depuis le header d'une sous-app
+  const homeBtn = document.getElementById('home-btn');
+  if (homeBtn) homeBtn.addEventListener('click', goHome);
+
   // Planning button (header)
   const planningBtn = document.getElementById('planning-btn');
   if (planningBtn) {
@@ -9142,6 +9122,12 @@ async function bindEvents() {
   if (planningGenAIBtn) planningGenAIBtn.addEventListener('click', openPlanningMenuGenerator);
   document.getElementById('settings-close').addEventListener('click', hideSettings);
   document.querySelector('#settings-modal .modal-backdrop').addEventListener('click', hideSettings);
+  document.getElementById('settings-back').addEventListener('click', () => closeSettingsPage());
+  document.querySelectorAll('#settings-modal [data-settings-open]').forEach(btn => {
+    btn.addEventListener('click', () => openSettingsPage(btn.dataset.settingsOpen));
+  });
+  document.getElementById('settings-budget-categories').addEventListener('click', () => openBudgetSettings());
+  document.getElementById('settings-budget-recurring').addEventListener('click', () => openRecurringList());
   document.getElementById('settings-save-key').addEventListener('click', () => {
     const k = document.getElementById('settings-api-key').value.trim();
     saveApiKey(k);
@@ -9179,56 +9165,29 @@ async function bindEvents() {
     });
   }
 
-  // Sync
-  document.getElementById('settings-save-sync').addEventListener('click', async () => {
-    let url = document.getElementById('settings-sync-url').value.trim();
-    const key = document.getElementById('settings-sync-key').value.trim();
-    const foyer = document.getElementById('settings-sync-foyer').value.trim();
-
-    if (!url || !key || !foyer) {
-      showToast('Tous les champs sync sont requis', 'error');
-      return;
-    }
-    // Nettoyer l'URL : retirer trailing slashes, /rest/v1, /rest, etc.
-    url = url.replace(/\/+$/, ''); // trailing slash
-    url = url.replace(/\/rest\/v1$/, ''); // /rest/v1
-    url = url.replace(/\/rest$/, ''); // /rest
-    url = url.replace(/\/+$/, ''); // au cas où il en reste
-
-    if (!/^https:\/\/[a-z0-9-]+\.supabase\.(co|com)$/i.test(url)) {
-      showToast('URL Supabase invalide (attendu: https://xxxxx.supabase.co)', 'error');
-      return;
-    }
-    if (foyer.length < 4) {
-      showToast('Code foyer trop court (min 4 caractères)', 'error');
-      return;
-    }
-
-    saveSyncConfig({ url, key, foyer });
-    hideSettings();
-    showToast('Sync activée — synchronisation en cours…', 'success');
-    updateSyncIndicator();
-    await performSync(false);
+  // Famille & sync : la configuration se fait dans la vue Famille (family.js)
+  document.getElementById('settings-open-family').addEventListener('click', () => {
+    _closeOverlayThen('settings', hideSettings, () => openFamilyView());
   });
-
-  document.getElementById('settings-sync-now').addEventListener('click', async () => {
-    if (!state.sync.enabled) {
-      showToast('Configurez d\'abord la sync', 'error');
-      return;
-    }
+  document.getElementById('settings-sync-now').addEventListener('click', () => {
     hideSettings();
-    await performSync(false);
+    performSync(false);
   });
-
-  document.getElementById('settings-sync-disable').addEventListener('click', async () => {
-    if (!(await uiConfirm('Désactiver la synchronisation ? Vos recettes locales restent intactes.'))) return;
-    saveSyncConfig({ url: '', key: '', foyer: '' });
-    state.sync.status = 'idle';
-    updateSyncIndicator();
-    hideSettings();
-    showToast('Synchronisation désactivée');
-  });
+  // Rappels : notifications push de cet appareil (reminders.js)
+  document.getElementById('settings-push-enable').addEventListener('click', enablePushOnThisDevice);
+  document.getElementById('settings-push-disable').addEventListener('click', disablePushOnThisDevice);
+  document.getElementById('settings-push-test').addEventListener('click', testNotification);
+  // Icône de sync du header : synchroniser maintenant (ou ouvrir la famille si l'appareil doit la rejoindre)
+  const syncIndicator = document.getElementById('sync-indicator');
+  if (syncIndicator) {
+    syncIndicator.addEventListener('click', () => {
+      if (state.sync.status === 'auth') openFamilyView();
+      else performSync(false);
+    });
+  }
   document.getElementById('settings-export').addEventListener('click', exportData);
+  const exportAllBtn = document.getElementById('settings-export-all');
+  if (exportAllBtn) exportAllBtn.addEventListener('click', exportAllData);
   document.getElementById('settings-import').addEventListener('click', () => {
     document.getElementById('settings-import-input').click();
   });
@@ -9330,6 +9289,16 @@ async function bindEvents() {
     document.getElementById('api-setup').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
   });
+  // Nouvel appareil d'un membre de la famille : directement « Rejoindre une famille »
+  const setupJoinBtn = document.getElementById('api-setup-join');
+  if (setupJoinBtn) {
+    setupJoinBtn.addEventListener('click', () => {
+      localStorage.setItem(STORAGE_KEYS.onboarded, '1');
+      document.getElementById('api-setup').classList.add('hidden');
+      document.getElementById('app').classList.remove('hidden');
+      openFamilyView();
+    });
+  }
 }
 
 // Resize image to keep API payloads reasonable
@@ -9418,7 +9387,7 @@ function _initPullToRefresh() {
       refreshing = true;
       indicator.classList.add('is-refreshing');
       try {
-        if (state.sync.enabled) {
+        if (syncEnabled()) {
           await performSync(false);
         } else {
           renderLibrary();
@@ -9461,7 +9430,7 @@ function init() {
   try {
     const stats = _computeStorageStats();
     console.info(
-      `[Mes Recettes] %c${stats.recipeCount} recettes %c· %c${stats.totalKB} Ko stockés %c(${stats.photoCount} photos, ${stats.photoKB} Ko)`,
+      `[${APP_NAME}] %c${stats.recipeCount} recettes %c· %c${stats.totalKB} Ko stockés %c(${stats.photoCount} photos, ${stats.photoKB} Ko)`,
       'font-weight:700;color:#B5532A', 'color:inherit',
       'font-weight:700;color:#B5532A', 'color:inherit'
     );
@@ -9486,11 +9455,8 @@ function init() {
         document.getElementById('api-setup').classList.remove('hidden');
       } else {
         document.getElementById('app').classList.remove('hidden');
-        // Lancer la sync automatique au démarrage si configurée
-        if (state.sync.enabled) {
-          updateSyncIndicator();
-          setTimeout(() => performSync(true), 600);
-        }
+        // Sync famille au démarrage (si cet appareil est relié à une famille)
+        setTimeout(initSync, 600);
         // Backup mensuel automatique (avec un délai pour ne pas spammer)
         setTimeout(() => checkAndDoBackup(), 3000);
       }
@@ -9503,6 +9469,11 @@ function init() {
   renderDietFilter();
   updateFiltersUI();
   updateShoppingBadge();
+  // Vue de départ : l'accueil (hub), puis un éventuel raccourci (?app= / ?view=) par-dessus,
+  // ou un lien d'invitation famille (#join=…) qui ouvre directement « Rejoindre une famille »
+  _renderView('hub');
+  _handleLaunchParams();
+  handleInviteLinkAtBoot();
 }
 
 document.addEventListener('DOMContentLoaded', init);

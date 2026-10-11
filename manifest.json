@@ -1,7 +1,7 @@
 {
-  "name": "Mes Recettes",
-  "short_name": "Recettes",
-  "description": "Bibliothèque de recettes personnelle avec assistant IA, filtres saisonniers et liste de courses",
+  "name": "La Maisonnée",
+  "short_name": "Maisonnée",
+  "description": "L'organisation de la famille : calendrier, budget, recettes avec assistant IA et liste de courses",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
@@ -10,7 +10,7 @@
   "theme_color": "#B5532A",
   "lang": "fr",
   "dir": "ltr",
-  "categories": ["food", "lifestyle", "productivity"],
+  "categories": ["lifestyle", "productivity", "food"],
   "icons": [
     {
       "src": "icons/icon-192.png",
@@ -38,6 +38,13 @@
     }
   ],
   "shortcuts": [
+    {
+      "name": "Recettes",
+      "short_name": "Recettes",
+      "description": "Ouvrir la bibliothèque de recettes",
+      "url": "./index.html?app=recipes",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    },
     {
       "name": "Nouvelle recette",
       "short_name": "Créer",
