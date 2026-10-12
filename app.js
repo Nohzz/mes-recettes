@@ -8,6 +8,11 @@ const APP_NAME = 'La Maisonnée';
 const APP_VERSION = '4.0';
 const APP_BUILD_DATE = '2026-10-11';
 
+// App installée sur l'écran d'accueil d'un iPhone / iPad (navigator.standalone n'existe que sur iOS) :
+// depuis iOS 26, un effet « Liquid Glass » floute la bande sous la barre d'état, sans moyen de le
+// désactiver. styles.css (--top-clear) y laisse le fond de l'en-tête et place son contenu dessous.
+if (navigator.standalone === true) document.documentElement.classList.add('ios-standalone');
+
 // ============================================
 // OBFUSCATION DES SECRETS DANS LOCALSTORAGE
 // ============================================
@@ -1183,6 +1188,7 @@ function closeSheet(name, skipHistory) {
     history.back(); // le popstate (handleBack) fera la fermeture
     return;
   }
+  _sheetCloseGhost(el);
   el.classList.add('hidden');
   const i = _sheetStack.lastIndexOf(name);
   if (i >= 0) _sheetStack.splice(i, 1);
@@ -1191,6 +1197,29 @@ function closeSheet(name, skipHistory) {
   if (hook) hook();
 }
 window.closeSheet = closeSheet;
+
+// Fermeture animée : une copie inerte de la feuille glisse vers le bas pendant que la vraie est déjà
+// masquée. L'état ne change pas : pour le reste du code, la feuille est fermée tout de suite.
+function _sheetCloseGhost(el) {
+  if (!el.isConnected || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+  const ghost = el.cloneNode(true);
+  ghost.removeAttribute('id');
+  ghost.setAttribute('aria-hidden', 'true');
+  ghost.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'));
+  // Valeurs saisies (cloneNode ne les copie pas) : la copie montre ce que l'utilisateur voyait. Sans
+  // « name », ses boutons radio ne forment pas de groupe avec ceux de la vraie feuille.
+  const src = el.querySelectorAll('input, textarea, select');
+  ghost.querySelectorAll('input, textarea, select').forEach((g, i) => {
+    const f = src[i];
+    g.removeAttribute('name');
+    if (!f) return;
+    if (f.type === 'checkbox' || f.type === 'radio') g.checked = f.checked;
+    else if (f.type !== 'file') g.value = f.value;
+  });
+  ghost.classList.add('is-closing');
+  el.after(ghost);
+  setTimeout(() => ghost.remove(), 240);
+}
 
 // Ferme la feuille ouverte la plus récente (appelé par handleBack)
 function _closeTopSheet() {
@@ -7018,7 +7047,28 @@ window.resetChatView = resetChatView;
 // le clavier virtuel (iOS Safari et Android Chrome). Solution : on écoute
 // visualViewport et on ajuste dynamiquement la position avec une CSS variable.
 
+// Champ d'une feuille ou d'un modal masqué par le clavier : on fait défiler sa zone pour le montrer
+function _revealFocusedField() {
+  const a = document.activeElement;
+  if (!a || !a.matches || !a.matches('input, textarea, select')) return;
+  const box = a.closest('.sheet-body, .modal-body, .ui-dialog-content');
+  if (!box) return;
+  const r = a.getBoundingClientRect(), b = box.getBoundingClientRect();
+  if (r.bottom > b.bottom - 12) box.scrollTop += r.bottom - b.bottom + 24;
+  else if (r.top < b.top + 12) box.scrollTop -= b.top - r.top + 24;
+}
+
 function initKeyboardHandling() {
+  // iOS n'applique :active (retour visuel d'un appui) que si un écouteur touchstart existe
+  document.addEventListener('touchstart', () => {}, { passive: true });
+  // Après la fermeture du clavier, iOS laisse parfois la page décalée vers le haut : on la remet en place
+  document.addEventListener('focusout', () => {
+    setTimeout(() => {
+      const a = document.activeElement;
+      if (a && a.matches && a.matches('input, textarea, select')) return;
+      if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
+    }, 120);
+  });
   if (!window.visualViewport) return;
 
   const root = document.documentElement;
@@ -7026,8 +7076,18 @@ function initKeyboardHandling() {
 
   const update = () => {
     const vv = window.visualViewport;
+    // Partie visible de l'écran pour les modals et les feuilles (styles.css, .modal). Pendant un zoom,
+    // on garde l'écran entier (sinon la feuille rétrécirait avec le zoom)
+    if (Math.abs((vv.scale || 1) - 1) < 0.01) {
+      root.style.setProperty('--vv-top', `${vv.offsetTop}px`);
+      root.style.setProperty('--vv-height', `${vv.height}px`);
+    } else {
+      root.style.removeProperty('--vv-top');
+      root.style.removeProperty('--vv-height');
+    }
     // Espace en bas masqué par le clavier (positif quand clavier ouvert)
     const kbHeight = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    if (kbHeight > 100 && lastOffset <= 100) requestAnimationFrame(_revealFocusedField);
     
     if (kbHeight > 100) {
       // Clavier ouvert : on colle la barre input à `kbHeight` du bas pour qu'elle soit juste au-dessus du clavier
@@ -7043,6 +7103,10 @@ function initKeyboardHandling() {
 
   window.visualViewport.addEventListener('resize', update);
   window.visualViewport.addEventListener('scroll', update);
+  // D'un champ à l'autre, clavier déjà ouvert
+  document.addEventListener('focusin', () => {
+    if (document.body.classList.contains('keyboard-open')) setTimeout(_revealFocusedField, 60);
+  });
   update();
 }
 
@@ -9460,8 +9524,8 @@ function init() {
         // Backup mensuel automatique (avec un délai pour ne pas spammer)
         setTimeout(() => checkAndDoBackup(), 3000);
       }
-    }, 400);
-  }, 1200);
+    }, 300); // fin du fondu (styles.css, .splash)
+  }, 600);
 
   // First render
   renderLibrary();
